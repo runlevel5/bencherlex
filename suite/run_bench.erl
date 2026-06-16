@@ -151,9 +151,9 @@ main() ->
         end
 
     catch
-        E:D ->
+        E:D:Stacktrace ->
             io:format("Exception ~p while running benchmark:\n~p\n~p\n",
-                      [E, D, erlang:get_stacktrace()])
+                      [E, D, Stacktrace])
     end.
 
 
