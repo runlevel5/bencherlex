@@ -1,4 +1,9 @@
-# `bencherl` - A scalability benchmark suite for Erlang
+# `bencherlex` - The expanded version of BenchErl
+
+### Motivation
+
+To revive [bencherl](https://github.com/softlab-ntua/bencherl) and expand it to
+accomodate more use-cases.
 
 ### How to get ready to build the benchmark suite ###
 
