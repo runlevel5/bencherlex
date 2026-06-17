@@ -40,7 +40,7 @@
 	 external_calls  = []             :: [mfa()],
          external_types  = []             :: [mfa()],
 	 legal_warnings  = ordsets:new()  :: [dial_warn_tag()],
-	 mod_deps        = dict:new()     :: dict(),
+	 mod_deps        = dict:new()     :: dict:dict(),
 	 output          = standard_io	  :: io:device(),
 	 output_format   = formatted      :: format(),
 	 filename_opt    = basename       :: fopt(),

@@ -164,14 +164,14 @@ get_core_from_abstract_code(AbstrCode, Opts) ->
 %% ============================================================================
 
 -spec get_record_and_type_info(abstract_code()) ->
-	{'ok', dict()} | {'error', string()}.
+	{'ok', dict:dict()} | {'error', string()}.
 
 get_record_and_type_info(AbstractCode) ->
   Module = get_module(AbstractCode),
   get_record_and_type_info(AbstractCode, Module, dict:new()).
 
--spec get_record_and_type_info(abstract_code(), module(), dict()) ->
-	{'ok', dict()} | {'error', string()}.
+-spec get_record_and_type_info(abstract_code(), module(), dict:dict()) ->
+	{'ok', dict:dict()} | {'error', string()}.
 
 get_record_and_type_info(AbstractCode, Module, RecDict) ->
   get_record_and_type_info(AbstractCode, Module, [], RecDict).
@@ -301,7 +301,7 @@ process_record_remote_types(CServer) ->
   CServer1 = dialyzer_codeserver:finalize_records(NewRecords, CServer),
   dialyzer_codeserver:finalize_exported_types(TempExpTypes, CServer1).
 
--spec merge_records(dict(), dict()) -> dict().
+-spec merge_records(dict:dict(), dict:dict()) -> dict:dict().
 
 merge_records(NewRecords, OldRecords) ->
   dict:merge(fun(_Key, NewVal, _OldVal) -> NewVal end, NewRecords, OldRecords).
@@ -312,10 +312,10 @@ merge_records(NewRecords, OldRecords) ->
 %%
 %% ============================================================================
 
--type spec_dict()     :: dict().
--type callback_dict() :: dict().
+-type spec_dict()     :: dict:dict().
+-type callback_dict() :: dict:dict().
 
--spec get_spec_info(atom(), abstract_code(), dict()) ->
+-spec get_spec_info(atom(), abstract_code(), dict:dict()) ->
         {'ok', spec_dict(), callback_dict()} | {'error', string()}.
 
 get_spec_info(ModName, AbstractCode, RecordsDict) ->
@@ -380,7 +380,7 @@ get_spec_info([], SpecDict, CallbackDict, _RecordsDict, _ModName, _File) ->
 %%
 %% ============================================================================
 
--spec sets_filter([module()], set()) -> set().
+-spec sets_filter([module()], sets:set()) -> sets:set().
 
 sets_filter([], ExpTypes) ->
   ExpTypes;
@@ -431,7 +431,7 @@ format_errors([]) ->
 format_sig(Type) ->
   format_sig(Type, dict:new()).
 
--spec format_sig(erl_types:erl_type(), dict()) -> string().
+-spec format_sig(erl_types:erl_type(), dict:dict()) -> string().
 
 format_sig(Type, RecDict) ->
   "fun(" ++ Sig = lists:flatten(erl_types:t_to_string(Type, RecDict)),

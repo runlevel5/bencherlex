@@ -81,22 +81,22 @@
 -define(TYPE_LIMIT, 3).
 
 -record(state, {callgraph            :: dialyzer_callgraph:callgraph(),
-		envs                 :: dict(),
-		fun_tab		     :: dict(),
+		envs                 :: dict:dict(),
+		fun_tab		     :: dict:dict(),
 		plt		     :: dialyzer_plt:plt(),
 		opaques              :: [erl_types:erl_type()],
 		races = dialyzer_races:new() :: dialyzer_races:races(),
-		records = dict:new() :: dict(),
-		tree_map	     :: dict(),
+		records = dict:new() :: dict:dict(),
+		tree_map	     :: dict:dict(),
 		warning_mode = false :: boolean(),
 		warnings = []        :: [dial_warning()],
-		work                 :: {[_], [_], set()},
+		work                 :: {[_], [_], sets:set()},
 		module               :: module(),
 		behaviour_api_dict = [] ::
 		  dialyzer_behaviours:behaviour_api_dict()}).
 
--record(map, {dict = dict:new()   :: dict(),
-              subst = dict:new()  :: dict(),
+-record(map, {dict = dict:new()   :: dict:dict(),
+              subst = dict:new()  :: dict:dict(),
               modified = []       :: [Key :: term()],
               modified_stack = [] :: [{[Key :: term()],reference()}],
               ref = undefined     :: reference() | undefined}).
@@ -108,8 +108,8 @@
 %%--------------------------------------------------------------------
 
 -spec get_warnings(cerl:c_module(), dialyzer_plt:plt(),
-                   dialyzer_callgraph:callgraph(), dict(), set()) ->
-	{[dial_warning()], dict()}.
+                   dialyzer_callgraph:callgraph(), dict:dict(), sets:set()) ->
+	{[dial_warning()], dict:dict()}.
 
 get_warnings(Tree, Plt, Callgraph, Records, NoWarnUnused) ->
   State1 = analyze_module(Tree, Plt, Callgraph, Records, true),
@@ -120,7 +120,7 @@ get_warnings(Tree, Plt, Callgraph, Records, NoWarnUnused) ->
   {State4#state.warnings, state__all_fun_types(State4)}.
 
 -spec get_fun_types(cerl:c_module(), dialyzer_plt:plt(),
-                    dialyzer_callgraph:callgraph(), dict()) -> dict().
+                    dialyzer_callgraph:callgraph(), dict:dict()) -> dict:dict().
 
 get_fun_types(Tree, Plt, Callgraph, Records) ->
   State = analyze_module(Tree, Plt, Callgraph, Records, false),
@@ -3126,7 +3126,7 @@ state__get_callgraph(#state{callgraph = Callgraph}) ->
 state__get_races(#state{races = Races}) ->
   Races.
 
--spec state__get_records(state()) -> dict().
+-spec state__get_records(state()) -> dict:dict().
 
 state__get_records(#state{records = Records}) ->
   Records.

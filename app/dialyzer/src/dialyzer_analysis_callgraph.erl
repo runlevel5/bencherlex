@@ -48,7 +48,7 @@
 	  defines        = []           :: [dial_define()],
 	  doc_plt                       :: dialyzer_plt:plt(),
 	  include_dirs   = []           :: [file:filename()],
-	  no_warn_unused                :: set(),
+	  no_warn_unused                :: sets:set(),
 	  parent                        :: pid(),
 	  plt                           :: dialyzer_plt:plt(),
 	  start_from     = byte_code    :: start_from(),

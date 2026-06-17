@@ -88,25 +88,25 @@
 
 -type constr() :: constraint() | constraint_list() | constraint_ref().
 
--type typesig_scc()    :: [{mfa(), {cerl:c_var(), cerl:c_fun()}, dict()}].
+-type typesig_scc()    :: [{mfa(), {cerl:c_var(), cerl:c_fun()}, dict:dict()}].
 -type typesig_funmap() :: [{type_var(), type_var()}]. %% Orddict
 
--type dict_or_ets() :: {'d', dict()} | {'e', ets:tid()}.
+-type dict_or_ets() :: {'d', dict:dict()} | {'e', ets:tid()}.
 
 -record(state, {callgraph                    :: dialyzer_callgraph:callgraph(),
 		cs          = []                :: [constr()],
 		cmap        = {'d', dict:new()} :: dict_or_ets(),
 		fun_map     = []                :: typesig_funmap(),
-		fun_arities = dict:new()        :: dict(),
+		fun_arities = dict:new()        :: dict:dict(),
 		in_match    = false             :: boolean(),
 		in_guard    = false             :: boolean(),
 		module                          :: module(),
-		name_map    = dict:new()        :: dict(),
+		name_map    = dict:new()        :: dict:dict(),
 		next_label  = 0                 :: label(),
 		self_rec                        :: erl_types:erl_type(),
 		plt                             :: dialyzer_plt:plt(),
 		prop_types  = {'d', dict:new()} :: dict_or_ets(),
-		records     = dict:new()        :: dict(),
+		records     = dict:new()        :: dict:dict(),
 		opaques     = []                :: [erl_types:erl_type()],
 		scc         = []                :: [type_var()],
 		mfas                            :: [tuple()]
@@ -158,7 +158,7 @@
 
 -spec analyze_scc(typesig_scc(), label(),
 		  dialyzer_callgraph:callgraph(),
-		  dialyzer_plt:plt(), dict()) -> dict().
+		  dialyzer_plt:plt(), dict:dict()) -> dict:dict().
 
 analyze_scc(SCC, NextLabel, CallGraph, Plt, PropTypes) ->
   assert_format_of_scc(SCC),

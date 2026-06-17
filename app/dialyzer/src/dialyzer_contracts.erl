@@ -52,7 +52,7 @@
 %% to expand records and/or remote types that they might contain.
 %%-----------------------------------------------------------------------
 
--type tmp_contract_fun() :: fun((set(), dict()) -> contract_pair()).
+-type tmp_contract_fun() :: fun((sets:set(), dict:dict()) -> contract_pair()).
 
 -record(tmp_contract, {contract_funs = [] :: [tmp_contract_fun()],
 		       forms	     = [] :: [{_, _}]}).
@@ -161,7 +161,7 @@ process_contract_remote_types(CodeServer) ->
 					 CodeServer).
 
 -spec check_contracts([{mfa(), file_contract()}],
-		      dialyzer_callgraph:callgraph(), dict()) -> plt_contracts().
+		      dialyzer_callgraph:callgraph(), dict:dict()) -> plt_contracts().
 
 check_contracts(Contracts, Callgraph, FunTypes) ->
   FoldFun =
@@ -315,7 +315,7 @@ solve_constraints(Contract, Call, Constraints) ->
   %%  erl_types:t_assign_variables_to_subtype(Contract, Inf).
 
 %% Checks the contracts for functions that are not implemented
--spec contracts_without_fun(dict(), [_], dialyzer_callgraph:callgraph()) -> [dial_warning()].
+-spec contracts_without_fun(dict:dict(), [_], dialyzer_callgraph:callgraph()) -> [dial_warning()].
 
 contracts_without_fun(Contracts, AllFuns0, Callgraph) ->
   AllFuns1 = [{dialyzer_callgraph:lookup_name(Label, Callgraph), Arity}
@@ -348,7 +348,7 @@ insert_constraints([{subtype, Type1, Type2}|Left], Dict) ->
   end;
 insert_constraints([], Dict) -> Dict.
 
--spec store_tmp_contract(mfa(), file_line(), [_], dict(), dict()) -> dict().
+-spec store_tmp_contract(mfa(), file_line(), [_], dict:dict(), dict:dict()) -> dict:dict().
 
 store_tmp_contract(MFA, FileLine, TypeSpec, SpecDict, RecordsDict) ->
   %% io:format("contract from form: ~p\n", [TypeSpec]),

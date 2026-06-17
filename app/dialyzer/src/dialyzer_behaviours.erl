@@ -48,11 +48,11 @@
 		codeserver :: dialyzer_codeserver:codeserver(),
 		filename   :: file:filename(),
 		behlines   :: [{behaviour(), non_neg_integer()}],
-		records    :: dict()}).
+		records    :: dict:dict()}).
 
 %%--------------------------------------------------------------------
 
--spec check_callbacks(module(), [{cerl:cerl(), cerl:cerl()}], dict(),
+-spec check_callbacks(module(), [{cerl:cerl(), cerl:cerl()}], dict:dict(),
 		      dialyzer_plt:plt(),
 		      dialyzer_codeserver:codeserver()) -> [dial_warning()].
 

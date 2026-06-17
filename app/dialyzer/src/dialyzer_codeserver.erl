@@ -163,12 +163,12 @@ insert(Mod, ModCode, CS) ->
   true = ets:insert(CS#codeserver.code, [ModEntry|Funs]),
   CS.
 
--spec get_temp_exported_types(codeserver()) -> set().
+-spec get_temp_exported_types(codeserver()) -> sets:set().
 
 get_temp_exported_types(#codeserver{temp_exported_types = TempExpTypes}) ->
   ets_set_to_set(TempExpTypes).
 
--spec insert_temp_exported_types(set(), codeserver()) -> codeserver().
+-spec insert_temp_exported_types(sets:set(), codeserver()) -> codeserver().
 
 insert_temp_exported_types(Set, CS) ->
   TempExportedTypes = CS#codeserver.temp_exported_types,
@@ -186,17 +186,17 @@ insert_exports(List, #codeserver{exports = Exports} = CS) ->
 is_exported(MFA, #codeserver{exports = Exports}) ->
   ets_set_is_element(MFA, Exports).
 
--spec get_exported_types(codeserver()) -> set(). % set(mfa())
+-spec get_exported_types(codeserver()) -> sets:set(). % set(mfa())
 
 get_exported_types(#codeserver{exported_types = ExpTypes}) ->
   ets_set_to_set(ExpTypes).
 
--spec get_exports(codeserver()) -> set().  % set(mfa())
+-spec get_exports(codeserver()) -> sets:set().  % set(mfa())
 
 get_exports(#codeserver{exports = Exports}) ->
   ets_set_to_set(Exports).
 
--spec finalize_exported_types(set(), codeserver()) -> codeserver().
+-spec finalize_exported_types(sets:set(), codeserver()) -> codeserver().
 
 finalize_exported_types(Set, CS) ->
   ExportedTypes = ets_read_concurrent_table(dialyzer_codeserver_exported_types),
@@ -225,7 +225,7 @@ get_next_core_label(#codeserver{next_core_label = NCL}) ->
 set_next_core_label(NCL, CS) ->
   CS#codeserver{next_core_label = NCL}.
 
--spec lookup_mod_records(atom(), codeserver()) -> dict().
+-spec lookup_mod_records(atom(), codeserver()) -> dict:dict().
 
 lookup_mod_records(Mod, #codeserver{records = RecDict}) when is_atom(Mod) ->
   case ets_dict_find(Mod, RecDict) of
@@ -233,12 +233,12 @@ lookup_mod_records(Mod, #codeserver{records = RecDict}) when is_atom(Mod) ->
     {ok, Dict} -> Dict
   end.
 
--spec get_records(codeserver()) -> dict().
+-spec get_records(codeserver()) -> dict:dict().
 
 get_records(#codeserver{records = RecDict}) ->
   ets_dict_to_dict(RecDict).
 
--spec store_temp_records(atom(), dict(), codeserver()) -> codeserver().
+-spec store_temp_records(atom(), dict:dict(), codeserver()) -> codeserver().
 
 store_temp_records(Mod, Dict, #codeserver{temp_records = TempRecDict} = CS)
   when is_atom(Mod) ->
@@ -247,12 +247,12 @@ store_temp_records(Mod, Dict, #codeserver{temp_records = TempRecDict} = CS)
     false -> CS#codeserver{temp_records = ets_dict_store(Mod, Dict, TempRecDict)}
   end.
 
--spec get_temp_records(codeserver()) -> dict().
+-spec get_temp_records(codeserver()) -> dict:dict().
 
 get_temp_records(#codeserver{temp_records = TempRecDict}) ->
   ets_dict_to_dict(TempRecDict).
 
--spec set_temp_records(dict(), codeserver()) -> codeserver().
+-spec set_temp_records(dict:dict(), codeserver()) -> codeserver().
 
 set_temp_records(Dict, CS) ->
   true = ets:delete(CS#codeserver.temp_records),
@@ -260,7 +260,7 @@ set_temp_records(Dict, CS) ->
   true = ets_dict_store_dict(Dict, TempRecords),
   CS#codeserver{temp_records = TempRecords}.
 
--spec finalize_records(dict(), codeserver()) -> codeserver().
+-spec finalize_records(dict:dict(), codeserver()) -> codeserver().
 
 finalize_records(Dict, CS) ->
   true = ets:delete(CS#codeserver.temp_records),
@@ -268,7 +268,7 @@ finalize_records(Dict, CS) ->
   true = ets_dict_store_dict(Dict, Records),
   CS#codeserver{records = Records, temp_records = clean}.
 
--spec lookup_mod_contracts(atom(), codeserver()) -> dict().
+-spec lookup_mod_contracts(atom(), codeserver()) -> dict:dict().
 
 lookup_mod_contracts(Mod, #codeserver{contracts = ContDict})
   when is_atom(Mod) ->
@@ -287,7 +287,7 @@ get_contract_pair(Key, ContDict) ->
 lookup_mfa_contract(MFA, #codeserver{contracts = ContDict}) ->
   ets_dict_find(MFA, ContDict).
 
--spec get_contracts(codeserver()) -> dict().
+-spec get_contracts(codeserver()) -> dict:dict().
 
 get_contracts(#codeserver{contracts = ContDict}) ->
   ets_dict_to_dict(ContDict).
@@ -297,7 +297,7 @@ get_contracts(#codeserver{contracts = ContDict}) ->
 get_callbacks(#codeserver{callbacks = CallbDict}) ->
   ets:tab2list(CallbDict).
 
--spec store_temp_contracts(atom(), dict(), dict(), codeserver()) ->
+-spec store_temp_contracts(atom(), dict:dict(), dict:dict(), codeserver()) ->
 	 codeserver().
 
 store_temp_contracts(Mod, SpecDict, CallbackDict,
@@ -316,13 +316,13 @@ store_temp_contracts(Mod, SpecDict, CallbackDict,
       CS1#codeserver{temp_callbacks = ets_dict_store(Mod, CallbackDict, Cb)}
   end.
 
--spec get_temp_contracts(codeserver()) -> {dict(), dict()}.
+-spec get_temp_contracts(codeserver()) -> {dict:dict(), dict:dict()}.
 
 get_temp_contracts(#codeserver{temp_contracts = TempContDict,
 			       temp_callbacks = TempCallDict}) ->
   {ets_dict_to_dict(TempContDict), ets_dict_to_dict(TempCallDict)}.
 
--spec finalize_contracts(dict(), dict(), codeserver()) -> codeserver().
+-spec finalize_contracts(dict:dict(), dict:dict(), codeserver()) -> codeserver().
 
 finalize_contracts(SpecDict, CallbackDict, CS)  ->
   Contracts = ets_read_concurrent_table(dialyzer_codeserver_contracts),

@@ -540,7 +540,7 @@ t_find_opaque_mismatch_list([H|T]) ->
     error -> t_find_opaque_mismatch_list(T)
   end.
 
--spec t_opaque_from_records(dict()) -> [erl_type()].
+-spec t_opaque_from_records(dict:dict()) -> [erl_type()].
 
 t_opaque_from_records(RecDict) ->
   OpaqueRecDict =
@@ -662,7 +662,7 @@ t_remote(Mod, Name, Args) ->
 t_is_remote(?remote(_)) -> true;
 t_is_remote(_) -> false.
 
--spec t_solve_remote(erl_type(), set(), dict()) -> erl_type().
+-spec t_solve_remote(erl_type(), sets:set(), dict:dict()) -> erl_type().
 
 t_solve_remote(Type, ExpTypes, Records) ->
   {RT, _RR} = t_solve_remote(Type, ExpTypes, Records, []),
@@ -2527,13 +2527,13 @@ findfirst(N1, N2, U1, B1, U2, B2) ->
 %% to types. Hans Bolinder suggested the use of lists of Key-Value pairs for
 %% this data structure and measurements showed a non-trivial speedup when using
 %% them for operations within this module (e.g. in t_unify/2). However, there
-%% is code outside erl_types that still passes a dict() in the 2nd argument.
+%% is code outside erl_types that still passes a dict:dict() in the 2nd argument.
 %% So, for the time being, this module provides a t_subst/2 function for these
 %% external calls and a clone of it (t_subst_kv/2) which is used from all calls
 %% from within this module. This code duplication needs to be eliminated at
 %% some point.
 
--spec t_subst(erl_type(), dict()) -> erl_type().
+-spec t_subst(erl_type(), dict:dict()) -> erl_type().
 
 t_subst(T, Dict) ->
   case t_has_var(T) of
@@ -3175,7 +3175,7 @@ t_limit_k(T, _K) -> T.
 %%
 %%============================================================================
 
--spec t_abstract_records(erl_type(), dict()) -> erl_type().
+-spec t_abstract_records(erl_type(), dict:dict()) -> erl_type().
 
 t_abstract_records(?list(Contents, Termination, Size), RecDict) ->
   case t_abstract_records(Contents, RecDict) of
@@ -3245,7 +3245,7 @@ t_map(Fun, T) ->
 t_to_string(T) ->
   t_to_string(T, dict:new()).
 
--spec t_to_string(erl_type(), dict()) -> string().
+-spec t_to_string(erl_type(), dict:dict()) -> string().
 
 t_to_string(?any, _RecDict) ->
   "any()";
@@ -3417,7 +3417,7 @@ record_fields_to_string([F|Fs], [{FName, _DefType}|FDefs], RecDict, Acc) ->
 record_fields_to_string([], [], _RecDict, Acc) ->
   lists:reverse(Acc).
 
--spec record_field_diffs_to_string(erl_type(), dict()) -> string().
+-spec record_field_diffs_to_string(erl_type(), dict:dict()) -> string().
 
 record_field_diffs_to_string(?tuple([_|Fs], Arity, Tag), RecDict) ->
   [TagAtom] = t_atom_vals(Tag),
@@ -3460,19 +3460,19 @@ union_sequence(Types, RecDict) ->
 t_from_form(Form) ->
   t_from_form(Form, dict:new()).
 
--spec t_from_form(parse_form(), dict()) -> erl_type().
+-spec t_from_form(parse_form(), dict:dict()) -> erl_type().
 
 t_from_form(Form, RecDict) ->
   t_from_form(Form, RecDict, dict:new()).
 
--spec t_from_form(parse_form(), dict(), dict()) -> erl_type().
+-spec t_from_form(parse_form(), dict:dict(), dict:dict()) -> erl_type().
 
 t_from_form(Form, RecDict, VarDict) ->
   {T, _R} = t_from_form(Form, [], false, RecDict, VarDict),
   T.
 
 -type type_names() :: [{'type' | 'opaque' | 'record', atom()}].
--spec t_from_form(parse_form(), type_names(), boolean(), dict(), dict()) ->
+-spec t_from_form(parse_form(), type_names(), boolean(), dict:dict(), dict:dict()) ->
                      {erl_type(), type_names()}.
 
 t_from_form({var, _L, '_'}, _TypeNames, _InOpaque, _RecDict, _VarDict) ->
@@ -3990,7 +3990,7 @@ is_erl_type(?unit) -> true;
 is_erl_type(#c{}) -> true;
 is_erl_type(_) -> false.
 
--spec lookup_record(atom(), dict()) ->
+-spec lookup_record(atom(), dict:dict()) ->
         'error' | {'ok', [{atom(), parse_form() | erl_type()}]}.
 
 lookup_record(Tag, RecDict) when is_atom(Tag) ->
@@ -4005,7 +4005,7 @@ lookup_record(Tag, RecDict) when is_atom(Tag) ->
       error
   end.
 
--spec lookup_record(atom(), arity(), dict()) -> 'error' | {'ok', [{atom(), erl_type()}]}.
+-spec lookup_record(atom(), arity(), dict:dict()) -> 'error' | {'ok', [{atom(), erl_type()}]}.
 
 lookup_record(Tag, Arity, RecDict) when is_atom(Tag) ->
   case dict:find({record, Tag}, RecDict) of
@@ -4024,7 +4024,7 @@ lookup_type(Name, RecDict) ->
     {ok, Found} -> {type, Found}
   end.
 
--spec type_is_defined('type' | 'opaque', atom(), dict()) -> boolean().
+-spec type_is_defined('type' | 'opaque', atom(), dict:dict()) -> boolean().
 
 type_is_defined(TypeOrOpaque, Name, RecDict) ->
   dict:is_key({TypeOrOpaque, Name}, RecDict).

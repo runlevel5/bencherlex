@@ -54,7 +54,7 @@
 %%         the set the operation can be externally defined.
 %%
 
--spec analyze(cerl:c_module()) -> {dict(), ordset('external' | label()), dict()}.
+-spec analyze(cerl:c_module()) -> {dict:dict(), ordset('external' | label()), dict:dict()}.
 
 analyze(Tree) ->
   %% io:format("Handling ~w\n", [cerl:atom_val(cerl:module_name(Tree))]),
@@ -291,7 +291,7 @@ primop(Tree, ArgFuns, State) ->
 %% Set
 %%
 
--record(set, {set :: set()}).
+-record(set, {set :: sets:set()}).
 
 set__singleton(Val) ->
   #set{set = sets:add_element(Val, sets:new())}.
@@ -460,10 +460,10 @@ all_vars(Tree, AccIn) ->
 
 -type local_set() :: 'none' | #set{}.
 
--record(state, {deps    :: dict(), 
+-record(state, {deps    :: dict:dict(), 
 		esc     :: local_set(), 
-		call    :: dict(), 
-		arities :: dict()}).
+		call    :: dict:dict(), 
+		arities :: dict:dict()}).
 
 state__new(Tree) ->
   Exports = set__from_list([X || X <- cerl:module_exports(Tree)]),
