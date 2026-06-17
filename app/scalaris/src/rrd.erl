@@ -72,7 +72,7 @@
               % current slot starts at current_time and lasts for step_size
               % time units
               current_time  = ?required(rrd, current_time)  :: internal_time(),
-              data          = ?required(rrd, data)          :: array(),
+              data          = ?required(rrd, data)          :: array:array(),
               fill_policy   = ?required(rrd, fill_policy)   :: fill_policy_type()
             }).
 
@@ -238,7 +238,7 @@ update_with(DB, CurrentIndex, Time, NewValue, F) ->
             DB#rrd{data = array:set(CurrentIndex, F(Time, OldValue, NewValue), DB#rrd.data)}
     end.
 
--spec fill(array(), fill_policy_type(), pos_integer(), non_neg_integer(), non_neg_integer(), data_type() | undefined) -> array().
+-spec fill(array:array(), fill_policy_type(), pos_integer(), non_neg_integer(), non_neg_integer(), data_type() | undefined) -> array:array().
 fill(Data, _FillPolicy, _Count, CurrentIndex, CurrentIndex, _LastValue) ->
     Data;
 fill(Data, FillPolicy, Count, CurrentGapIndex, CurrentIndex, LastValue) ->

@@ -34,32 +34,32 @@
 -type test_option() :: multi_threaded | {threads, pos_integer()}.
 -type test_options() :: [test_option()].
 
--spec test/4 :: (module(), atom(), non_neg_integer(), non_neg_integer()) -> ok.
+-spec test(module(), atom(), non_neg_integer(), non_neg_integer()) -> ok.
 test(Module, Func, Arity, Iterations) ->
     test(Module, Func, Arity, Iterations, []).
 
--spec test/5 :: (module(), atom(), non_neg_integer(), non_neg_integer(), test_options()) -> ok.
+-spec test(module(), atom(), non_neg_integer(), non_neg_integer(), test_options()) -> ok.
 test(Module, Func, Arity, Iterations, Options) ->
     EmptyParseState = tester_parse_state:new_parse_state(),
     ParseState = try tester_collect_function_info:collect_fun_info(Module, Func, Arity,
                                       EmptyParseState)
     catch
-        throw:Term2 -> ?ct_fail("exception (throw) in ~p:~p(): ~p~n",
+        throw:Term2:Stacktrace -> ?ct_fail("exception (throw) in ~p:~p(): ~p~n",
                                 [Module, Func,
-                                 {exception, {Term2, erlang:get_stacktrace(),
+                                 {exception, {Term2, Stacktrace,
                                               util:get_linetrace()}}]);
         % special handling for exits that come from a ct:fail() call:
-        exit:{test_case_failed, Reason2} ->
+        exit:{test_case_failed, Reason2}:Stacktrace ->
             ?ct_fail("error ~p:~p/~p failed with ~p~n",
-                     [Module, Func, Arity, {Reason2, erlang:get_stacktrace(),
+                     [Module, Func, Arity, {Reason2, Stacktrace,
                                      util:get_linetrace()}]);
-        exit:Reason2 -> ?ct_fail("exception (exit) in ~p:~p(): ~p~n",
+        exit:Reason2:Stacktrace -> ?ct_fail("exception (exit) in ~p:~p(): ~p~n",
                                  [Module, Func,
-                                  {exception, {Reason2, erlang:get_stacktrace(),
+                                  {exception, {Reason2, Stacktrace,
                                                util:get_linetrace()}}]);
-        error:Reason2 -> ?ct_fail("exception (error) in ~p:~p(): ~p~n",
+        error:Reason2:Stacktrace -> ?ct_fail("exception (error) in ~p:~p(): ~p~n",
                                   [Module, Func,
-                                   {exception, {Reason2, erlang:get_stacktrace(),
+                                   {exception, {Reason2, Stacktrace,
                                                 util:get_linetrace()}}])
     end,
     Threads = proplists:get_value(threads, Options, case proplists:get_bool(multi_threaded, Options) of
@@ -69,28 +69,28 @@ test(Module, Func, Arity, Iterations, Options) ->
     run_test(Module, Func, Arity, Iterations, ParseState, Threads),
     ok.
 
--spec test_log/4 :: (module(), atom(), non_neg_integer(), non_neg_integer()) -> ok.
+-spec test_log(module(), atom(), non_neg_integer(), non_neg_integer()) -> ok.
 test_log(Module, Func, Arity, Iterations) ->
     EmptyParseState = tester_parse_state:new_parse_state(),
     ParseState = try tester_collect_function_info:collect_fun_info(Module, Func, Arity,
                                       EmptyParseState)
     catch
-        throw:Term2 -> ?ct_fail("exception (throw) in ~p:~p(): ~p~n",
+        throw:Term2:Stacktrace -> ?ct_fail("exception (throw) in ~p:~p(): ~p~n",
                                 [Module, Func,
-                                 {exception, {Term2, erlang:get_stacktrace(),
+                                 {exception, {Term2, Stacktrace,
                                               util:get_linetrace()}}]);
         % special handling for exits that come from a ct:fail() call:
-        exit:{test_case_failed, Reason2} ->
+        exit:{test_case_failed, Reason2}:Stacktrace ->
             ?ct_fail("error ~p:~p() failed with ~p~n", [Module, Func,
-                                                        {Reason2, erlang:get_stacktrace(),
+                                                        {Reason2, Stacktrace,
                                                          util:get_linetrace()}]);
-        exit:Reason2 -> ?ct_fail("exception (exit) in ~p:~p(): ~p~n",
+        exit:Reason2:Stacktrace -> ?ct_fail("exception (exit) in ~p:~p(): ~p~n",
                                  [Module, Func,
-                                  {exception, {Reason2, erlang:get_stacktrace(),
+                                  {exception, {Reason2, Stacktrace,
                                                util:get_linetrace()}}]);
-        error:Reason2 -> ?ct_fail("exception (error) in ~p:~p(): ~p~n",
+        error:Reason2:Stacktrace -> ?ct_fail("exception (error) in ~p:~p(): ~p~n",
                                   [Module, Func,
-                                   {exception, {Reason2, erlang:get_stacktrace(),
+                                   {exception, {Reason2, Stacktrace,
                                                 util:get_linetrace()}}])
     end,
     io:format(""),
@@ -130,14 +130,14 @@ repeat(F, Repetitions) ->
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
--spec run/5 :: (module(), atom(), non_neg_integer(), non_neg_integer(),
+-spec run(module(), atom(), non_neg_integer(), non_neg_integer(),
                 tester_parse_state:state()) -> any().
 run(Module, Func, Arity, Iterations, ParseState) ->
     {value, FunType} = tester_parse_state:lookup_type({'fun', Module, Func, Arity},
                                                       ParseState),
     run_helper(Module, Func, Arity, Iterations, FunType, ParseState).
 
--spec run_helper/6 :: (Module::module(), Fun::atom(), Arity::non_neg_integer(),
+-spec run_helper(Module::module(), Fun::atom(), Arity::non_neg_integer(),
                        Iterations::non_neg_integer(),
                        FunType | {union_fun, [FunType,...]},
                        tester_parse_state:state()) -> any()
@@ -157,11 +157,11 @@ run_helper(Module, Func, Arity, Iterations, {union_fun, FunTypes} = FunType,
     {'fun', ArgType, _ResultType} = CurrentFunType,
     Args = try tester_value_creator:create_value(ArgType, Size, TypeInfos)
            catch
-               Error:Reason ->
+               Error:Reason:Stacktrace ->
                    {fail, no_result, no_result_type, Error, tester_value_creator,
                     create_value,
                     [ArgType, Size, TypeInfos],
-                    Reason, erlang:get_stacktrace(), util:get_linetrace()}
+                    Reason, Stacktrace, util:get_linetrace()}
     end,
     apply_args(Module, Func, Arity, Args, Iterations, CurrentFunType, FunType,
                TypeInfos).
@@ -182,15 +182,15 @@ apply_args(Module, Func, Arity, Args, Iterations,
                      Args, ErrorMsg, no_stacktrace, util:get_linetrace()}
             end
     catch
-        exit:{test_case_failed, Reason} ->
+        exit:{test_case_failed, Reason}:Stacktrace ->
             {fail, no_result, no_result_type, test_case_failed, Module, Func,
-             Args, Reason, erlang:get_stacktrace(), util:get_linetrace()};
-        Error:Reason ->
+             Args, Reason, Stacktrace, util:get_linetrace()};
+        Error:Reason:Stacktrace ->
             {fail, no_result, no_result_type, Error, Module, Func, Args, Reason,
-             erlang:get_stacktrace(), util:get_linetrace()}
+             Stacktrace, util:get_linetrace()}
     end.
 
--spec run_test/6 :: (module(), atom(), non_neg_integer(), non_neg_integer(),
+-spec run_test(module(), atom(), non_neg_integer(), non_neg_integer(),
                      tester_parse_state:state(), integer()) -> ok.
 run_test(Module, Func, Arity, Iterations, ParseState, Threads) ->
     Master = self(),

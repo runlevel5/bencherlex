@@ -30,7 +30,7 @@
 -include("tester.hrl").
 -include("unittest.hrl").
 
--spec collect_fun_info/4 :: (module(), atom(), non_neg_integer(),
+-spec collect_fun_info(module(), atom(), non_neg_integer(),
                              tester_parse_state:state()) -> tester_parse_state:state().
 collect_fun_info(Module, Func, Arity, ParseState) ->
     ParseState2 =
@@ -71,7 +71,7 @@ collect_unknown_type_infos(ParseState, Counter) ->
         true  -> collect_unknown_type_infos(ParseState3, Counter - 1)
     end.
 
--spec collect_type_info/3 :: (module(), atom(), tester_parse_state:state()) ->
+-spec collect_type_info(module(), atom(), tester_parse_state:state()) ->
     tester_parse_state:state().
 collect_type_info(Module, Type, ParseState) ->
     case tester_parse_state:is_known_type(Module, Type, ParseState) of
@@ -87,7 +87,7 @@ collect_type_info(Module, Type, ParseState) ->
     end.
 
 
--spec parse_chunk/3 :: (any(), module(), tester_parse_state:state()) ->
+-spec parse_chunk(any(), module(), tester_parse_state:state()) ->
     tester_parse_state:state().
 parse_chunk({attribute, _Line, type, {{record, TypeName}, ATypeSpec, _List}},
             Module, ParseState) ->
@@ -121,7 +121,7 @@ parse_chunk({function, _Line, _FunName, _FunArity, FunCode}, _Module, ParseState
 parse_chunk({eof, _Line}, _Module, ParseState) ->
     ParseState.
 
--spec parse_type/3 :: (any(), module(), tester_parse_state:state()) ->
+-spec parse_type(any(), module(), tester_parse_state:state()) ->
     {type_spec() , tester_parse_state:state()}.
 parse_type({union_fun, FunSpecs}, Module, ParseState) ->
     {FunSpecs2, PS2} = lists:foldl(fun (FunType, {List, PS}) ->
@@ -314,7 +314,7 @@ parse_type(TypeSpec, Module, ParseState) ->
     ct:pal("unknown type ~p in module ~p~n", [TypeSpec, Module]),
     {unkown, ParseState}.
 
--spec parse_type_list/3 :: (list(type_spec()), module(), tester_parse_state:state()) ->
+-spec parse_type_list(list(type_spec()), module(), tester_parse_state:state()) ->
     {list(type_spec()), tester_parse_state:state()}.
 parse_type_list(List, Module, ParseState) ->
     case List of

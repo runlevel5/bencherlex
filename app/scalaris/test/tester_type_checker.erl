@@ -31,7 +31,7 @@
 -include("tester.hrl").
 %-include("unittest.hrl").
 
--spec check/3 :: (term(), type_spec(), tester_parse_state:state()) -> true | {false, term()}.
+-spec check(term(), type_spec(), tester_parse_state:state()) -> true | {false, term()}.
 check(true, {atom, true}, _ParseState) ->
     true;
 check(true, bool, _ParseState) ->

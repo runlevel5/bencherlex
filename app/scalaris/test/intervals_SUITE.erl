@@ -490,8 +490,8 @@ tester_union_continuous(_Config) ->
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
--spec(prop_is_adjacent/8 :: (A0Br::intervals:left_bracket(), A0::intervals:key(), A1::intervals:key(), A1Br::intervals:right_bracket(),
-                             B0Br::intervals:left_bracket(), B0::intervals:key(), B1::intervals:key(), B1Br::intervals:right_bracket()) -> boolean()).
+-spec prop_is_adjacent(A0Br::intervals:left_bracket(), A0::intervals:key(), A1::intervals:key(), A1Br::intervals:right_bracket(),
+                             B0Br::intervals:left_bracket(), B0::intervals:key(), B1::intervals:key(), B1Br::intervals:right_bracket()) -> boolean().
 prop_is_adjacent(A0Br, A0, A1, A1Br, B0Br, B0, B1, B1Br) ->
     A = intervals:new(A0Br, A0, A1, A1Br),
     B = intervals:new(B0Br, B0, B1, B1Br),
@@ -532,10 +532,10 @@ prop_is_adjacent_union(A0Br, A0, A1, A1Br, B0Br, B0, B1, B1Br) ->
 tester_is_adjacent(_Config) ->
     tester:test(?MODULE, prop_is_adjacent, 8, 5000, [{threads, 2}]).
 
--spec(prop_is_left_right_of/8 :: (A0Br::intervals:left_bracket(), A0::intervals:key(),
+-spec prop_is_left_right_of(A0Br::intervals:left_bracket(), A0::intervals:key(),
                                   A1::intervals:key(), A1Br::intervals:right_bracket(),
                                   B0Br::intervals:left_bracket(), B0::intervals:key(),
-                                  B1::intervals:key(), B1Br::intervals:right_bracket()) -> true).
+                                  B1::intervals:key(), B1Br::intervals:right_bracket()) -> true.
 prop_is_left_right_of(A0Br, A0, A1, A1Br, B0Br, B0, B1, B1Br) ->
     A = intervals:new(A0Br, A0, A1, A1Br),
     B = intervals:new(B0Br, B0, B1, B1Br),
