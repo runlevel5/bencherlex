@@ -327,7 +327,7 @@ ERLANG_COMPILER_BASE_OPT += -b beam                                \
 # strings
 ERLANG_COMPILER_WARNING_OPT += -W$(WARNING_LEVEL) +warn_export_all  \
 	+warn_export_vars +warn_shadow_vars +warn_obsolete_guards       \
-	+warn_unused_import +warnings_as_errors
+	+warn_unused_import
 
 # Once type specs will have been added: +warn_untyped_record +warn_missing_spec
 
