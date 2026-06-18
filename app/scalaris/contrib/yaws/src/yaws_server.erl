@@ -1945,7 +1945,7 @@ handle_auth(ARG, Auth_H, Auth_methods = #auth{mod = Mod}, Ret) when Mod /= [] ->
                    "Reason: ~p~n"
                    "Stack: ~p~n",
                    [Mod, ARG, Auth_methods, Reason,
-                    erlang:get_stacktrace()]),
+                    []]),
             handle_crash(ARG, L),
             deliver_accumulated(ARG#arg.clisock),
             exit(normal);
@@ -3245,7 +3245,7 @@ handle_out_reply({'EXIT', Err}, LineNo, YawsFile, _UT, ARG) ->
            "File: ~s:~w~n"
            "Reason: ~p~nReq: ~p~n"
            "Stack: ~p~n",
-           [YawsFile, LineNo, Err, ARG#arg.req, erlang:get_stacktrace()]),
+           [YawsFile, LineNo, Err, ARG#arg.req, []]),
     handle_crash(ARG, L);
 
 handle_out_reply({get_more, Cont, State}, _LineNo, _YawsFile, _UT, _ARG) ->

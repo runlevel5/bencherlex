@@ -275,9 +275,9 @@ logged_exec(Cmd) ->
 -spec get_stacktrace() -> [{Module::atom(), Function::atom(), ArityOrArgs::byte() | [term()]} |
                            {Module::atom(), Function::atom(), ArityOrArgs::byte() | [term()], Sources::[term()]}].
 get_stacktrace() ->
-    % throw an exception for erlang:get_stacktrace/0 to return the actual stack trace
+    % throw an exception to get the actual stack trace
     case (try erlang:exit(a)
-          catch exit:_ -> erlang:get_stacktrace()
+          catch exit:_:Stacktrace -> Stacktrace
           end) of
         % erlang < R15 : {util, get_stacktrace, 0}
         % erlang >= R15: {util, get_stacktrace, 0, _}

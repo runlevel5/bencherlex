@@ -246,8 +246,8 @@ stop_ring(Pid) ->
         exit:Reason ->
             ct:pal("exception in stop_ring: ~p~n", [Reason]),
             throw(Reason);
-        error:Reason ->
-            ct:pal("exception in stop_ring: ~p ~p~n", [Reason, erlang:get_stacktrace()]),
+        error:Reason:Stacktrace ->
+            ct:pal("exception in stop_ring: ~p ~p~n", [Reason, Stacktrace]),
             throw(Reason)
     end.
 
@@ -572,11 +572,11 @@ get_ring_data() ->
                          end || DhtNode <- DHTNodes]),
                   Self ! {data, Data}
               catch
-                  Level:Reason ->
+                  Level:Reason:Stacktrace ->
                       Result =
                           case erlang:whereis(ct_test_ring) of
                               undefined -> [];
-                              _         -> {exception, Level, Reason, erlang:get_stacktrace()}
+                              _         -> {exception, Level, Reason, Stacktrace}
                           end,
                       Self ! {data, Result}
               end

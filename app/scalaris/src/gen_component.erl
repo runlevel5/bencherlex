@@ -341,9 +341,9 @@ start(Module, DefaultHandler, Args, Options, Supervisor) ->
         % this PID.
         % note: since try_loop/4 never throws an exception,
         %       this only guards the initialisation
-        Level:Reason ->
+        Level:Reason:Stacktrace ->
             log:log(error,"Error: exception ~p:~p in init of ~p:  ~.0p",
-                    [Level, Reason, Module, erlang:get_stacktrace()]),
+                    [Level, Reason, Module, Stacktrace]),
             erlang:Level(Reason)
     after
         case WaitForInit of
@@ -356,11 +356,11 @@ start(Module, DefaultHandler, Args, Options, Supervisor) ->
 -spec try_loop(module(), handler(), term(), component_state()) -> no_return() | ok.
 try_loop(Module, Handler, State, {_Options, _Slowest, _BPState} = ComponentState) ->
     try loop(Module, Handler, State, ComponentState)
-    catch Level:Reason ->
+    catch Level:Reason:Stacktrace ->
               log:log(error, "Error: exception ~p:~p in loop of module ~p "
                           "in (~.0p) with ~p - stacktrace: ~.0p",
                       [Level, Reason, Module, State, Handler,
-                       erlang:get_stacktrace()]),
+                       Stacktrace]),
               try_loop(Module, Handler, State, ComponentState)
     end.
 
@@ -408,8 +408,7 @@ loop(Module, Handler, ReceivedMsg, State, {_Options, _Slowest, _BPState} = Compo
                 handle_breakpoint(Message, State, ComponentState),
             %% Start = erlang:now(),
             case (try Handler(Message, State)
-                  catch Level:Reason ->
-                            Stacktrace = erlang:get_stacktrace(),
+                  catch Level:Reason:Stacktrace ->
                             case Stacktrace of
                                 % erlang < R15 : {Module, Handler, [Message, State]}
                                 % erlang >= R15: {Module, Handler, [Message, State], _} 
