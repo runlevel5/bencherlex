@@ -66,8 +66,9 @@ wooper_destruct( State ) ->
 
 			catch
 
-				Reason:ErrorTerm ->
-					trigger_destruct_error( Reason, ErrorTerm, State )
+				Reason:ErrorTerm:Stacktrace ->
+					trigger_destruct_error( Reason, ErrorTerm, Stacktrace,
+											 State )
 
 			end;
 
@@ -120,8 +121,9 @@ wooper_destruct( State ) ->
 
 			catch
 
-				Reason:ErrorTerm ->
-					trigger_destruct_error( Reason, ErrorTerm, State )
+				Reason:ErrorTerm:Stacktrace ->
+					trigger_destruct_error( Reason, ErrorTerm, Stacktrace,
+											 State )
 
 			end;
 
@@ -149,9 +151,9 @@ wooper_destruct( State ) ->
 %
 % (helper)
 %
--spec trigger_destruct_error( 'throw' | 'exit' | 'error', term(),
+-spec trigger_destruct_error( 'throw' | 'exit' | 'error', term(), term(),
 							  wooper:state() ) -> no_return().
-trigger_destruct_error( Reason, ErrorTerm, State ) ->
+trigger_destruct_error( Reason, ErrorTerm, Stacktrace, State ) ->
 
 	% Destruction failed:
 	% (error term would often be unreadable with ~p)
@@ -164,7 +166,7 @@ trigger_destruct_error( Reason, ErrorTerm, State ) ->
 							" - stack trace was (latest calls first):~n~p~n~n"
 							" - instance state was: ~s~n~n",
 							[ self(), ActualClassname, Reason, ErrorTerm,
-							  erlang:get_stacktrace(),
+							  Stacktrace,
 							  wooper:state_to_string( State )
 							] ),
 

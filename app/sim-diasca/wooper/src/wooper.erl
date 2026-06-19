@@ -466,8 +466,8 @@ construct_and_run( Classname, ConstructionParameters ) ->
 
 	catch
 
-		Reason:ErrorTerm ->
-			trigger_error( Reason, ErrorTerm, Classname,
+		Reason:ErrorTerm:Stacktrace ->
+			trigger_error( Reason, ErrorTerm, Stacktrace, Classname,
 						   ConstructionParameters )
 
 	end.
@@ -487,8 +487,8 @@ construct_and_run( Classname, ConstructionParameters ) ->
 
 	catch
 
-		Reason:ErrorTerm ->
-			trigger_error( Reason, ErrorTerm, Classname,
+		Reason:ErrorTerm:Stacktrace ->
+			trigger_error( Reason, ErrorTerm, Stacktrace, Classname,
 						   ConstructionParameters )
 
 	end,
@@ -572,8 +572,8 @@ construct_and_run_synchronous( Classname, ConstructionParameters,
 
 	catch
 
-		Reason:ErrorTerm ->
-			trigger_error( Reason, ErrorTerm, Classname,
+		Reason:ErrorTerm:Stacktrace ->
+			trigger_error( Reason, ErrorTerm, Stacktrace, Classname,
 						   ConstructionParameters )
 
 	end.
@@ -596,8 +596,8 @@ construct_and_run_synchronous( Classname, ConstructionParameters,
 
 	catch
 
-		Reason:ErrorTerm ->
-			trigger_error( Reason, ErrorTerm, Classname,
+		Reason:ErrorTerm:Stacktrace ->
+			trigger_error( Reason, ErrorTerm, Stacktrace, Classname,
 						   ConstructionParameters )
 
 	end,
@@ -732,9 +732,10 @@ retrieve_virtual_table( Classname ) ->
 %
 % (helper)
 %
--spec trigger_error( 'throw' | 'exit' | 'error', term(), class_name(),
+-spec trigger_error( 'throw' | 'exit' | 'error', term(), term(), class_name(),
 					 [ method_arguments() ] ) -> no_return().
-trigger_error( Reason, ErrorTerm, Classname, ConstructionParameters ) ->
+trigger_error( Reason, ErrorTerm, Stacktrace, Classname,
+			   ConstructionParameters ) ->
 
 	% Construction failed:
 	% (error term would often be unreadable with ~p)
@@ -746,7 +747,7 @@ trigger_error( Reason, ErrorTerm, Classname, ConstructionParameters ) ->
 		" - with error term:~n~p~n~n"
 		" - stack trace was (latest calls first):~n~p~n~n"
 		" - for parameters:~n~p~n~n",
-		[ self(), Classname, Arity, Reason, ErrorTerm, erlang:get_stacktrace(),
+		[ self(), Classname, Arity, Reason, ErrorTerm, Stacktrace,
 		  ConstructionParameters ] ),
 
 	% Wait a bit as error_msg seems asynchronous:

@@ -344,7 +344,7 @@ wooper_effective_method_execution( SelectedModule, MethodAtom, State,
 		% This the counterpart of {'EXIT',ErrorTerm}.
 		% What would be the counterpart of {'EXIT',Pid,ErrorTerm}?
 		% Reason can be: throw, error or exit.
-		Reason:ErrorTerm ->
+		Reason:ErrorTerm:Stacktrace ->
 
 			case State#state_holder.request_sender of
 
@@ -362,7 +362,7 @@ wooper_effective_method_execution( SelectedModule, MethodAtom, State,
 								" - instance state was: ~s~n~n",
 								[ self(), SelectedModule, MethodAtom,
 								  length( Parameters ) + 1, Reason, ErrorTerm,
-								  Parameters, erlang:get_stacktrace(),
+								  Parameters, Stacktrace,
 								  wooper:state_to_string( State ) ] ),
 
 					% Wait a bit as error_msg seems asynchronous:
@@ -387,7 +387,7 @@ wooper_effective_method_execution( SelectedModule, MethodAtom, State,
 								" - instance state was: ~s~n~n",
 								[ self(), SelectedModule, MethodAtom,
 								  length( Parameters ) + 1, Reason, ErrorTerm,
-								  erlang:get_stacktrace(), Parameters,
+								  Stacktrace, Parameters,
 								  wooper:state_to_string( State )
 								 ] ),
 
@@ -451,7 +451,7 @@ wooper_effective_method_execution( SelectedModule, MethodAtom, State,
 		% This the counterpart of {'EXIT',ErrorTerm}.
 		% What would be the counterpart of {'EXIT',Pid,ErrorTerm}?
 		% Reason can be: throw, error or exit.
-		Reason:ErrorTerm ->
+		Reason:ErrorTerm:Stacktrace ->
 
 			case State#state_holder.request_sender of
 
@@ -469,7 +469,7 @@ wooper_effective_method_execution( SelectedModule, MethodAtom, State,
 								" - instance state was: ~s~n~n",
 								[ self(), SelectedModule, MethodAtom,
 								  length( Parameters ) + 1, Reason, ErrorTerm,
-								  erlang:get_stacktrace(), Parameters,
+								  Stacktrace, Parameters,
 								  wooper:state_to_string( State ) ] ),
 
 					% Wait a bit as error_msg seems asynchronous:
@@ -494,7 +494,7 @@ wooper_effective_method_execution( SelectedModule, MethodAtom, State,
 								" - instance state was: ~s~n~n",
 								[ self(), SelectedModule, MethodAtom,
 								  length( Parameters ) + 1, Reason, ErrorTerm,
-								  erlang:get_stacktrace(), Parameters,
+								  Stacktrace, Parameters,
 								  wooper:state_to_string( State ) ] ),
 
 					{ State,
