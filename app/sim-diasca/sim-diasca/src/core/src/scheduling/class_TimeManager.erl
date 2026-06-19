@@ -538,7 +538,7 @@
 
 % Description of all the state attributes of a time manager instance:
 %
-% - parent_manager_pid :: basic_utils:maybe( pid() ) is the PID of the parent
+% - parent_manager_pid :: basic_utils:'maybe'( pid() ) is the PID of the parent
 % time manager of this manager (if any, otherwise set to 'undefined', in which
 % case this is the time manager)
 %
@@ -616,7 +616,7 @@
 % schedule_trigger_already_sent); this is a list_impl as it will be assigned to
 % actors_to_trigger_in_one_diasca afterwards
 %
-% - watchdog_pid :: basic_utils:maybe( pid() ) is the PID of the watchdog, if
+% - watchdog_pid :: basic_utils:'maybe'( pid() ) is the PID of the watchdog, if
 % any, i.e. iff being the root time manager
 %
 % - stop_tick_offset :: maybe( tick_offset() ) is the tick offset at which the
@@ -727,13 +727,13 @@
 % Erlang processes, for all the scheduling subtree which corresponds to this
 % time manager (including itself), and it is updated at each scheduled tick
 %
-% - root_data_exchanger_pid :: basic_utils:maybe( pid() ) is the PID of the root
+% - root_data_exchanger_pid :: basic_utils:'maybe'( pid() ) is the PID of the root
 % data-exchanger (if any), with whom the root time manager may have to interact
 %
-% - root_instance_tracker_pid :: basic_utils:maybe( pid() ) is the PID (if any)
+% - root_instance_tracker_pid :: basic_utils:'maybe'( pid() ) is the PID (if any)
 % of the root instance tracker, to resolve instance-level issues
 %
-% - local_instance_tracker_pid :: basic_utils:maybe( pid() ) is the PID (if any)
+% - local_instance_tracker_pid :: basic_utils:'maybe'( pid() ) is the PID (if any)
 % of the local instance tracker (i.e. the one running on the same node as this
 % time manager), to resolve instance-level issues
 %
@@ -1116,7 +1116,7 @@ registerBootstrapScheduling( State, LoadBalancerPid ) ->
 % (const request)
 %
 -spec getInitialTick( wooper:state() ) ->
-							request_return( basic_utils:maybe( tick() ) ).
+							request_return( basic_utils:'maybe'( tick() ) ).
 getInitialTick( State ) ->
 	?wooper_return_state_result( State, ?getAttr(initial_tick) ).
 
@@ -1166,7 +1166,7 @@ setInitialSimulationDate( State, Date, Time ) ->
 % (const request)
 %
 -spec getFinalTick( wooper:state() ) ->
-						  request_return( basic_utils:maybe( tick() ) ).
+						  request_return( basic_utils:'maybe'( tick() ) ).
 getFinalTick( State ) ->
 
 	Res = case ?getAttr(stop_tick_offset) of
@@ -2772,7 +2772,7 @@ getSimulationTickOffset( State ) ->
 % (const request)
 %
 -spec getSimulationDiasca( wooper:state() ) ->
-	   request_return( basic_utils:maybe( diasca() ) ).
+	   request_return( basic_utils:'maybe'( diasca() ) ).
 getSimulationDiasca( State ) ->
 	?wooper_return_state_result( State, ?getAttr(current_diasca) ).
 
@@ -2784,7 +2784,7 @@ getSimulationDiasca( State ) ->
 % (const request)
 %
 -spec getSimulationLogicalTimestamp( wooper:state() ) ->
-		request_return( basic_utils:maybe( logical_timestamp() ) ).
+		request_return( basic_utils:'maybe'( logical_timestamp() ) ).
 getSimulationLogicalTimestamp( State ) ->
 
 	Res = case ?getAttr(current_tick_offset) of

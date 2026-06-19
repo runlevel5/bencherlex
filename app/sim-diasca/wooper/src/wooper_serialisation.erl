@@ -467,7 +467,7 @@ remote_synchronous_timed_load_link( Node, BinSerialisation, EntryTransformer,
 %
 -spec deserialise( bin_serialisation(), entry_transformer(),
 				   basic_utils:user_data(), ListenerPid ) -> any() % no_return()
-						   when ListenerPid :: basic_utils:maybe( pid() ).
+						   when ListenerPid :: basic_utils:'maybe'( pid() ).
 deserialise( BinSerialisation, EntryTransformer, UserData, ListenerPid ) ->
 
 	{ Classname, SerialisedEntries } = binary_to_term( BinSerialisation ),

@@ -142,7 +142,7 @@
 % Quite often, variables (ex: record fields) are set to 'undefined'
 % (i.e. "Nothing") before being set later:
 %
--type maybe( T ) :: T | 'undefined'.
+-type 'maybe'( T ) :: T | 'undefined'.
 
 
 % Designates user-specified data (opaque, unspecified type):
@@ -242,7 +242,7 @@
 
 -export_type([
 
-			  void/0, count/0, bit_mask/0, exit_reason/0, maybe/1, user_data/0,
+			  void/0, count/0, bit_mask/0, exit_reason/0, 'maybe'/1, user_data/0,
 			  accumulator/0, type_description/0, term_transformer/0,
 			  timestamp/0, precise_timestamp/0, time_out/0,
 			  registration_name/0, registration_scope/0, look_up_scope/0,
