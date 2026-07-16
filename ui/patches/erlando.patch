@@ -1,0 +1,15 @@
+erlando: take the stack trace from the catch clause, as erlang:get_stacktrace/0 is gone.
+
+diff --git a/src/test.erl b/src/test.erl
+index 49ef651..517f19f 100644
+--- a/src/test.erl
++++ b/src/test.erl
+@@ -76,6 +76,6 @@ hoist(ErrorT, Label, PlainFun) ->
+                PlainFun(),
+                return(passed)
+            catch
+-               Class:Reason ->
+-                   fail({Label, Class, Reason, erlang:get_stacktrace()})
++               Class:Reason:Stacktrace ->
++                   fail({Label, Class, Reason, Stacktrace})
+            end]).

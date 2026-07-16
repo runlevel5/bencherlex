@@ -1,0 +1,32 @@
+erlydtl: take stack traces from catch clauses, as erlang:get_stacktrace/0 is gone.
+
+diff --git a/include/erlydtl_preparser.hrl b/include/erlydtl_preparser.hrl
+index 6c56357..d03cae5 100755
+--- a/include/erlydtl_preparser.hrl
++++ b/include/erlydtl_preparser.hrl
+@@ -73,8 +73,7 @@ return_state() ->
+ yeccpars0(Tokens, Tzr, State, States, Vstack) ->
+     try yeccpars1(Tokens, Tzr, State, States, Vstack)
+     catch 
+-        error: Error ->
+-            Stacktrace = erlang:get_stacktrace(),
++        error: Error: Stacktrace ->
+             try yecc_error_type(Error, Stacktrace) of
+                 Desc ->
+                     erlang:raise(error, {yecc_bug, ?CODE_VERSION, Desc},
+diff --git a/src/i18n/sources_parser.erl b/src/i18n/sources_parser.erl
+index 8224123..6a1508c 100644
+--- a/src/i18n/sources_parser.erl
++++ b/src/i18n/sources_parser.erl
+@@ -124,9 +124,9 @@ parse_content(Path,Content)->
+             try process_ast(Path, Data) of
+                 {ok, Result} -> Result
+             catch
+-                Error:Reason ->
++                Error:Reason:Stacktrace ->
+                     io:format("~s: Template processing failed~nData: ~p~n", [Path, Data]),
+-                    erlang:raise(Error, Reason, erlang:get_stacktrace())
++                    erlang:raise(Error, Reason, Stacktrace)
+             end;
+         Error ->
+             ?bail("Template parsing failed for template ~s, cause ~p~n", [Path, Error])

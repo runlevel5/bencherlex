@@ -1,0 +1,301 @@
+ChicagoBoss: build and run with OTP 29.
+- Pin cowboy 2.12.0 and lager 3.9.2, whose older versions do not build.
+- Do not fail dependencies on warnings, and enable tuple_calls everywhere,
+  including the app modules boss compiles, as requests are tuples.
+- Quote the type name maybe, a keyword since OTP 27.
+- Take stack traces from catch clauses, as erlang:get_stacktrace/0 is gone.
+
+diff --git a/rebar.config b/rebar.config
+index 375f704..04f98da 100644
+--- a/rebar.config
++++ b/rebar.config
+@@ -3,6 +3,7 @@
+ 
+ {erl_opts, [
+     debug_info,
++    tuple_calls,
+     warn_unused_vars,
+     warn_unused_import,
+     warn_exported_vars,
+@@ -29,12 +30,16 @@
+ 
+     %% webservers of choice, mochiweb and cowboy installed by default
+     {mochiweb,              {git, "https://github.com/mochi/mochiweb.git",              {ref, "53a9607"}}},
+-    {cowboy,                {git, "https://github.com/ninenines/cowboy.git",            {tag, "2.6.1"}}},
++    {cowboy,                {git, "https://github.com/ninenines/cowboy.git",            {tag, "2.12.0"}}},
+     %% webmachine still requires dispacher to be written for it
+     %{webmachine,            {git, "https://github.com/webmachine/webmachine.git",      {ref, "086bd10920"}}},
+     %% yaws requires libpam0g-dev, for ubuntu install it with 'sudo apt-get install libpam0g-dev'
+     %{yaws,                  {git, "https://github.com/klacke/yaws.git",                {tag, "yaws-2.0"}}},
+-    {simple_bridge,         {git, "https://github.com/nitrogen/simple_bridge.git",      {ref, "1938ec7"}}}
++    {simple_bridge,         {git, "https://github.com/nitrogen/simple_bridge.git",      {ref, "1938ec7"}}},
++
++    %% Newer than the version boss_db asks for: the parse transform of 3.6.7
++    %% does not handle the column numbers OTP 24 and later put in annotations.
++    {lager,                 {git, "https://github.com/erlang-lager/lager.git",         {tag, "3.9.2"}}}
+ 
+     %%% EXPERIMENTAL %%%
+     %% Uncomment the following line if you want LFE support
+@@ -82,6 +87,13 @@
+     {base_plt_prefix, "rebar3"}
+ ]}.
+ 
++%% OTP 29 warns about constructs that the dependencies still use, such as
++%% catch Expr; do not let that stop the build. Requests, records and the
++%% like are tuples that code calls functions on (Req:path()), which needs
++%% tuple_calls since OTP 21.
++{overrides, [{del, [{erl_opts, [warnings_as_errors]}]},
++             {add, [{erl_opts, [tuple_calls]}]}]}.
++
+ {cover_enabled, true}.
+ 
+ {plugins, [rebar3_proper]}.
+diff --git a/src/boss/boss_assert.erl b/src/boss/boss_assert.erl
+index 359f7d4..aa298cf 100644
+--- a/src/boss/boss_assert.erl
++++ b/src/boss/boss_assert.erl
+@@ -48,7 +48,7 @@
+ -type http_server_error_code() :: 500..511.
+ -type http_status_code()       :: http_information_code()|http_success_code()|http_redirect_code()|http_client_error_code()| http_server_error_code()|http_non_offical_code().
+ -type http_status_result()     :: {boolean(), string()}.
+--type maybe(X) :: X|undefined.
++-type 'maybe'(X) :: X|undefined.
+ 
+ -spec http_ok({http_status_code(),_,_,_})              -> http_status_result().
+ -spec http_partial_content({http_status_code(),_,_,_}) -> http_status_result().
+@@ -69,8 +69,8 @@
+ -spec email_is_text_only({_,string(), string()}) -> http_status_result().
+ -spec email_is_html_only({_,string(), string()}) -> http_status_result().
+ -spec email_is_multipart({_,string(), string()}) -> http_status_result().
+--spec email_received(maybe(string()))           -> http_status_result().
+--spec email_not_received(maybe(string()))       -> http_status_result().
++-spec email_received('maybe'(string()))           -> http_status_result().
++-spec email_not_received('maybe'(string()))       -> http_status_result().
+ -spec tag_with_text1([any()],[any()],maybe_improper_list() | tuple()) -> {'false',[any(),...]} | {'true',[any(),...]}.
+ -spec link_with_text1([any()],maybe_improper_list() | tuple()) -> {'false',[any(),...]} | {'true',[any(),...]}.
+ -spec has_tag_with_text(_,_,maybe_improper_list() | tuple()) -> boolean().
+diff --git a/src/boss/boss_load.erl b/src/boss/boss_load.erl
+index ad96d3b..0f845fa 100644
+--- a/src/boss/boss_load.erl
++++ b/src/boss/boss_load.erl
+@@ -376,7 +376,9 @@ compile(ModulePath, OutDir) ->
+     CompilerAdapter:compile(ModulePath, Options).
+ 
+ compiler_options() ->
+-    lists:merge([{parse_transform, lager_transform}, return_errors],
++    %% Controllers call functions on the request (Req:query_param(...)),
++    %% which needs tuple_calls since OTP 21.
++    lists:merge([{parse_transform, lager_transform}, return_errors, tuple_calls],
+         boss_env:get_env(boss, compiler_options, [])).
+ 
+ load_view_lib(Application, OutDir, TranslatorPid) ->
+diff --git a/src/boss/boss_log_util.erl b/src/boss/boss_log_util.erl
+index 80973fa..0baaec0 100644
+--- a/src/boss/boss_log_util.erl
++++ b/src/boss/boss_log_util.erl
+@@ -11,18 +11,18 @@
+ %%-------------------------------------------------------------------
+ 
+ -module(boss_log_util).
+--export([stacktrace/2]).
++-export([stacktrace/3]).
+ 
+ -ifdef(TEST).
+ -export([format_stacktrace/3]).
+ -endif.
+ 
+--spec stacktrace(atom(), any()) -> [char()].
++-spec stacktrace(atom(), any(), list()) -> [char()].
+ 
+-%% @doc Generates a stacktrace and formats it according to the boss_env setting
++%% @doc Formats a stacktrace according to the boss_env setting
+ %% log_stack_multiline.
+-stacktrace(Class, Error) ->
+-    format_stacktrace(Class, Error, erlang:get_stacktrace()).
++stacktrace(Class, Error, Trace) ->
++    format_stacktrace(Class, Error, Trace).
+ 
+ format_stacktrace(Class, Error, Trace) ->
+     Multiline = boss_env:get_env(log_stack_multiline, false),
+diff --git a/src/boss/boss_service_worker.erl b/src/boss/boss_service_worker.erl
+index be7c91b..122612a 100644
+--- a/src/boss/boss_service_worker.erl
++++ b/src/boss/boss_service_worker.erl
+@@ -85,12 +85,12 @@ init([Handler, ServiceUrl]) when is_atom(Handler) ->
+     {ok, Internal} ->
+         boss_websocket_router:register(ServiceUrl, Handler),
+         {ok, #state{handler=Handler, internal=Internal}}
+-    catch Class:Reason ->
++    catch Class:Reason:Stacktrace ->
+         lager:error(
+           "** Boss Service Handler ~p terminating in init/0~n"
+           "   for the reason ~p:~p~n"
+           "** Stacktrace: ~p~n~n",
+-          [Handler, Class, Reason, erlang:get_stacktrace()])
++          [Handler, Class, Reason, Stacktrace])
+     end.
+ 
+ 
+@@ -135,7 +135,7 @@ handle_cast({join_service, ServiceUrl, WebSocketId, Req, SessionId}, State) ->
+     {stop, InternalReason, NewInternal} ->
+         {stop, InternalReason, #state{handler=Handler, internal=NewInternal}}
+ 
+-    catch Class:Reason ->
++    catch Class:Reason:Stacktrace ->
+         lager:error(
+           "** Boss Service Handler ~p terminating in join/0~n"
+           "   for the reason ~p:~p~n"
+@@ -145,7 +145,7 @@ handle_cast({join_service, ServiceUrl, WebSocketId, Req, SessionId}, State) ->
+             "State    : ~p~n"
+           "** Stacktrace: ~p~n~n",
+           [Handler, Class, Reason, ServiceUrl, WebSocketId,
+-           SessionId, Internal, erlang:get_stacktrace()])
++           SessionId, Internal, Stacktrace])
+     end;
+ 
+ handle_cast({terminate_service, Reason, ServiceUrl, WebSocketId, Req, SessionId}, State) ->
+@@ -160,7 +160,7 @@ handle_cast({terminate_service, Reason, ServiceUrl, WebSocketId, Req, SessionId}
+     {stop, InternalReason, NewInternal} ->
+         {stop, InternalReason, #state{handler=Handler, internal=NewInternal}}
+ 
+-    catch Class:Reason ->
++    catch Class:Reason:Stacktrace ->
+         lager:error(
+           "** Handler ~p terminating in init/0~n"
+           "   for the reason ~p:~p~n"
+@@ -170,7 +170,7 @@ handle_cast({terminate_service, Reason, ServiceUrl, WebSocketId, Req, SessionId}
+           "State    : ~p~n"
+           "** Stacktrace: ~p~n~n",
+           [Handler, Class, Reason, ServiceUrl, WebSocketId,
+-           SessionId, Internal, erlang:get_stacktrace()])
++           SessionId, Internal, Stacktrace])
+     end;
+ 
+ handle_cast({incoming_msg, ServiceUrl, WebSocketId, Req, SessionId, Message}, State) ->
+@@ -184,7 +184,7 @@ handle_cast({incoming_msg, ServiceUrl, WebSocketId, Req, SessionId, Message}, St
+         {noreply, #state{handler=Handler, internal=NewInternal}, Timeout};
+     {stop, _Reason, NewInternal} ->
+         {stop, _Reason, #state{handler=Handler, internal=NewInternal}}
+-    catch Class:Reason ->
++    catch Class:Reason:Stacktrace ->
+         lager:error(
+           "** Boss Service Handler ~p terminating in handle_incoming/4~n"
+           "   for the reason ~p:~p~n"
+@@ -195,7 +195,7 @@ handle_cast({incoming_msg, ServiceUrl, WebSocketId, Req, SessionId, Message}, St
+           "State    : ~p~n"
+           "** Stacktrace: ~p~n~n",
+           [Handler, Class, Reason, ServiceUrl, WebSocketId,
+-           SessionId, Message, Internal, erlang:get_stacktrace()])
++           SessionId, Message, Internal, Stacktrace])
+     end;
+ 
+ handle_cast({broadcast, Message}, State) ->
+@@ -208,14 +208,14 @@ handle_cast({broadcast, Message}, State) ->
+         {noreply, #state{handler=Handler, internal=NewInternal}, Timeout};
+     {stop, _Reason, NewInternal} ->
+         {stop, _Reason, #state{handler=Handler, internal=NewInternal}}
+-    catch Class:Reason ->
++    catch Class:Reason:Stacktrace ->
+         lager:error(
+           "** Boss Service Handler ~p terminating in broadcast~n"
+           "   for the reason ~p:~p~n"
+           "Message    : ~p~n"
+           "State    : ~p~n"
+           "** Stacktrace: ~p~n~n",
+-          [Handler, Class, Reason, Message, Internal, erlang:get_stacktrace()])
++          [Handler, Class, Reason, Message, Internal, Stacktrace])
+     end;
+ 
+ handle_cast(_Msg, State) ->
+@@ -241,12 +241,12 @@ handle_info(_Info, State) ->
+         {noreply, #state{handler=Handler, internal=NewInternal}, Timeout};
+     {stop, InternalReason, NewInternal} ->
+         {stop, InternalReason, #state{handler=Handler, internal=NewInternal}}
+-    catch Class:Reason ->
++    catch Class:Reason:Stacktrace ->
+         lager:error(
+           "** Handler ~p terminating in handle_info/2~n"
+           "   for the reason ~p:~p~n"
+           "** Stacktrace: ~p~n~n",
+-          [Handler, Class, Reason, erlang:get_stacktrace()])
++          [Handler, Class, Reason, Stacktrace])
+     end.
+ 
+ %% handle_info(_Info, State) ->
+@@ -269,12 +269,12 @@ terminate(_Reason, _State) ->
+                                     [_Reason, Internal], ok) of
+     ok ->
+         ok
+-    catch Class:Reason ->
++    catch Class:Reason:Stacktrace ->
+         lager:error(
+           "** Boss Service Handler ~p terminating in handle_info/0~n"
+           "   for the reason ~p:~p~n"
+           "** Stacktrace: ~p~n~n",
+-          [Handler, Class, Reason, erlang:get_stacktrace()])
++          [Handler, Class, Reason, Stacktrace])
+     end.
+ 
+ %%--------------------------------------------------------------------
+diff --git a/src/boss/boss_simple_bridge_handler.erl b/src/boss/boss_simple_bridge_handler.erl
+index 77d30cf..1e0e646 100644
+--- a/src/boss/boss_simple_bridge_handler.erl
++++ b/src/boss/boss_simple_bridge_handler.erl
+@@ -25,8 +25,8 @@ run(Bridge) ->
+     try
+          Bridge2 = boss_web_controller_handle_request:handle_request(Bridge, boss_router),
+         Bridge2:build_response()
+-    catch E:C ->
+-        _ = lager:error("~p:~p: ~p",[E, C, erlang:get_stacktrace()]),
++    catch E:C:Stacktrace ->
++        _ = lager:error("~p:~p: ~p",[E, C, Stacktrace]),
+         exit("Error building response")
+     end.
+ 
+diff --git a/src/boss/boss_web_controller.erl b/src/boss/boss_web_controller.erl
+index 87ec877..4ad88cd 100644
+--- a/src/boss/boss_web_controller.erl
++++ b/src/boss/boss_web_controller.erl
+@@ -304,8 +304,8 @@ call_controller_action(Adapter, AdapterInfo, RequestContext) ->
+     try
+         Adapter:action(AdapterInfo, RequestContext)
+     catch
+-        Class:Error ->
+-            _ = lager:error("Error in controller ~s", [boss_log_util:stacktrace(Class, Error)]),
++        Class:Error:Stacktrace ->
++            _ = lager:error("Error in controller ~s", [boss_log_util:stacktrace(Class, Error, Stacktrace)]),
+             {error, "Error in controller, see console.log for details\n"}
+     end.
+ 
+diff --git a/src/boss/boss_web_controller_handle_request.erl b/src/boss/boss_web_controller_handle_request.erl
+index db1f8cf..b195f25 100644
+--- a/src/boss/boss_web_controller_handle_request.erl
++++ b/src/boss/boss_web_controller_handle_request.erl
+@@ -33,10 +33,10 @@ handle_request(Bridge, RouterAdapter) ->
+ 
+     try
+        handle_application(Bridge, FullUrl, ApplicationForPath, RouterAdapter)
+-    catch Class:Error ->
++    catch Class:Error:Stacktrace ->
+         %% Nuclear option: Something very serious happened and we don't want to
+         %% fail silently, but instead it should generate an error message.
+-        _ = lager:error("Unhandled Error: ~s", [boss_log_util:stacktrace(Class, Error)]),
++        _ = lager:error("Unhandled Error: ~s", [boss_log_util:stacktrace(Class, Error, Stacktrace)]),
+         handle_fatal_error(Bridge)
+     end.
+ 
+diff --git a/src/boss/boss_web_controller_render.erl b/src/boss/boss_web_controller_render.erl
+index e306c3c..0b9570a 100644
+--- a/src/boss/boss_web_controller_render.erl
++++ b/src/boss/boss_web_controller_render.erl
+@@ -297,8 +297,8 @@ render_with_template(Controller, Template, AppInfo, RequestContext,
+     Err ->
+         Err
+     catch
+-        Class:Error ->
+-            lager:error("Error in view ~p ~s", [Module, boss_log_util:stacktrace(Class, Error)])
++        Class:Error:Stacktrace ->
++            lager:error("Error in view ~p ~s", [Module, boss_log_util:stacktrace(Class, Error, Stacktrace)])
+     end.
+ 
+ extract_content_language(RequestContext, Headers) ->

@@ -1,0 +1,124 @@
+simple_bridge: rename the else macro (a keyword since OTP 27), take stack traces from catch clauses and use iolist_size/1 instead of the removed httpd_util:flatlength/1.
+
+diff --git a/src/cowboy_bridge_modules/cowboy_simple_bridge.erl b/src/cowboy_bridge_modules/cowboy_simple_bridge.erl
+index 8f9634f..d01065c 100644
+--- a/src/cowboy_bridge_modules/cowboy_simple_bridge.erl
++++ b/src/cowboy_bridge_modules/cowboy_simple_bridge.erl
+@@ -48,8 +48,8 @@ get_key(ReqKey) ->
+     try
+         RequestCache = #request_cache{request = Req} = cowboy_request_server:get(ReqKey),
+         {RequestCache, Req}
+-    catch E:T  ->
+-        error_logger:info_msg("~p:~p~n~p", [E, T, erlang:get_stacktrace()])
++    catch E:T:Stacktrace ->
++        error_logger:info_msg("~p:~p~n~p", [E, T, Stacktrace])
+     end.
+ 
+ put_key(ReqKey, NewRequestCache) ->
+diff --git a/src/inets_bridge_modules/inets_simple_bridge.erl b/src/inets_bridge_modules/inets_simple_bridge.erl
+index a0756a4..86a11d0 100644
+--- a/src/inets_bridge_modules/inets_simple_bridge.erl
++++ b/src/inets_bridge_modules/inets_simple_bridge.erl
+@@ -124,11 +124,11 @@ build_response(Req, Res) ->
+     ResponseCode = Res#response.status_code,
+     case Res#response.data of
+         {data, Data0} ->
+-            %% We wrap Data in a list, as httpd_util:flatlength expects a list
++            %% We wrap Data in a list, as iolist_size expects a list
+             %% and Data could conceivably be a binary, which would cause a
+             %% crash
+             Data = [Data0],
+-            Size = integer_to_list(httpd_util:flatlength(Data)),
++            Size = integer_to_list(iolist_size(Data)),
+ 
+             % Assemble headers...
+             Headers = lists:flatten([
+diff --git a/src/mochiweb_bridge_modules/mochiweb_simple_bridge_anchor.erl b/src/mochiweb_bridge_modules/mochiweb_simple_bridge_anchor.erl
+index 1e51d93..64df154 100644
+--- a/src/mochiweb_bridge_modules/mochiweb_simple_bridge_anchor.erl
++++ b/src/mochiweb_bridge_modules/mochiweb_simple_bridge_anchor.erl
+@@ -30,5 +30,5 @@ loop(Req) ->
+         end
+     catch
+         exit:normal -> exit(normal);
+-        T:E -> error_logger:error_msg("Error: ~p:~p~nStacktrace: ~p~n",[T, E, erlang:get_stacktrace()])
++        T:E:Stacktrace -> error_logger:error_msg("Error: ~p:~p~nStacktrace: ~p~n",[T, E, Stacktrace])
+     end.
+diff --git a/src/simple_bridge.erl b/src/simple_bridge.erl
+index 7f98af2..00dae14 100644
+--- a/src/simple_bridge.erl
++++ b/src/simple_bridge.erl
+@@ -88,8 +88,8 @@ make_bridge_module(BridgeType) ->
+ inner_make(Module, RequestData) ->
+     try
+         make_nocatch(Module, RequestData)
+-    catch Type : Error ->
+-        error_logger:error_msg("Error in simple_bridge:make/2 - ~p - ~p~n~p", [Type, Error, erlang:get_stacktrace()]),
++    catch Type:Error:Stacktrace ->
++        error_logger:error_msg("Error in simple_bridge:make/2 - ~p - ~p~n~p", [Type, Error, Stacktrace]),
+         error_logger:info_msg("Type: ~p",[Type]),
+         error_logger:info_msg("Error: ~p",[Error]),
+         erlang:Type(Error)
+diff --git a/src/simple_bridge_handler_sample.erl b/src/simple_bridge_handler_sample.erl
+index 8d0e9b2..c7f2cfc 100644
+--- a/src/simple_bridge_handler_sample.erl
++++ b/src/simple_bridge_handler_sample.erl
+@@ -18,8 +18,8 @@ run(Bridge) ->
+     try
+         Bridge2 = sbw:set_response_data(body(Bridge), Bridge),
+         sbw:build_response(Bridge2)
+-    catch E:C ->
+-        error_logger:error_msg("~p:~p: ~p",[E, C, erlang:get_stacktrace()]),
++    catch E:C:Stacktrace ->
++        error_logger:error_msg("~p:~p: ~p",[E, C, Stacktrace]),
+         exit("Error building response")
+     end.
+ 
+diff --git a/src/simple_bridge_websocket.erl b/src/simple_bridge_websocket.erl
+index 05e85eb..937761a 100644
+--- a/src/simple_bridge_websocket.erl
++++ b/src/simple_bridge_websocket.erl
+@@ -16,7 +16,7 @@
+ %-compile(export_all).
+ -include("simple_bridge.hrl").
+ 
+--define(else, true).
++-define(ELSE, true).
+ 
+ -define(WS_MAGIC, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").
+ -define(WS_VERSION, "13").
+@@ -66,7 +66,7 @@ attempt_hijacking(Bridge, Handler) ->
+                     hijack_request_fail(Bridge)
+             end,
+             {hijacked, HijackedBridge};
+-        ?else ->
++        ?ELSE ->
+             spared      %% Spared from being hijacked
+     end.
+ 
+@@ -383,7 +383,7 @@ type(?WS_TEXT) -> text.
+     if 
+         byte_size(Data) >= PayloadLen ->
+             do_frames(Fin,RSV,Op,PayloadLen,Mask,Data);
+-        ?else ->
++        ?ELSE ->
+             [Raw]
+     end).
+ 
+diff --git a/src/webmachine_bridge_modules/webmachine_simple_bridge.erl b/src/webmachine_bridge_modules/webmachine_simple_bridge.erl
+index dd8d79d..185cb19 100644
+--- a/src/webmachine_bridge_modules/webmachine_simple_bridge.erl
++++ b/src/webmachine_bridge_modules/webmachine_simple_bridge.erl
+@@ -105,10 +105,10 @@ build_response(Req, Res) ->
+     Code = Res#response.status_code,
+     case Res#response.data of
+         {data, Body} ->
+-            %% httpd_util:flatlength expects a list and body could be a binary,
++            %% iolist_size expects a list and body could be a binary,
+             %% so wrap it in a list, and we have ourselves an iolist. MUCH
+             %% EXCITE!
+-            Size = integer_to_list(httpd_util:flatlength([Body])),
++            Size = integer_to_list(iolist_size([Body])),
+ 
+             %% Assemble headers...
+             Headers = lists:flatten([

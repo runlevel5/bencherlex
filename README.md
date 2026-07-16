@@ -22,7 +22,9 @@ Make sure you have the following installed on your machine:
 
 ### How to build the web interface ###
 
-The web interface requires OTP R16B03-1 or later.
+The web interface is built on ChicagoBoss 0.9, which `make ui` downloads
+together with rebar 2 and patches to work with current Erlang/OTP (see
+`ui/patches`). It needs git, network access and rebar3.
 
 	$ make ui
 
