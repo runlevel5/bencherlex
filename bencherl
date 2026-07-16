@@ -457,7 +457,15 @@ fi
 LONG_MASTER="master@`hostname -f`"
 SHORT_MASTER="master@`hostname`"
 
-DEF_USE_LONG_NAMES=${USE_LONG_NAMES:-1}
+# Long names need a fully qualified host name: Erlang rejects host names
+# without a dot when it runs with long names.
+if [ -z "$USE_LONG_NAMES" ]; then
+    case `hostname -f` in
+        *.*) USE_LONG_NAMES=1 ;;
+        *)   USE_LONG_NAMES=0 ;;
+    esac
+fi
+DEF_USE_LONG_NAMES=$USE_LONG_NAMES
 DEF_OTPS=${OTPS:-"DEFOTP="}
 DEF_ERL_ARGS=${ERL_ARGS:-"DEFARGS= "}
 DEF_COOKIE=${COOKIE:-"cookie"}

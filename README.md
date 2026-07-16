@@ -156,6 +156,9 @@ and its default short name:
 
     master@`hostname`
 
+Long names are used by default, unless `hostname -f` returns a name without
+a dot, which Erlang does not accept as the host part of a long name.
+
 ### How to specify the magic cookie that master and slave nodes share ###
 
 Set the `COOKIE` variable in `conf/run.conf`.
