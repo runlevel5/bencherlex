@@ -272,13 +272,15 @@ filter_interfaces( _IfList=[ _If={ Name, Options } | T ], FirstIfs, LastIfs,
 	%io:format( "Examining interface named '~p', with options ~p.~n",
 	%		   [ Name, Options ] ),
 
-	case proplists:get_value( _K=addr, Options ) of
+	% Only IPv4 addresses are used here (an interface often has an IPv6
+	% address first, which gen_tcp cannot use without the inet6 option):
+	case [ A || { addr, A } <- Options, tuple_size( A ) =:= 4 ] of
 
 		% Ex: wlan0 might not have a configured address if down:
-		undefined ->
+		[] ->
 			filter_interfaces( T, FirstIfs, LastIfs, Loopback );
 
-		Address ->
+		[ Address | _ ] ->
 
 			case Name of
 
