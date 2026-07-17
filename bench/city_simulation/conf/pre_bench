@@ -1,10 +1,33 @@
 #!/bin/bash
 
+# Starts the Sim-Diasca computing nodes: one on each of the first ${6} slave
+# nodes, or, when there are none, one on this host. Sim-Diasca does not start
+# them itself (see class_ComputingHostManager).
+
 OLD_IFS=$IFS
 IFS=","
 
 echo "" > ${12}/app/sim-diasca/mock-simulators/city-example/src/sim-diasca-host-candidates-for-scale-benchmarks.txt
 echo "" > ${12}/app/sim-diasca/mock-simulators/city-example/src/sim-diasca-host-candidates.txt
+
+# The node name option, as for the master node.
+if [ "${13}" = "1" ]; then
+    name_option="-name"
+else
+    name_option="-sname"
+fi
+
+# The command that starts the computing node named $1.
+schedulers=${1}; erl_args=${3}; cookie=${4}; otp=${7}; extra_code_path=${8}
+deps_paths=${9}; erl_env=${10}; erl=${11}; root=${12}
+node_cmd()
+{
+    echo "BENCHERL_ROOT=$root $erl_env $erl $erl_args -setcookie '$cookie' +K true \
+        +A 128 +P 1048576 +S$schedulers:$schedulers $name_option $1 -noshell \
+        -pa $extra_code_path $deps_paths $root/suite/ebin-$otp \
+        $root/bench/city_simulation/ebin-$otp \
+        -kernel inet_dist_listen_min 50000 inet_dist_listen_max 55000"
+}
 
 i=1
 for node in ${5}; do
@@ -19,12 +42,13 @@ for node in ${5}; do
 
     echo "'$host'." >> ${12}/app/sim-diasca/mock-simulators/city-example/src/sim-diasca-host-candidates-for-scale-benchmarks.txt
     echo "'$host'." >> ${12}/app/sim-diasca/mock-simulators/city-example/src/sim-diasca-host-candidates.txt
- 
+
     IFS=$OLD_IFS
-    cmd="BENCHERL_ROOT=${12} ${10} ${11} ${3} -setcookie '${4}' +K true \
-        +A 128 +P 1048576 +S${1}:${1} -sname $name -noshell -pa ${8} ${9} \
-        ${12}/suite/ebin-${7} ${12}/bench/city-simulation/ebin-${7} \
-        -kernel inet_dist_listen_min 50000 inet_dist_listen_max 55000"
+    if [ "${13}" = "1" ]; then
+        cmd=$(node_cmd $node)
+    else
+        cmd=$(node_cmd $name)
+    fi
     ssh -f `whoami`@$host "$cmd"
     IFS=","
 
@@ -35,3 +59,14 @@ done
 
 IFS=$OLD_IFS
 
+if [[ "${6}" -eq "0" ]]; then
+    # The name Sim-Diasca gives the computing node of this host for the
+    # benchmark's simulation case.
+    name="Sim-Diasca_City-example_Benchmarking_Loading_Case-`whoami`"
+    eval "$(node_cmd $name) -detached"
+    # Wait until the node has registered with epmd.
+    for i in $(seq 1 30); do
+        env ${10} epmd -names 2>/dev/null | grep -q "^name $name at" && break
+        sleep 1
+    done
+fi

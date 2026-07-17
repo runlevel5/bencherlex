@@ -233,7 +233,7 @@ EOF
     if [ -f $BENCHERL_ROOT/bench/$bench/conf/pre_bench ]; then
         $BENCHERL_ROOT/bench/$bench/conf/pre_bench $s "$otpv" "$argsv" \
             "$COOKIE" "$SLAVE_NODES" $n "$otpl" "$EXTRA_CODE_PATH" \
-            "$DEPS_PATHS" "$ERL_ENV" "$erl" "$BENCHERL_ROOT"
+            "$DEPS_PATHS" "$ERL_ENV" "$erl" "$BENCHERL_ROOT" "$USE_LONG_NAMES"
     fi
 
     curdir=`pwd`
@@ -251,7 +251,7 @@ EOF
     if [ -f $BENCHERL_ROOT/bench/$bench/conf/post_bench ]; then
 	$BENCHERL_ROOT/bench/$bench/conf/post_bench $s "$otpv" "$argsv" \
             "$COOKIE" "$SLAVE_NODES" $n "$otpl" "$EXTRA_CODE_PATH" \
-            "$DEPS_PATHS" "$ERL_ENV" "$erl" "$BENCHERL_ROOT"
+            "$DEPS_PATHS" "$ERL_ENV" "$erl" "$BENCHERL_ROOT" "$USE_LONG_NAMES"
     fi
 
     cd $curdir

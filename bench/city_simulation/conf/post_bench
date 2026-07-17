@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# Stops the Sim-Diasca computing nodes that pre_bench started.
+
 OLD_IFS=$IFS
 IFS=","
 
@@ -24,3 +26,6 @@ done
 
 IFS=$OLD_IFS
 
+if [[ "${6}" -eq "0" ]]; then
+    pkill -u `whoami` -f -- "name Sim-Diasca_City-example_Benchmarking_Loading_Case-`whoami`"
+fi
