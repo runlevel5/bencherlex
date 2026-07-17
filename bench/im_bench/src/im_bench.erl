@@ -32,7 +32,7 @@ run([Clients], Slaves, Conf) ->
   % Start the benchmark on the different client domains.
   launcher:start_bencherl(length(ServerNodes) div length(RouterNodes), 1,
     length(ServerNodes), length(ClientNodes), Slaves),
-  logger:launch_latency("Bencherl_test", length(RouterNodes), length(ServerNodes),
+  im_logger:launch_latency("Bencherl_test", length(RouterNodes), length(ServerNodes),
     Clients, 1, ClientNodes, DataDir ++ "/"),
   timer:sleep(60000), %XXX: Just to make sure that all clients have logged in.
   toxic_client:launch(Clients, ClientNodes),

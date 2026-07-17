@@ -15,7 +15,7 @@
 %%% Modified: 25 Aug 2014 by Mario Moro Hernandez
 %%%--------------------------------------------------------------------
 
--module(logger).
+-module(im_logger).
 -export([start/2, start_throughput/5, start_latency/4, launch/9, launch/10,
 	 launch_latency/7, launch_latency/8]).
 
@@ -33,7 +33,7 @@
 %% @end
 %%----------------------------------------------------------------------
 start(Dir, FileName) ->
-    case whereis(logger) of
+    case whereis(im_logger) of
         undefined->
 	    {_Status, Fd} = create_file(Dir, FileName),
 	    case Fd of
@@ -41,7 +41,7 @@ start(Dir, FileName) ->
 		    io:format("ERROR: generic logger cannot start.~n"),
 		    {error, io_error_create_file};
 		Pid ->
-		    register(logger, spawn(fun() -> logger:loop({recording,
+		    register(im_logger, spawn(fun() -> loop({recording,
 		                                                 Pid},
 		                                                Dir) end))
 	    end;
@@ -703,7 +703,7 @@ loop({recording, Fd}, Dir) ->
 	    file:position(Fd,eof),
 	    loop({recording, Fd}, Dir);
 	stop ->
-	    stop(Fd, logger);
+	    stop(Fd, im_logger);
 	stop_throughput ->
 	    stop(Fd, throughput_logger);
 	_Other ->
