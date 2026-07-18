@@ -42,7 +42,7 @@ main() ->
              end,
 
 	%% Start the slaves (if necessary).
-        Slaves =
+        Peers =
            case SkipSlaveSetup of
               false -> lists:map(fun(Sn) -> 
                           [Name|Rest] = string:tokens(atom_to_list(Sn), "@"),
@@ -57,11 +57,14 @@ main() ->
                                              end;
                                           _ -> {ok, hd(Rest)}
                                        end,
-                          {ok, Slave} = slave:start(list_to_atom(Host), 
-                                           list_to_atom(Name), ErlArgs, self(), 
-                                           ErlProgram),
-                          Slave
+                          start_slave(Host, Name, ErlArgs, ErlProgram,
+                                      UseLongNames)
                        end, lists:sublist(Snames, N));
+              true -> []
+           end,
+        Slaves =
+           case SkipSlaveSetup of
+              false -> [Slave || {_Peer, Slave} <- Peers];
               true -> lists:sublist(Snames, N)
            end,
 
@@ -145,10 +148,7 @@ main() ->
         file:close(MF),
 
 	%% Stop the slaves.
-        case SkipSlaveSetup of
-            false -> lists:foreach(fun(Slave)-> slave:stop(Slave) end, Slaves);
-            true  -> ok
-        end
+        lists:foreach(fun({Peer, _Slave}) -> peer:stop(Peer) end, Peers)
 
     catch
         E:D:Stacktrace ->
@@ -156,6 +156,68 @@ main() ->
                       [E, D, Stacktrace])
     end.
 
+
+%% Starts a slave node named Name on Host, with the erl program and command-line
+%% arguments of the master, and returns {Peer, Node}. As with slave:start/5,
+%% which this replaces, a node on another host is started through ssh, or
+%% through the program given with the -rsh flag.
+start_slave(Host, Name, ErlArgs, ErlProgram, UseLongNames) ->
+    {ok, LocalHost} = inet:gethostname(),
+    [_, NodeHost] = string:split(atom_to_list(node()), "@"),
+    Args = shell_words(ErlArgs),
+    Remote = Host =/= NodeHost andalso Host =/= LocalHost,
+    {Exec, PeerArgs} =
+        case Remote of
+            false ->
+                %% peer starts the program directly, not through a shell.
+                {executable(ErlProgram), Args};
+            true ->
+                Rsh = case init:get_argument(rsh) of
+                          {ok, [[R]]} -> R;
+                          _ -> "ssh"
+                      end,
+                %% The remote shell parses the command line again.
+                {{executable(Rsh), [Host, ErlProgram]},
+                 [shell_quote(A) || A <- Args]}
+        end,
+    {ok, Peer, Node} = peer:start(#{name => Name, host => Host,
+                                    longnames => UseLongNames,
+                                    exec => Exec, args => PeerArgs,
+                                    wait_boot => 60000}),
+    {Peer, Node}.
+
+executable(Program) ->
+    case os:find_executable(Program) of
+        false -> Program;
+        Path -> Path
+    end.
+
+%% Splits a command line into words as a shell does, for its quoting.
+shell_words(Str) ->
+    shell_words(Str, none, [], []).
+
+shell_words([], _, [], Words) ->
+    lists:reverse(Words);
+shell_words([], _, Word, Words) ->
+    lists:reverse([word(Word) | Words]);
+shell_words([Q | T], none, Word, Words) when Q =:= $'; Q =:= $" ->
+    shell_words(T, Q, [quoted | Word], Words);
+shell_words([C | T], none, Word, Words) when C =:= $\s; C =:= $\t; C =:= $\n ->
+    case Word of
+        [] -> shell_words(T, none, [], Words);
+        _ -> shell_words(T, none, [], [word(Word) | Words])
+    end;
+shell_words([Q | T], Q, Word, Words) ->
+    shell_words(T, none, Word, Words);
+shell_words([C | T], Quote, Word, Words) ->
+    shell_words(T, Quote, [C | Word], Words).
+
+%% A word can be empty, if it is just quotes.
+word(Word) ->
+    lists:reverse([C || C <- Word, C =/= quoted]).
+
+shell_quote(Arg) ->
+    "'" ++ lists:flatten(string:replace(Arg, "'", "'\\''", all)) ++ "'".
 
 remove_whitespace_and_new_lines(Str) ->
     lists:reverse(remove_whitespace_and_new_lines([], Str)).
