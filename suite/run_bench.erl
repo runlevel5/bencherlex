@@ -74,9 +74,9 @@ main() ->
 
 	%% Run the benchmark for all argument sets.
         RunFun = fun(Coordinator, CurArgs) -> group_leader(OF, self()),
-                    T0 = now(),
+                    T0 = erlang:monotonic_time(),
                     Return = apply(M, run, [CurArgs, Slaves, [{datadir, DataDir}, {master, Master}, {schedulers, S}]]),
-                    Dur = timer:now_diff(now(), T0)/1000,
+                    Dur = erlang:convert_time_unit(erlang:monotonic_time() - T0, native, microsecond)/1000,
                     Coordinator ! {done, {Return, Dur}}
         end,
         RecordFun = fun(Text, Times) ->
