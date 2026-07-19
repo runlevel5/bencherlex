@@ -21,6 +21,10 @@
 
 -module(parallel).
 
+%% The benchmark measures how erlang:now/0, which returns unique and increasing
+%% values to all processes, scales; it is deprecated, but that is the point.
+-compile({nowarn_deprecated_function, [{erlang, now, 0}]}).
+
 -export([bench_args/2, run/3]).
 
 bench_args(Version, Conf) ->
