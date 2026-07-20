@@ -2422,7 +2422,9 @@ set_up_computing_nodes( BaseNodeName, HostUserList, InterNodeSeconds, State ) ->
 	% Creates here one manager per computing host. They will automatically start
 	% their setup work as soon as created:
 	%
-	NodeOpts = { BaseNodeName, NamingMode=?getAttr(node_naming_mode),
+	NamingMode = ?getAttr(node_naming_mode),
+
+	NodeOpts = { BaseNodeName, NamingMode,
 				 ?getAttr(node_cleanup), erlang:get_cookie(),
 				 ?getAttr(compute_scheduler_count) },
 
@@ -3405,7 +3407,7 @@ interpret_firewall_options(_Opts= [ { epmd_port, Port } | _T ],
 	throw( { incorrect_firewall_restriction, invalid_epmd_port, Port } );
 
 interpret_firewall_options( _Opts=[ { epmd_port, _Port } | _T ],
-							{ _Port, _Range } ) ->
+							{ _PreviousPort, _Range } ) ->
 	throw( { incorrect_firewall_restriction,
 			 epmd_port_defined_more_than_once } );
 

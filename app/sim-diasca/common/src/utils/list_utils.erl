@@ -253,7 +253,7 @@ split_at( InputList, _Count=MaxLen, MaxLen, AccList ) ->
 
 split_at( _InputList=[], _Count, _MaxLen, AccList ) ->
 	% Input list exhausted:
-	{ AccList, _InputList=[] };
+	{ AccList, _InputList2=[] };
 
 
 split_at( _List=[ H | T ], Count, MaxLen, Acc ) ->

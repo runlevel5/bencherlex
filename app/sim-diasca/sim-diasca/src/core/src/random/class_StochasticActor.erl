@@ -282,7 +282,7 @@ remove_law( LawIdentifier, State ) ->
 
 		true ->
 
-			NewLaws = lists:keydelete( _Key=LawIdentifier, _Index=1,
+			NewLaws = lists:keydelete( _Key2=LawIdentifier, _Index2=1,
 									  CurrentLaws ),
 
 			setAttribute( State, random_laws, NewLaws );

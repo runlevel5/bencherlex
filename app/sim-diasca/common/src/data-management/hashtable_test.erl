@@ -139,7 +139,7 @@ run() ->
 
 	2 = hashtable:foldOnEntries( FunCount, _InitialCount=0, MyH4 ),
 
-	0 = hashtable:foldOnEntries( FunCount, _InitialCount=0, MyH1 ),
+	0 = hashtable:foldOnEntries( FunCount, _InitialCount2=0, MyH1 ),
 
 	true = list_utils:unordered_compare( [ ?MyFirstKey, ?MySecondKey ],
 										 hashtable:keys( MyH4 ) ),

@@ -141,7 +141,7 @@ run() ->
 
 	2 = map_hashtable:foldOnEntries( FunCount, _InitialCount=0, MyH4 ),
 
-	0 = map_hashtable:foldOnEntries( FunCount, _InitialCount=0, MyH1 ),
+	0 = map_hashtable:foldOnEntries( FunCount, _InitialCount2=0, MyH1 ),
 
 
 	true = list_utils:unordered_compare( [ ?MyFirstKey, ?MySecondKey ],

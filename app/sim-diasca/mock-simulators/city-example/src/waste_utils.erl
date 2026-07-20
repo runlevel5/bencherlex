@@ -380,8 +380,8 @@ add_waste_to_tank( Tank=#waste_tank{ current_mass_stored=CurrentMass,
 	throw( { too_large_addition_to_tank, MassToAdd, Tank } );
 
 
-add_waste_to_tank( Tank=#waste_tank{ current_mass_stored=0.0 },
-					MassToAdd, WasteType ) ->
+add_waste_to_tank( Tank=#waste_tank{ current_mass_stored=Stored },
+					MassToAdd, WasteType ) when Stored == 0.0 ->
 	% No more empty now, type must be updated:
 	Tank#waste_tank{ current_mass_stored=MassToAdd, current_type=WasteType };
 
@@ -466,7 +466,7 @@ remove_waste_from_tank( Tank=#waste_tank{ current_mass_stored=CurrentMass },
 %
 -spec is_tank_empty( waste_tank() ) -> boolean().
 is_tank_empty( Tank ) ->
-	Tank#waste_tank.current_mass_stored =:= 0.0.
+	Tank#waste_tank.current_mass_stored == 0.0.
 
 
 % Returns whether the specified tank is full.

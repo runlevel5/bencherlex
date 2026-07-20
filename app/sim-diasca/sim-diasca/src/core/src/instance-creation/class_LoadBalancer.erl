@@ -1685,7 +1685,7 @@ add_seed_for( AAI, SeedTable ) ->
 
 	ActorSeed = random_utils:get_random_seed(),
 
-	NewSeedTable = ?hashtable_type:addEntry( _K=AAI, _V=ActorSeed, SeedTable ),
+	NewSeedTable = ?hashtable_type:addEntry( _K2=AAI, _V=ActorSeed, SeedTable ),
 
 	{ NewSeedTable, ActorSeed }.
 

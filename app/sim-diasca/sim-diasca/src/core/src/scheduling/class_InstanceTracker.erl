@@ -1415,7 +1415,7 @@ resolve_locally( Pid, State ) ->
 			% Then maybe then this local PID corresponds to a simulation agent?
 			AgentTable = ?getAttr(agent_table),
 
-			case ?hashtable_type:lookupEntry( _Key=Pid, AgentTable ) of
+			case ?hashtable_type:lookupEntry( _Key3=Pid, AgentTable ) of
 
 				{ value, AgentRef } ->
 					AgentRef;
@@ -1425,7 +1425,7 @@ resolve_locally( Pid, State ) ->
 					% Last chance: might then be result producer?
 					ProducerTable = ?getAttr(producer_table),
 
-					case ?hashtable_type:lookupEntry( _Key=Pid,
+					case ?hashtable_type:lookupEntry( _Key2=Pid,
 													 ProducerTable ) of
 
 						{ value, ProducerRef } ->

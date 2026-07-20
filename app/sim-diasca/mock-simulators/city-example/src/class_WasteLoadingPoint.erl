@@ -228,8 +228,8 @@ get_waste_from_tanks( _WasteType, RemainingFreeMass, _WasteTanks=[], AccTanks,
 
 
 get_waste_from_tanks( WasteType, RemainingFreeMass, _WasteTanks=[
-						Tank=#waste_tank{ current_mass_stored=0.0 } | T ],
-					  AccTanks, LoadedWasteType ) ->
+						Tank=#waste_tank{ current_mass_stored=Stored } | T ],
+					  AccTanks, LoadedWasteType ) when Stored == 0.0 ->
 
 	% An empty tank is of no use here, continuing the iterating:
 	get_waste_from_tanks( WasteType, RemainingFreeMass,  T, [ Tank | AccTanks ],

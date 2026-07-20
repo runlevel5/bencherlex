@@ -34,8 +34,10 @@
 
 
 % Parameters taken by the constructor ('construct').
+% The second parameter is the MTTR (no _MTTR= label here: WOOPER expands this
+% macro several times in the same clauses).
 -define( wooper_construct_parameters, ActorSettings,
-		_MTTR={ MaxTTRday, MaxTTRhour, MaxTTRminute, MaxTTRsecond } ).
+		{ MaxTTRday, MaxTTRhour, MaxTTRminute, MaxTTRsecond } ).
 
 
 % Declaring all variations of WOOPER-defined standard life-cycle operations:

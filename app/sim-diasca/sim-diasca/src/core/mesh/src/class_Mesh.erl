@@ -1421,7 +1421,7 @@ init_common( State, Options ) ->
 
 	end,
 
-	LayoutInfo = case lists:keyfind( layout, _Index=1, Options ) of
+	LayoutInfo = case lists:keyfind( layout, _Index2=1, Options ) of
 
 		{ layout, Layout } ->
 			case is_known_layout( Layout ) of

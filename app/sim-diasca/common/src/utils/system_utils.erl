@@ -666,7 +666,7 @@ get_total_physical_memory() ->
 			%
 			case execute_command( ValueCommand ) of
 
-				{ _ExitCode=0, MemSizeString } ->
+				{ _ExitCode2=0, MemSizeString } ->
 
 					% They were probably kiB:
 					list_to_integer( MemSizeString ) * 1024;
@@ -1018,8 +1018,8 @@ compute_detailed_cpu_usage( _StartCounters={ U1, N1, S1, I1, O1 },
 	% This would be great if we could avoid a division by zero:
 	case User + Nice + System + Idle + Other of
 
-		% Yes, this happens:
-		0.0 ->
+		% Yes, this happens (0.0 or -0.0):
+		Zero when Zero == 0.0 ->
 			undefined;
 
 		Sum ->

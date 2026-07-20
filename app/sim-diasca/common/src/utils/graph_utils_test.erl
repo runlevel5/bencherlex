@@ -94,8 +94,8 @@ run() ->
 					( _OtherLetter, _Graph ) -> false
 				 end,
 
-	ZRes = graph_utils:find_breadth_first( _InitialVertex=a, ZPredicate, Feeder,
-					_UserData=LetterGraph ),
+	ZRes = graph_utils:find_breadth_first( _InitialVertex2=a, ZPredicate, Feeder,
+					_UserData2=LetterGraph ),
 
 	test_facilities:display( "Path from a to z: ~p.", [ ZRes ] ),
 

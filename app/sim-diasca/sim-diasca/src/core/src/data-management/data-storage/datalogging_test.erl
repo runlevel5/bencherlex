@@ -90,7 +90,7 @@ manage_facility_probe( ProbeName ) ->
 									  _Sample4={7,undefined} ] },
 
 			% Try defining _Sample5={1,8} to check conflicts are detected:
-			DataLoggerPid ! { mergeData, [ MyVirtualProbeID, _Tick4=10,
+			DataLoggerPid ! { mergeData, [ MyVirtualProbeID, _Tick4b=10,
 										_Sample5={undefined,8} ] },
 
 			?test_info( "Adding dynamically a curve, "
@@ -115,7 +115,7 @@ manage_facility_probe( ProbeName ) ->
 						"(first values remains undefined)." ),
 
 			DataLoggerPid ! { mergeDataSynchronous, [ MyVirtualProbeID,
-				   _Tick7=14, _Sample9={ undefined, 3, undefined } ], self() },
+				   _Tick7b=14, _Sample9={ undefined, 3, undefined } ], self() },
 			datalogging_merge_done = test_receive(),
 
 
@@ -128,7 +128,7 @@ manage_facility_probe( ProbeName ) ->
 
 
 			?test_info( "Performing direct asynchronous sample merging." ),
-			class_DataLogger:merge_data_synchronous( ProbeTable, _Tick8=16,
+			class_DataLogger:merge_data_synchronous( ProbeTable, _Tick8b=16,
 							   _Sample11={ undefined, undefined, -2 } ),
 
 			?test_info( "Performing direct (conditional) asynchronous "

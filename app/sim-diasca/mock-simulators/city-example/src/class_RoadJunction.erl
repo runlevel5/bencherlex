@@ -346,7 +346,7 @@ define_junctions( JunctionCount, GISInfo, Acc ) ->
 											   _Mean=2, _Variance=2 ) ),
 	DrawnOutboundCount = min( 1, 1 +
 		class_RandomManager:get_positive_integer_gaussian_value(
-											   _Mean=2, _Variance=2 ) ),
+											   _Mean2=2, _Variance2=2 ) ),
 
 
 

@@ -851,7 +851,7 @@ read_probe( File, _AgentPid, _LocalInstanceTracker ) ->
 
 	{ ok, BinStateContent } = file_utils:read( File, ContentSize ),
 
-	{ ok, << CommandSize:32 >> } = file_utils:read( File, _SizeSize=4 ),
+	{ ok, << CommandSize:32 >> } = file_utils:read( File, _SizeSize3=4 ),
 
 	BinCommand = case CommandSize of
 
@@ -864,7 +864,7 @@ read_probe( File, _AgentPid, _LocalInstanceTracker ) ->
 
 	end,
 
-	{ ok, << DataSize:32 >> } = file_utils:read( File, _SizeSize=4 ),
+	{ ok, << DataSize:32 >> } = file_utils:read( File, _SizeSize2=4 ),
 
 	BinData = case DataSize of
 

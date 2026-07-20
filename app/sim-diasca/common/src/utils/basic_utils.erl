@@ -1039,7 +1039,7 @@ traverse_term( TargetTerm, _TypeDescription=list, TermTransformer, UserData )
 
 	{ TransformedTerm, NewUserData } = TermTransformer( TargetTerm, UserData ),
 
-	traverse_transformed_term( TransformedTerm, _TypeDescription=list,
+	traverse_transformed_term( TransformedTerm, _TypeDescription2=list,
 							   TermTransformer, NewUserData );
 
 

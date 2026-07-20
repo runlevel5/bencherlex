@@ -46,8 +46,9 @@ wooper_destruct( State ) ->
 
 			% ?MODULE is always the real class name here:
 			%
-			%try apply( ActualClassname, destruct, [ State ] ) of
-			try ?MODULE:destruct( State ) of
+			% (through apply/3, as classes that do not export destruct/1
+			% would otherwise get a warning about the call)
+			try apply( ?MODULE, destruct, [ State ] ) of
 
 				ReturnedState when is_record( ReturnedState, state_holder ) ->
 					ReturnedState;
@@ -117,7 +118,7 @@ wooper_destruct( State ) ->
 			try
 
 				%apply( ?MODULE, destruct, [ State ] )
-				?MODULE:destruct( State )
+				apply( ?MODULE, destruct, [ State ] )
 
 			catch
 

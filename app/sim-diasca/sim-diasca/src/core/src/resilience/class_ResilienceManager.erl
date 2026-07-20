@@ -1575,7 +1575,7 @@ update_node_table( SurvivingNodes, PreviousNodeTable, KMap ) ->
 		AgentPid = ?hashtable_type:getEntry( _K=Node, PreviousNodeTable ),
 
 		% Fetching the new k-record for this node:
-		NodeKRecord = ?hashtable_type:getEntry( _K=Node, KMap ),
+		NodeKRecord = ?hashtable_type:getEntry( _K2=Node, KMap ),
 
 		Securing = NodeKRecord#k_record.securing,
 		SecuredBy = NodeKRecord#k_record.secured_by,

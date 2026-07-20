@@ -161,7 +161,7 @@ start( ClientPID ) ->
 	% In a distributed context, there should be exactly one class manager per
 	% node.
 	%
-	case catch register( ?wooper_class_manager_name, self() ) of
+	try register( ?wooper_class_manager_name, self() ) of
 
 		true ->
 			ClientPID ! class_manager_registered,
@@ -169,11 +169,12 @@ start( ClientPID ) ->
 			EmptyClassTable = ?wooper_hashtable_type:new(
 								 ?wooper_class_count_upper_bound ),
 
-			loop( EmptyClassTable );
+			loop( EmptyClassTable )
 
+	catch
 
 		% A manager is already registered, let it be the only one and stop:
-		{ 'EXIT', { badarg,_ } } ->
+		error:badarg ->
 
 			display_msg( ?log_prefix
 						"Already a manager available, terminating" ),

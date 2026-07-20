@@ -36,6 +36,9 @@
 % General operations:
 -export([ floor/1, ceiling/1, round_after/2, modulo/2, clamp/3, squarify/1 ]).
 
+% Defined here since before the floor/1 BIF existed:
+-compile({ no_auto_import, [ floor/1 ] }).
+
 
 % Operations on floating-point values:
 -export([ are_close/2, are_close/3,

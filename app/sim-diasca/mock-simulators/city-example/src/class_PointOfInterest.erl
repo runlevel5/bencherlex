@@ -314,7 +314,7 @@ to_string( State ) ->
 
 	InString = text_utils:join( ", ", lists:reverse( InStrings ) ),
 
-	OutStrings = lists:foldl( RoadFun, _Acc0=[], _OutList=Outbounds ),
+	OutStrings = lists:foldl( RoadFun, _Acc0b=[], _OutList=Outbounds ),
 
 	OutString = text_utils:join( ", ", lists:reverse( OutStrings ) ),
 

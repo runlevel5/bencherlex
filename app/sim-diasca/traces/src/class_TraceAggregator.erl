@@ -576,7 +576,7 @@ get_aggregator( CreateIfNotAvailable ) ->
 						basic_utils:wait_for_global_registration_of(
 							?trace_aggregator_name )
 
-					catch { global_registration_waiting_timeout, _Name } ->
+					catch { global_registration_waiting_timeout, _Name2 } ->
 
 							error_logger:error_msg(
 								"class_TraceAggregator:get_aggregator "

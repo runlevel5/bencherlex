@@ -1668,8 +1668,8 @@ merge_data( ProbeTable, Tick, Sample ) ->
 						SampleEntry = #probe_sample{ sample_tick=Tick,
 													 sample_data=Sample },
 
-						mnesia:write( _Tab=ProbeTable, _Record=SampleEntry,
-									  _LockKind=write );
+						mnesia:write( _Tab3=ProbeTable, _Record=SampleEntry,
+									  _LockKind3=write );
 
 
 					[ PreviousEntry ] ->
@@ -1681,8 +1681,8 @@ merge_data( ProbeTable, Tick, Sample ) ->
 						SampleEntry = #probe_sample{ sample_tick=Tick,
 													 sample_data=MergedSample },
 
-						mnesia:write( _Tab=ProbeTable, _Record=SampleEntry,
-									 _LockKind=write )
+						mnesia:write( _Tab2=ProbeTable, _Record=SampleEntry,
+									 _LockKind2=write )
 
 				end
 

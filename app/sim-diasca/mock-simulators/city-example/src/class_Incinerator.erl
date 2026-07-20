@@ -183,7 +183,7 @@ construct( State, ActorSettings, Name, Location, CapacityInformation,
 												  _CapacityInformation=[] ),
 
 	UnloadState = class_WasteUnloadingPoint:construct( LoadState, Location,
-												   _CapacityInformation=[] ),
+												   _CapacityInformation2=[] ),
 
 	PointState = class_PointOfInterest:construct( UnloadState, Name, Location,
 												  GISPid ),
@@ -537,7 +537,8 @@ update_ash_tank( AddedAsh, Tanks, State ) ->
 			AshTank#waste_tank{ current_mass_stored=NewMass,
 								current_type=bottom_ash };
 
-		0.0 ->
+		% Both 0.0 and -0.0:
+		NoMass when NoMass == 0.0 ->
 			AshTank#waste_tank{ current_mass_stored=0.0,
 								current_type=none }
 
@@ -825,7 +826,9 @@ totalize_waste(
 	  _Tanks=[ #waste_tank{ current_type=Type, current_mass_stored=Mass } | T ],
 	  Acc ) ->
 
-	NewAcc = case lists:keyfind( Key=Type, Index=1, Acc ) of
+	Key = Type,
+	Index = 1,
+	NewAcc = case lists:keyfind( Key, Index, Acc ) of
 
 		{ Type, CurrentMass } ->
 

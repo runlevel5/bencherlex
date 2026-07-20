@@ -376,11 +376,11 @@ find_pivot( [ Point={_X,Y} | Others ], PreviousPivot={ _Xp, Yp }, NewList )
 
 
 % Same level as the pivot, but at its right, thus not wanted:
-find_pivot( [ Point={X,_Y} | Others ], Pivot={ Xp, _Y }, NewList ) when X>Xp ->
+find_pivot( [ Point={X,Y} | Others ], Pivot={ Xp, Y }, NewList ) when X>Xp ->
 	find_pivot( Others, Pivot, [ Point | NewList ] );
 
 % Same level as the pivot, but at its left, thus wanted:
-find_pivot( [ Point={X,_Yp} | Others ], PreviousPivot={ Xp, _Yp }, NewList )
+find_pivot( [ Point={X,Yp} | Others ], PreviousPivot={ Xp, Yp }, NewList )
   when X<Xp ->
 	find_pivot( Others, Point, [ PreviousPivot | NewList ] );
 
@@ -418,14 +418,14 @@ sort_by_angle( _Pivot, _Points=[], LeftPoints, undefined, RightPoints ) ->
 	% Not having a middle point to integrate here:
 
 	L = lists:keysort( _Index=1, LeftPoints )
-		++ lists:keysort( _Index=1, RightPoints ),
+		++ lists:keysort( _OtherIndex=1, RightPoints ),
 	%io:format( "Full list: ~w.~n", [ L ] ),
 	reverse_and_drop_angle( L, [] );
 
 sort_by_angle( _Pivot, _Points=[], LeftPoints, MiddlePoint, RightPoints ) ->
 	%io:format( "sort_by_angle: at least one middle point found.~n" ),
 	L = lists:keysort( _Index=1, LeftPoints )
-		++ [ {dummy,MiddlePoint} | lists:keysort( _Index=1, RightPoints ) ],
+		++ [ {dummy,MiddlePoint} | lists:keysort( _OtherIndex=1, RightPoints ) ],
 	reverse_and_drop_angle( L, [] );
 
 % Note that Y<=Yp by definition of the pivot, hence Y-Yp<=0:
