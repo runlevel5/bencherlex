@@ -5,9 +5,7 @@
 %% CHAOS GENERATION LOGIC
 %%===============================================================================
 chaos_on() ->
-    {A1, A2, A3} = now(),
-    random:seed(A1,A2,A3),
-    Timer = (random:uniform(3595) + 5) * 1000,
+    Timer = (rand:uniform(3595) + 5) * 1000,
     io:format("A random process will be killed every ~p seconds.~n", [Timer div 1000]),
     chaos_on(Timer, undefined).
 
@@ -37,9 +35,7 @@ rhesus_gets_nervous(Timer) ->
 
 rhesus_attack(Timer, Router_Sup_Pid)->
     timer:sleep(Timer),
-    {A1, A2, A3} = now(),
-    random:seed(A1,A2,A3),
-    case random:uniform(4) of
+    case rand:uniform(4) of
 	1 ->
 	    Router_Sup_Pid ! rhesus_solves_conflict_router,
 	    chaos_on(Timer, Router_Sup_Pid);

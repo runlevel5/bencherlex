@@ -95,13 +95,16 @@ client({Client_Name, Client_Monitor_Pid, Chat_Pids, Routers_List}) ->
 			    self() ! {Sender, Receiver, Message, send_message}
 		    end;		    
 		Chat_Session_Pid ->
-		    Unique_ID = integer_to_list(erlang:crc32(Session_Name)) ++ integer_to_list(sys_time(now())),
-		    Chat_Session_Pid ! {Unique_ID, Sender, Receiver, now(), Message},
+		    %% erlang:timestamp/0, unlike the erlang:now/0 it replaces, can
+		    %% return the same time twice, hence the unique integer.
+		    Unique_ID = integer_to_list(erlang:crc32(Session_Name)) ++ integer_to_list(sys_time(erlang:timestamp()))
+			++ "_" ++ integer_to_list(erlang:unique_integer([positive])),
+		    Chat_Session_Pid ! {Unique_ID, Sender, Receiver, erlang:timestamp(), Message},
 		    case Message == finish_chat_session of
 			true ->
 			    ok;
 			false ->
-			    Metadata = {Unique_ID, Session_Name, Sender, Receiver, now()},
+			    Metadata = {Unique_ID, Session_Name, Sender, Receiver, erlang:timestamp()},
 			    notify_logger(s, Metadata, not_delivered)
 		    end,
 		    client({Client_Name, Client_Monitor_Pid, Chat_Pids, Routers_List})
@@ -122,7 +125,7 @@ client({Client_Name, Client_Monitor_Pid, Chat_Pids, Routers_List}) ->
 	    Client_Monitor_Pid ! {add_chat_session, {Session_Name, Chat_Session_Pid}},
 	    client({Client_Name, Client_Monitor_Pid, New_Chat_Pids, Routers_List});
 	{Metadata, message_delivered_ok} ->
-	    Timestamp_2 = now(),
+	    Timestamp_2 = erlang:timestamp(),
 	    {_, _, _, _, Timestamp_1} = Metadata,
 	    Latency = timer:now_diff(Timestamp_2, Timestamp_1)/2,
 	    %%io:format("ok. Latency = ~p microseconds~n", [Latency]),
@@ -131,7 +134,7 @@ client({Client_Name, Client_Monitor_Pid, Chat_Pids, Routers_List}) ->
 	{Unique_ID, Sender, _Message, Chat_Session_Pid, Timestamp, receive_message} ->
 	    %%io:format("~p wrote: ~p~n", [Sender, Message]),
 	    Chat_Session_Pid ! {Sender, Unique_ID, Timestamp, message_delivered_ok},
-	    Metadata = {Unique_ID, undefined, Sender, Client_Name, now()},
+	    Metadata = {Unique_ID, undefined, Sender, Client_Name, erlang:timestamp()},
 	    notify_logger(r, Metadata, received),
 	    client({Client_Name, Client_Monitor_Pid, Chat_Pids, Routers_List});
 	{Chat_Session_Name, {'EXIT', ok}} ->
@@ -471,9 +474,7 @@ start_traffic(Num_Node, Total_Nodes, Total_Clients, Num_Generators) ->
 traffic_generator(Num_Node, Total_Nodes, Total_Clients)->
     %%io:format("Traffic Generator started.~n",[]),
     Environment = {Num_Node, Total_Nodes, Total_Clients},
-    {A1, A2, A3} = now(),
-    random:seed(A1, A2, A3),
-    Interactions = random:uniform(48) + 12,
+    Interactions = rand:uniform(48) + 12,
     {Sender, Receiver} = pick_random_clients(Num_Node, Total_Nodes, Total_Clients),
     %%io:format("Sender is ~p.~n",[Sender]),
     %%io:format("Receiver is ~p.~n",[Receiver]),
@@ -494,9 +495,9 @@ interaction_generator(Environment, Sender, Receiver, Interactions)->
     %%io:format("There are ~p interactions left.~n", [Interactions]),
     case Interactions > 0 of
 	true ->
-	    timer:sleep(random:uniform(20) * 1000),
+	    timer:sleep(rand:uniform(20) * 1000),
 	    %%io:format("Sending message to: ~p~n", [Client_B]),
-	    Message = [random:uniform(26) + 96 || _ <- lists:seq(1, random:uniform(75))],
+	    Message = [rand:uniform(26) + 96 || _ <- lists:seq(1, rand:uniform(75))],
 	    Client_A_Pid ! {Client_A, Client_B, Message, send_message},
 	    interaction_generator(Environment, Receiver, Sender, Interactions - 1);
 	false ->
@@ -555,7 +556,7 @@ fixed_interaction_generator(Environment, Sender, Receiver, Interactions, Num_Con
     {Client_B, _Client_B_Pid} = Receiver,
     case Interactions > 0 of
 	true ->
-	    Message = [random:uniform(26) + 96 || _ <- lists:seq(1, random:uniform(75))],
+	    Message = [rand:uniform(26) + 96 || _ <- lists:seq(1, rand:uniform(75))],
 	    Client_A_Pid ! {Client_A, Client_B, Message, send_message},
 	    timer:sleep(8000),
 	    fixed_interaction_generator(Environment, Receiver, Sender, Interactions - 1, Num_Conversations);
@@ -590,9 +591,7 @@ pick_random_clients(Num_Node, _Total_Nodes, Total_Clients) ->
 %% @end
 %%--------------------------------------------------------------------
 pick_random_sender(Num_Node, Total_Clients) ->
-    {A1, A2, A3} = now(),
-    random:seed(A1, A2, A3),
-    Num_Client = random:uniform(Total_Clients),
+    Num_Client = rand:uniform(Total_Clients),
     Client_Name = client_name(Num_Client, Num_Node),
     Target_DB = whereis(client_db_name(Num_Node)),
     Target_DB ! {self(), retrieve, Client_Name},
@@ -613,9 +612,7 @@ pick_random_sender(Num_Node, Total_Clients) ->
 %% @end
 %%--------------------------------------------------------------------
 pick_random_receiver(Num_Node, Total_Clients) ->
-    {A1, A2, A3} = now(),
-    random:seed(A1, A2, A3),
-    Num_Client = random:uniform(Total_Clients),
+    Num_Client = rand:uniform(Total_Clients),
     Client_Name = client_name(Num_Client, Num_Node),
     Target_DB = whereis(client_db_name(Num_Node)),
     Target_DB ! {self(), peak, Client_Name},
@@ -661,9 +658,7 @@ put_back_client(Client) ->
 %% @end
 %%--------------------------------------------------------------------
 pick_router(Routers_List) ->
-    {A1, A2, A3} = now(),
-    random:seed(A1, A2, A3),
-    Router = lists:nth(random:uniform(length(Routers_List)),Routers_List),
+    Router = lists:nth(rand:uniform(length(Routers_List)),Routers_List),
     {_, Router_Pid} = Router,
     Router_Pid.
 

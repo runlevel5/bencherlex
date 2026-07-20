@@ -194,9 +194,7 @@ server_supervisor_loop(Server_Name, Client_DBs, Chat_DBs, Monitored_Processes) -
 	    New_Chat_DBs = db_names_swap(Chat_DBs),
 	    server_supervisor_loop(Server_Name, New_Client_DBs, New_Chat_DBs, Monitored_Processes);
 	kill_server_process ->
-	    {A1, A2, A3} = now(),
-	    random:seed(A1, A2, A3),
-	    case random:uniform(60) of
+	    case rand:uniform(60) of
 		Number when Number =< 12 ->
 		    %% Processes_To_Kill = ets:select(Monitored_Proc_Table,
 		    %% 				   [{{'$0', '$1', '$2'},
@@ -208,13 +206,13 @@ server_supervisor_loop(Server_Name, Client_DBs, Chat_DBs, Monitored_Processes) -
 						   [{{'$0', '$1', '$2'},
 						     [{'==', '$1', "Chat_DB"}],
 						     ['$0']}]),
-		    Pid_To_Kill = lists:nth(random:uniform(length(Processes_To_Kill)),Processes_To_Kill);
+		    Pid_To_Kill = lists:nth(rand:uniform(length(Processes_To_Kill)),Processes_To_Kill);
 		Number when Number > 24, Number =< 36 ->
 		    Processes_To_Kill = ets:select(Monitored_Proc_Table,
 						   [{{'$0', '$1', '$2'},
 						     [{'==', '$1', "Client_DB"}],
 						     ['$0']}]),
-		    Pid_To_Kill = lists:nth(random:uniform(length(Processes_To_Kill)),Processes_To_Kill);
+		    Pid_To_Kill = lists:nth(rand:uniform(length(Processes_To_Kill)),Processes_To_Kill);
 		Number when Number > 36, Number =< 48 ->
 		    Pid_To_Kill = self();
 		Number when Number > 48, Number =< 54 ->
@@ -222,13 +220,13 @@ server_supervisor_loop(Server_Name, Client_DBs, Chat_DBs, Monitored_Processes) -
 						   [{{'$0', '$1', '$2'},
 						     [{'==', '$1', "Client_Monitor"}],
 						     ['$0']}]),
-		    Pid_To_Kill = lists:nth(random:uniform(length(Processes_To_Kill)),Processes_To_Kill);
+		    Pid_To_Kill = lists:nth(rand:uniform(length(Processes_To_Kill)),Processes_To_Kill);
 		Number when Number > 54 ->
 		     Processes_To_Kill = ets:select(Monitored_Proc_Table,
 						   [{{'$0', '$1', '$2'},
 						     [{'==', '$1', "Chat_Session"}],
 						     ['$0']}]),
-		    Pid_To_Kill = lists:nth(random:uniform(length(Processes_To_Kill)),Processes_To_Kill)
+		    Pid_To_Kill = lists:nth(rand:uniform(length(Processes_To_Kill)),Processes_To_Kill)
 	    end,
 	    exit(Pid_To_Kill, kill),
 	    server_supervisor_loop(Server_Name, Client_DBs, Chat_DBs, Monitored_Processes);

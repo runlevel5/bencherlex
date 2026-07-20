@@ -598,7 +598,7 @@ loop({initial_state, Table_Name, Num_Trials, Threshold}, Dir) ->
 	_Other ->
 	    ok
     end,
-    {_Status, Fd2} = create_file(Dir, Table_Name ++ "_Summary.txt"),
+    {_Status2, Fd2} = create_file(Dir, Table_Name ++ "_Summary.txt"),
     case Fd2 of
 	unable_to_open_file ->
 	    io:format("ERROR: throughput logger cannot start.~n"),
@@ -651,7 +651,7 @@ loop({recording, Fd1, Fd2, Table_Name, Num_Trials, Threshold, Statistics},
 	    loop({recording, Fd1, Fd2, Table_Name, Num_Trials, Threshold,
 	          New_Statistics}, Dir);
 	{new_trial, New_Num_Trials} ->
-	    {{Y, M, D},{Hour,Min,Sec}} = calendar:now_to_local_time(now()),
+	    {{Y, M, D},{Hour,Min,Sec}} = calendar:now_to_local_time(erlang:timestamp()),
 	    Time = string:join([integer_to_list(Hour), integer_to_list(Min),
 	                        integer_to_list(Sec)], ":"),
 	    Date = string:join([integer_to_list(D), integer_to_list(M),

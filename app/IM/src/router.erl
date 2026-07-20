@@ -173,14 +173,10 @@ router_supervisor(R_Sup_Mon_Pid, Monitored_Routers, Routers_List, Routers_Info, 
 	%% Chaos Generation logic
 	rhesus_solves_conflict_router ->
 	    Router_Pids = extract_pids([self(), R_Sup_Mon_Pid], Routers_List),
-	    {A1, A2, A3} = now(),
-	    random:seed(A1, A2, A3),
-	    exit(lists:nth(random:uniform(length(Router_Pids)),Router_Pids),kill),
+	    exit(lists:nth(rand:uniform(length(Router_Pids)),Router_Pids),kill),
 	    router_supervisor(R_Sup_Mon_Pid, Monitored_Routers, Routers_List, Routers_Info, Routers_DBs_Pids);
 	rhesus_solves_conflict_server ->
-	    {A1, A2, A3} = now(),
-	    random:seed(A1, A2, A3),
-	    {_, Router_Pid} = lists:nth(random:uniform(length(Routers_List)),Routers_List),
+	    {_, Router_Pid} = lists:nth(rand:uniform(length(Routers_List)),Routers_List),
 	    Router_Pid ! kill_server_process,
 	    router_supervisor(R_Sup_Mon_Pid, Monitored_Routers, Routers_List, Routers_Info, Routers_DBs_Pids);
 	%% Trap for unexpected messages
@@ -242,16 +238,12 @@ router_process({final_state, R_Sup_Pid, List_Routers, List_Monitored_Servers, Li
 	%% Chat session request logic
 	{Sender, Receiver, start_chat_session}  ->
 	    %%io:format("forward start chat session request~n"),
-	    {A1, A2, A3} = now(),
-	    random:seed(A1, A2, A3),
-	    {_, Target_Server_Pid} = lists:nth(random:uniform(length(List_Servers)),List_Servers),
+	    {_, Target_Server_Pid} = lists:nth(rand:uniform(length(List_Servers)),List_Servers),
 	    Target_Server_Pid ! {Sender, Receiver, start_chat_session},
 	    router_process({final_state, R_Sup_Pid, List_Routers, List_Monitored_Servers, List_Servers, Server_Nodes});
 	%% Chaos kill request forward
 	kill_server_process ->
-	    {A1, A2, A3} = now(),
-	    random:seed(A1, A2, A3),
-	    {_, Target_Server_Pid} = lists:nth(random:uniform(length(List_Servers)),List_Servers),
+	    {_, Target_Server_Pid} = lists:nth(rand:uniform(length(List_Servers)),List_Servers),
 	    Target_Server_Pid ! kill_server_process,
 	    router_process({final_state, R_Sup_Pid, List_Routers, List_Monitored_Servers, List_Servers, Server_Nodes});
 	%% Error Handling
@@ -328,9 +320,7 @@ router_process({recovery_state, R_Sup_Pid, List_Routers, List_Monitored_Servers,
 %% CHAOS GENERATION LOGIC
 %%===============================================================================
 chaos_on() ->
-    {A1, A2, A3} = now(),
-    random:seed(A1,A2,A3),
-    Timer = (random:uniform(3595) + 5) * 1000,
+    Timer = (rand:uniform(3595) + 5) * 1000,
     io:format("A random process will be killed every ~p seconds.~n", [Timer div 1000]),
     chaos_on(Timer, undefined).
 
@@ -360,9 +350,7 @@ rhesus_gets_nervous(Timer) ->
 
 rhesus_attack(Timer, Router_Sup_Pid)->
     timer:sleep(Timer),
-    {A1, A2, A3} = now(),
-    random:seed(A1,A2,A3),
-    case random:uniform(4) of
+    case rand:uniform(4) of
 	1 ->
 	    Router_Sup_Pid ! rhesus_solves_conflict_router,
 	    chaos_on(Timer, Router_Sup_Pid);
