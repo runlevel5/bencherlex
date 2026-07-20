@@ -311,7 +311,8 @@ getCurrentTick( State ) ->
 %
 -spec display( wooper:state() ) -> oneway_return().
 display( State ) ->
-	wooper:display_instance( State ),
+	% (wooper:display_instance/1 exists in debug mode only)
+	error_logger:info_msg( "~s~n", [ wooper:state_to_string( State ) ] ),
 	?wooper_return_state_only( State ).
 
 

@@ -690,7 +690,7 @@ create_panel( Parent, Options ) ->
 -spec create_panel( window(), coordinate(), coordinate(),
 					length(), length() ) -> panel().
 create_panel( Parent, X, Y, Width, Height ) ->
-	wxPanel:new( Parent, X, Y, Width, Height ).
+	wxPanel:new( Parent, [ { pos, { X, Y } }, { size, { Width, Height } } ] ).
 
 
 
@@ -703,7 +703,8 @@ create_panel( Parent, X, Y, Width, Height, Options ) ->
 
 	ActualOptions = get_panel_options( Options ),
 
-	wxPanel:new( Parent, X, Y, Width, Height, ActualOptions ).
+	wxPanel:new( Parent, [ { pos, { X, Y } }, { size, { Width, Height } }
+						   | ActualOptions ] ).
 
 
 
