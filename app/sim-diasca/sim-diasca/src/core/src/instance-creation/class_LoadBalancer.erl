@@ -407,7 +407,7 @@ construct( State, ?wooper_construct_parameters ) ->
 
 
 	% Checking, as currently only this random module can be seeded apparently:
-	random = random_utils:get_random_module_name(),
+	rand = random_utils:get_random_module_name(),
 
 	TraceState = setAttributes( InitialState, [
 
@@ -1569,7 +1569,7 @@ manage_seeding( ergodic ) ->
 	%
 	% (not using the time_based_seed parameter, as we want to report what is the
 	% actual seed used)
-	TimeSeed = { A, B, C } = erlang:now(),
+	TimeSeed = { A, B, C } = erlang:timestamp(),
 
 	random_utils:start_random_source( A, B, C ),
 

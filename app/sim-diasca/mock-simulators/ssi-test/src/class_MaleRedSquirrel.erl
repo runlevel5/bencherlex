@@ -300,8 +300,8 @@ eat_nuts( State ) ->
 % This function is called only one time when a new male is created.
 %
 get_initial_tail_length()->
-	%random:uniform(N): Returns a random float between 0 and N
-	6 - random:uniform(3).
+	%rand:uniform(N): Returns a random float between 0 and N
+	6 - rand:uniform(3).
 
 
 

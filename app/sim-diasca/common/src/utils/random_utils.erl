@@ -54,8 +54,8 @@
 % SIMD-oriented Fast Mersenne Twister):
 %
 -type seed_element() :: integer().
--type random_state() :: { seed_element(), seed_element(), seed_element() }.
--type seed() :: random_state().
+-type seed() :: { seed_element(), seed_element(), seed_element() }.
+-type random_state() :: rand:export_state() | seed().
 
 
 -export_type([
@@ -96,7 +96,7 @@
 
 % Specs gathered here, because of macro guards.
 -spec start_random_source( seed_element(), seed_element(), seed_element() )
-						 -> random_state().
+						 -> rand:state().
 
 -spec start_random_source( 'default_seed' | 'time_based_seed' | seed() ) ->
 								basic_utils:void().
@@ -257,19 +257,16 @@ set_random_state( _NewState ) ->
 -else. % use_crypto_module not defined below:
 
 
-% For the 'random' module, according to
-% http://osdir.com/ml/erlang-questions-programming/2013-10/msg00235.html one
-% must ensure the initial values are large, and different enough.
-
-
-
-% Default random module used here.
+% Default random module used here: rand, with the exsss algorithm (the random
+% module it replaces has been deprecated).
 %
 % The seed and state management is per-process (stored in the process
 % dictionary). We prefer that.
 
+-define(rand_algorithm, exsss).
+
 start_random_source( A, B, C ) ->
-	random:seed( A, B, C ).
+	rand:seed( ?rand_algorithm, { A, B, C } ).
 
 
 % Seeds the random number generator, either with specified seed, or with a
@@ -282,13 +279,13 @@ start_random_source( { A, B, C } ) ->
 	start_random_source( A, B, C );
 
 start_random_source( default_seed ) ->
-	% Use default (fixed) values in the process dictionary:
-	random:seed();
+	% Use default (fixed) values, the ones of the former random module:
+	start_random_source( 3172, 9814, 20125 );
 
 start_random_source( time_based_seed ) ->
 
 	% Each run will result in different random series:
-	{ A, B, C } = erlang:now(),
+	{ A, B, C } = erlang:timestamp(),
 
 	% Directly inspired from third example in
 	% http://osdir.com/ml/erlang-questions-programming/2013-10/msg00244.html:
@@ -307,7 +304,7 @@ stop_random_source() ->
 % Spec already specified, for all random settings.
 %
 get_random_value() ->
-	random:uniform().
+	rand:uniform().
 
 
 
@@ -320,7 +317,7 @@ get_random_value() ->
 % Spec already specified, for all random settings.
 %
 get_random_value( N ) ->
-	random:uniform( N ).
+	rand:uniform( N ).
 
 
 
@@ -347,9 +344,9 @@ get_random_value( Nmin, Nmax ) when Nmin =< Nmax ->
 %
 % Spec already specified, for all random settings.
 %
--spec get_random_module_name() -> 'random'.
+-spec get_random_module_name() -> 'rand'.
 get_random_module_name() ->
-	random.
+	rand.
 
 
 
@@ -360,22 +357,9 @@ get_random_module_name() ->
 %
 get_random_state() ->
 
-	% Read from the process dictionary:
-
-	% Actually, no state should not be considered as an error:
-	%case erlang:get( random_seed ) of
-	%
-	%		undefined ->
-	%		% Probably that there has been not prior seeding:
-	%		throw( random_state_not_available );
-	%
-	%	S ->
-	%		S
-	%
-	%end.
-
-	% May return 'undefined', if not seeded yet:
-	erlang:get( random_seed ).
+	% May return 'undefined', if not seeded yet (no state should not be
+	% considered as an error):
+	rand:export_seed().
 
 
 
@@ -384,10 +368,16 @@ get_random_state() ->
 %
 % Spec already specified, for all random settings.
 %
-set_random_state( NewState ) ->
+% A seed (a triplet of integers) is accepted as well, and starts a new series.
+%
+set_random_state( { A, B, C } ) when is_integer( A ) andalso is_integer( B )
+									 andalso is_integer( C ) ->
+	start_random_source( A, B, C ),
+	ok;
 
-	% Process dictionary:
-	erlang:put( random_seed, NewState ).
+set_random_state( NewState ) ->
+	rand:seed( NewState ),
+	ok.
 
 
 

@@ -2920,7 +2920,7 @@ check_stochastic_resilience() ->
 
 	case random_utils:get_random_module_name() of
 
-		'random' ->
+		'rand' ->
 			ok;
 
 		Other ->

@@ -242,10 +242,10 @@ send_probe_data( CurrentOffset, State ) ->
 	class_DataLogger:send_data(
 					?getAttr(first_probe_ref),
 					CurrentOffset,
-					_FirstSample={ random:uniform(50), random:uniform(30) } ),
+					_FirstSample={ rand:uniform(50), rand:uniform(30) } ),
 
 	class_DataLogger:send_data(
 					?getAttr(second_probe_ref),
 					CurrentOffset,
-					_SecondSample={ random:uniform(100), random:uniform(30),
-								   random:uniform(150) } ).
+					_SecondSample={ rand:uniform(100), rand:uniform(30),
+								   rand:uniform(150) } ).
