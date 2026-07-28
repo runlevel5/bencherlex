@@ -96,9 +96,9 @@ get_live_dht_nodes() ->
 
 -spec get_round_trip(GPid::comm:mypid(), Iterations::pos_integer()) -> float().
 get_round_trip(GPid, Iterations) ->
-    Start = erlang:now(),
+    Start = erlang:timestamp(),
     get_round_trip_helper(GPid, Iterations),
-    End = erlang:now(),
+    End = erlang:timestamp(),
     timer:now_diff(End, Start) / Iterations.
 
 -spec get_round_trip_helper(GPid::comm:mypid(), Iterations::pos_integer()) -> ok.

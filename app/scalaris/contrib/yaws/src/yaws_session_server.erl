@@ -134,7 +134,7 @@ delete_session(CookieVal) ->
 %%----------------------------------------------------------------------
 init(Backend) ->
     {X,Y,Z} = seed(),
-    random:seed(X, Y, Z),
+    _ = rand:seed(exsss, {X, Y, Z}),
     Backend:init_backend(record_info(fields, ysession)),
     start_long_timer(),
     {ok, #state{backend = Backend}, to()}.
@@ -153,7 +153,7 @@ handle_call({new_session, Opaque, undefined, Cleanup, Cookie}, From, State) ->
     handle_call({new_session, Opaque, ?TTL, Cleanup, Cookie}, From, State);
 
 handle_call({new_session, Opaque, TTL, Cleanup, undefined}, From, State) ->
-    N = random:uniform(16#ffffffffffffffff), %% 64 bits
+    N = rand:uniform(16#ffffffffffffffff), %% 64 bits
     Cookie = atom_to_list(node()) ++ [$-|integer_to_list(N)],
     handle_call({new_session, Opaque, TTL, Cleanup, Cookie}, From, State);
 

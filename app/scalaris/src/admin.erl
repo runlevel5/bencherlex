@@ -254,7 +254,7 @@ get_dump() ->
 -spec get_dump_bw() -> list({atom(), float(), float()}).
 get_dump_bw() ->
     {Map, StartTime} = get_dump(),
-    RunTime = timer:now_diff(erlang:now(), StartTime),
+    RunTime = timer:now_diff(erlang:timestamp(), StartTime),
     [{Tag, Size / RunTime, Count / RunTime} || {Tag, {Size, Count}} <- gb_trees:to_list(Map)].
 
 get_aggregate(_Tag, []) ->

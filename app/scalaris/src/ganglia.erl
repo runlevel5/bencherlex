@@ -35,7 +35,7 @@ start_link() ->
 
 -spec start() -> no_return().
 start() ->
-    Last = erlang:now(),
+    Last = erlang:timestamp(),
     ganglia_loop(Last).
 
 -spec ganglia_loop(PreviousTime::util:time()) -> no_return().
@@ -43,7 +43,7 @@ ganglia_loop(_Last) ->
     % message statistics
     {Tree, _Time} = comm_logger:dump(),
     update(Tree),
-    Now = erlang:now(),
+    Now = erlang:timestamp(),
     % transaction statistics
     % TODO: get statistics from the client monitor
 %%     SinceLast = timer:now_diff(Now, Last),

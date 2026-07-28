@@ -47,11 +47,14 @@ new_() ->
             {error, eexist} -> ok;
             {error, Error} -> exit({db_toke, 'cannot create dir', FullDir, Error})
         end,
-    {_Now_Ms, _Now_s, Now_us} = Now = erlang:now(),
+    {_Now_Ms, _Now_s, Now_us} = Now = erlang:timestamp(),
     {{Year, Month, Day}, {Hour, Minute, Second}} = calendar:now_to_local_time(Now),
+    %% The unique integer keeps two databases created in the same microsecond
+    %% apart.
     FileBaseName = util:make_filename(
-                     io_lib:format("db_~B~B~B-~B~B~B\.~B.tch",
-                                   [Year, Month, Day, Hour, Minute, Second, Now_us])),
+                     io_lib:format("db_~B~B~B-~B~B~B\.~B.~B.tch",
+                                   [Year, Month, Day, Hour, Minute, Second, Now_us,
+                                    erlang:unique_integer([positive])])),
     FullFileName = lists:flatten([FullDir, "/", FileBaseName]),
     new_db(FullFileName, [read, write, create, truncate]).
 

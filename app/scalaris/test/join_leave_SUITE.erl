@@ -268,9 +268,9 @@ tester_join_at_timeouts(Config) ->
 
 -spec stop_time(F::fun(() -> any()), Tag::string()) -> ok.
 stop_time(F, Tag) ->
-    Start = erlang:now(),
+    Start = erlang:timestamp(),
     F(),
-    Stop = erlang:now(),
+    Stop = erlang:timestamp(),
     ElapsedTime = timer:now_diff(Stop, Start) / 1000000.0,
     Frequency = 1 / ElapsedTime,
     ct:pal("~p took ~ps: ~p1/s~n",

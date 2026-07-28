@@ -53,22 +53,13 @@ run(GC) ->
     end.
 
 rand() ->
-    case os:type() of
-        {win32, _} ->
-            {A1, A2, A3}=now(),
-            random:seed(A1, A2, A3),
-            random:uniform(1 bsl 64);
-        _ ->
-            try
-                crypto:start(),
-                crypto:rand_uniform(0, 1 bsl 64)
-            catch
-                _:_ ->
-                    error_logger:warning_msg("Running without crypto app\n"),
-                    {A1, A2, A3}=now(),
-                    random:seed(A1, A2, A3),
-                    random:uniform(1 bsl 64)
-            end
+    try
+        <<N:64>> = crypto:strong_rand_bytes(8),
+        N
+    catch
+        _:_ ->
+            error_logger:warning_msg("Running without crypto app\n"),
+            rand:uniform(1 bsl 64) - 1
     end.
 
 

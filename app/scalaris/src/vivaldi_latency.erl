@@ -53,7 +53,7 @@
 %% @doc message handler
 -spec on(Message::message(), State::state()) -> state().
 on({{pong}, Count}, {Owner, RemotePid, Token, Start, Count, Latencies}) when Start =/= unknown ->
-    Stop = erlang:now(),
+    Stop = erlang:timestamp(),
     NewLatencies = [timer:now_diff(Stop, Start) | Latencies],
     case Count =:= config:read(vivaldi_count_measurements) of
         true ->
@@ -72,7 +72,7 @@ on({{pong}, _Count}, State) ->
 on({start_ping}, {Owner, RemotePid, Token, _, Count, Latencies}) ->
     NewCount = Count + 1,
     comm:send(RemotePid, {ping, comm:this_with_cookie(NewCount)}, ?SEND_OPTIONS),
-    {Owner, RemotePid, Token, erlang:now(), NewCount, Latencies};
+    {Owner, RemotePid, Token, erlang:timestamp(), NewCount, Latencies};
 
 on({shutdown}, _State) ->
     log:log(info, "shutdown vivaldi_latency due to timeout", []),

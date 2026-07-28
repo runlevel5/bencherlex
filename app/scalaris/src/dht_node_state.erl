@@ -72,7 +72,7 @@
 new(RT, RMState, DB) ->
     #state{rt = RT,
            rm_state = RMState,
-           join_time = now(),
+           join_time = erlang:timestamp(),
            db = DB,
            tx_tp_db = tx_tp:init(),
            proposer = pid_groups:get_my(paxos_proposer),

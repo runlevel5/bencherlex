@@ -53,7 +53,7 @@ all() ->
      comm_local,
      erlang_send_after,
      erlang_spawn,
-     erlang_now,
+     erlang_timestamp,
      os_timestamp,
      term_to_binary1,
      unicode_chars_to_binary1
@@ -252,8 +252,8 @@ erlang_spawn(_Config) ->
     iter(count(), fun() -> spawn(fun() -> ok end) end, "erlang:spawn"),
     ok.
 
-erlang_now(_Config) ->
-    iter(count(), fun() -> erlang:now() end, "erlang:now"),
+erlang_timestamp(_Config) ->
+    iter(count(), fun() -> erlang:timestamp() end, "erlang:timestamp"),
     ok.
 
 os_timestamp(_Config) ->
@@ -358,9 +358,9 @@ unicode_chars_to_binary1(_Config) ->
 -spec iter(Count::pos_integer(), F::fun(() -> any()), Tag::string()) -> ok.
 iter(Count, F, Tag) ->
     F(),
-    Start = erlang:now(),
+    Start = erlang:timestamp(),
     iter_inner(Count, F),
-    Stop = erlang:now(),
+    Stop = erlang:timestamp(),
     ElapsedTime = timer:now_diff(Stop, Start) / 1000000.0,
     Frequency = Count / ElapsedTime,
     ct:pal("~p iterations of ~p took ~ps: ~p1/s~n",
@@ -377,9 +377,9 @@ iter_inner(N, F) ->
 -spec iter2(Count::pos_integer(), F::fun((Count::non_neg_integer()) -> any()), Tag::string()) -> ok.
 iter2(Count, F, Tag) ->
     _ = F(0),
-    Start = erlang:now(),
+    Start = erlang:timestamp(),
     iter2_inner(Count, F),
-    Stop = erlang:now(),
+    Stop = erlang:timestamp(),
     ElapsedTime = timer:now_diff(Stop, Start) / 1000000.0,
     Frequency = Count / ElapsedTime,
     ct:pal("~p iterations of ~s took ~ps: ~p1/s~n",
@@ -396,9 +396,9 @@ iter2_inner(N, F) ->
 -spec iter2_foldl(Count::pos_integer(), F::fun((Count::non_neg_integer(), Acc) -> Acc), Acc, Tag::string()) -> Acc.
 iter2_foldl(Count, F, Acc0, Tag) ->
     _ = F(0, Acc0),
-    Start = erlang:now(),
+    Start = erlang:timestamp(),
     FinalAcc = iter2_foldl_helper(Count, F, Acc0),
-    Stop = erlang:now(),
+    Stop = erlang:timestamp(),
     ElapsedTime = timer:now_diff(Stop, Start) / 1000000.0,
     Frequency = Count / ElapsedTime,
     ct:pal("~p foldl iterations of ~s took ~ps: ~p1/s~n",

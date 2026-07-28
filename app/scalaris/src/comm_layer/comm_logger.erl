@@ -75,7 +75,7 @@ dump() ->
 %%--------------------------------------------------------------------
 -spec init(list()) -> {ok, #state{}}.
 init([]) ->
-    {ok, #state{start=erlang:now(), map=gb_trees:empty()}}.
+    {ok, #state{start=erlang:timestamp(), map=gb_trees:empty()}}.
 
 %%--------------------------------------------------------------------
 %% Function: %% handle_call(Request, From, State) -> {reply, Reply, State} |

@@ -137,33 +137,33 @@ tester_paxos(CountAcceptors, Count, Prefix) ->
 
 test_fast_acceptors_4(_Config) ->
     Count = 10000,
-    Before = erlang:now(),
+    Before = erlang:timestamp(),
     tester_fast_paxos(4, Count, "test_acceptors_4"),
-    After = erlang:now(),
+    After = erlang:timestamp(),
     ct:pal("fast: acceptors: 4, throughput: ~p~n", [Count / (timer:now_diff(After, Before) / 1000000.0)]),
     ok.
 
 test_fast_acceptors_16(_Config) ->
     Count = 10000,
-    Before = erlang:now(),
+    Before = erlang:timestamp(),
     tester_fast_paxos(16, Count, "test_acceptors_16"),
-    After = erlang:now(),
+    After = erlang:timestamp(),
     ct:pal("fast: acceptors: 16, throughput: ~p~n", [Count / (timer:now_diff(After, Before) / 1000000.0)]),
     ok.
 
 test_acceptors_4(_Config) ->
     Count = 10000,
-    Before = erlang:now(),
+    Before = erlang:timestamp(),
     tester_paxos(4, Count, "test_acceptors_4"),
-    After = erlang:now(),
+    After = erlang:timestamp(),
     ct:pal("slow: acceptors: 4, throughput: ~p~n", [Count / (timer:now_diff(After, Before) / 1000000.0)]),
     ok.
 
 test_acceptors_16(_Config) ->
     Count = 10000,
-    Before = erlang:now(),
+    Before = erlang:timestamp(),
     tester_paxos(16, Count, "test_acceptors_16"),
-    After = erlang:now(),
+    After = erlang:timestamp(),
     ct:pal("slow: acceptors: 16, throughput: ~p~n", [Count / (timer:now_diff(After, Before) / 1000000.0)]),
     ok.
 
@@ -259,12 +259,13 @@ prop_rnd_interleave(NumProposers, NumAcceptors, Seed) ->
                                 comm:this(), cpaxidrndinterl)
             || X <- Learners],
     %% randomly step through protocol
-    OldSeed = random:seed(Seed),
+    OldSeed = rand:export_seed(),
+    _ = rand:seed(exsss, Seed),
     Steps = step_until_decide(Proposers ++ Acceptors ++ Learners, cpaxidrndinterl, 0),
     ct:pal("Needed ~p steps~n", [Steps]),
     _ = case OldSeed of
             undefined -> ok;
-            _ -> random:seed(OldSeed)
+            _ -> rand:seed(OldSeed)
         end,
     _ = [ gen_component:kill(comm:make_local(X))
           || X <- lists:flatten([Proposers, Acceptors, Learners])],
@@ -278,7 +279,7 @@ step_until_decide(Processes, PaxId, SumSteps) ->
             ct:pal("No runnable processes of ~p~n", [length(Processes)]),
             timer:sleep(5), step_until_decide(Processes, PaxId, SumSteps);
         _ ->
-            Num = random:uniform(length(Runnable)),
+            Num = rand:uniform(length(Runnable)),
             _ = gen_component:bp_step(comm:make_local(lists:nth(Num, Runnable))),
             receive
                 {learner_decide, cpaxidrndinterl, _, _Res} = _Any ->

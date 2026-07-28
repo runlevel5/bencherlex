@@ -194,7 +194,7 @@ on({tcp_closed, Socket}, State) ->
     set_socket(State, notconnected);
 
 on({web_debug_info, Requestor}, State) ->
-    Now = erlang:now(),
+    Now = erlang:timestamp(),
     Runtime = timer:now_diff(Now, started(State)) / 1000000,
     {SentPerS, ReceivedPerS} =
         if Runtime =< 0 -> {"n/a", "n/a"};

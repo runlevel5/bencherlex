@@ -62,8 +62,7 @@ to_log(Cur, Level) ->
     end.
 
 get_id() ->
-    {_,_,N} = now(),
-    Id = "log4erl_" ++ integer_to_list(random:uniform(N)),
+    Id = "log4erl_" ++ integer_to_list(erlang:unique_integer([positive])),
     list_to_atom(Id).
 
 get_month_name(Month) ->

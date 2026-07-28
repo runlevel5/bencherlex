@@ -159,10 +159,10 @@ gen_Nodes([H|T],[HN|TN],R) ->
     
     S1 = pid_to_integer(HN),
     
-    _ = random:seed(S1,S1,S1),
-    C1 = random:uniform(Hi-Lo)+Lo-1,
-    C2 = random:uniform(Hi-Lo)+Lo-1,
-    C3 = random:uniform(Hi-Lo)+Lo-1,
+    _ = rand:seed(exsss, {S1,S1,S1}),
+    C1 = rand:uniform(Hi-Lo)+Lo-1,
+    C2 = rand:uniform(Hi-Lo)+Lo-1,
+    C3 = rand:uniform(Hi-Lo)+Lo-1,
     io_lib:format("<circle cx=\"~p\" cy=\"~p\" r=\"~p\" style=\"fill:rgb( ~p, ~p ,~p) ;\" />~n",
                   [lists:nth(1, H),lists:nth(2, H),R,C1,C2,C3])
         ++ gen_Nodes(T,TN,R).

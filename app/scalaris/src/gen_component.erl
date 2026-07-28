@@ -406,7 +406,7 @@ loop(Module, Handler, ReceivedMsg, State, {_Options, _Slowest, _BPState} = Compo
         Message ->
             TmpComponentState =
                 handle_breakpoint(Message, State, ComponentState),
-            %% Start = erlang:now(),
+            %% Start = erlang:timestamp(),
             case (try Handler(Message, State)
                   catch Level:Reason:Stacktrace ->
                             case Stacktrace of
@@ -471,7 +471,7 @@ loop(Module, Handler, ReceivedMsg, State, {_Options, _Slowest, _BPState} = Compo
                             end
                     end;
                 NewState ->
-                    %%Stop = erlang:now(),
+                    %%Stop = erlang:timestamp(),
                     %%Span = timer:now_diff(Stop, Start),
                     %%if
                     %% Span > Slowest ->

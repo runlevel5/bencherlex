@@ -108,7 +108,7 @@ manage_run(ThreadsPerVM, Iterations, Options, Message) ->
 manage_run_internal(ThreadsPerVM, Iterations, Options, Message) ->
     ServerList = util:get_proc_in_vms(bench_server),
     %% io:format("~p~n", [ServerList]),
-    Before = erlang:now(),
+    Before = erlang:timestamp(),
     _ = [comm:send(Server, Message) || Server <- ServerList],
     fd:subscribe(ServerList),
     io:format("Collecting results... ~n"),
@@ -121,7 +121,7 @@ manage_run_internal(ThreadsPerVM, Iterations, Options, Message) ->
                                         Mean + Iterations / element(3, Stats) * 1000000.0 * ThreadsPerVM,
                                         Max + Iterations / element(2, Stats) * 1000000.0 * ThreadsPerVM}
                      end, {0.0, 0.0, 0.0}, Statistics),
-    After = erlang:now(),
+    After = erlang:timestamp(),
     case lists:member(verbose, Options) of
         true ->
             RunTime = timer:now_diff(After, Before),

@@ -322,12 +322,12 @@ fix_cwd_scalaris() ->
 seed(Options) ->
     case lists:keyfind(seed, 1, Options) of
         {seed, {A1,A2,A3}} ->
-            _OldSeed = random:seed(A1, A2, A3),
+            _ = rand:seed(exsss, {A1, A2, A3}),
             ok;
         false ->
-            {A1,A2,A3} = now(),
+            {A1,A2,A3} = erlang:timestamp(),
             ct:log("seed: ~p", [{A1,A2,A3}]),
-            _OldSeed = random:seed(A1, A2, A3),
+            _ = rand:seed(exsss, {A1, A2, A3}),
             ok
     end.
 
@@ -344,7 +344,7 @@ is_correct_process(_ScheduledProcess, _Pid) ->
 -spec seeded_randomelem(List::[X,...]) -> X.
 seeded_randomelem(List)->
     Length = length(List),
-    RandomNum = random:uniform(Length),
+    RandomNum = rand:uniform(Length),
     lists:nth(RandomNum, List).
 
 sleep_delay() -> 100.
