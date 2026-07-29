@@ -24,7 +24,7 @@ suite() ->
     ].
 
 init_per_suite(Config) ->
-    _ = crypto:start(),
+    _ = application:start(crypto),
     Config.
 
 end_per_suite(_Config) ->

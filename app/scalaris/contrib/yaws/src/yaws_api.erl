@@ -1058,7 +1058,7 @@ set_status_code(Code) ->
 
 %% returns [ Header1, Header2 .....]
 reformat_header(H) ->
-    lists:zf(fun({Hname, Str}) ->
+    lists:filtermap(fun({Hname, Str}) ->
                      I =  lists:flatten(io_lib:format("~s: ~s",[Hname, Str])),
                      {true, I};
                 (undefined) ->

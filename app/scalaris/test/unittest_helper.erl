@@ -405,12 +405,9 @@ get_processes() ->
                  {{gen_component, _, _}, {gen_component, _, _}} ->
                      gen_component:get_component_state(X);
                  {_, {file_io_server, _, _}} ->
-                     case file:pid2name(X) of
-                         undefined -> {file, undefined};
-                         {ok, FileName} -> {file, FileName};
-                         %% case occuring in older Erlang versions:
-                         FileName -> {file, FileName}
-                     end;
+                     %% file:pid2name/1, which returned the name of the
+                     %% file, has been removed from Erlang/OTP.
+                     {file, undefined};
                  {_, {gen_server, _, _}} ->
                      % may throw exit due to a killed process
                      try sys:get_status(X)

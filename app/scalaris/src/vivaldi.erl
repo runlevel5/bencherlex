@@ -234,7 +234,7 @@ on_active({web_debug_info, Requestor},
 random_coordinate() ->
     Dim = config:read(vivaldi_dimensions),
     % note: network coordinates are float vectors!
-    [ float(crypto:rand_uniform(1, 10)) || _ <- lists:seq(1, Dim) ].
+    [ float(randoms:rand_uniform(1, 10)) || _ <- lists:seq(1, Dim) ].
 
 -spec update_coordinate(network_coordinate(), error(), latency(),
                          network_coordinate(), error()) ->

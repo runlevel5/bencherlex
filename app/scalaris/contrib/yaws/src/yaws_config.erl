@@ -1884,7 +1884,7 @@ ssl_start() ->
 %% Return {Pid, SC} or false
 %% Pairs is the pairs in yaws_server #state{}
 search_sconf(NewSC, Pairs) ->
-    case lists:zf(
+    case lists:filtermap(
            fun({Pid, Scs = [SC|_]}) ->
                    case same_virt_srv(NewSC, SC) of
                        true ->
@@ -1920,7 +1920,7 @@ search_group(SC, Pairs) ->
                    end
            end,
 
-    lists:zf(Fun, Pairs).
+    lists:filtermap(Fun, Pairs).
 
 
 %% Return a new Pairs list with one SC updated
@@ -1942,7 +1942,7 @@ update_sconf(NewSC, Pairs) ->
 
 %% return a new pairs list with SC removed
 delete_sconf(OldSc, Pairs) ->
-    lists:zf(
+    lists:filtermap(
       fun({Pid, Scs}) ->
               case same_virt_srv(hd(Scs), OldSc) of
                   true ->

@@ -26,7 +26,7 @@ list_directory(Arg, CliSock, List, DirName, Req, DoAllZip) ->
 
     Descriptions = read_descriptions(DirName),
 
-    L0 = lists:zf(
+    L0 = lists:filtermap(
            fun(F) ->
                    File = DirName ++ [$/|F],
                    FI = file:read_file_info(File),

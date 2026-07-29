@@ -15,7 +15,7 @@ gzipEnd(Z) ->
 
 
 gzipDeflate(Z, undefined, Bin, Flush) ->
-    Crc32 = zlib:crc32(Z),
+    Crc32 = erlang:crc32(<<>>),
     Head = <<
                                                 % ID
              16#1f, 16#8b,
@@ -35,7 +35,7 @@ gzipDeflate(Z, undefined, Bin, Flush) ->
 
 gzipDeflate(Z, {Crc32,Size}, Bin, Flush) ->
     Bs = zlib:deflate(Z, Bin, Flush),
-    {ok, Crc1} = crc32(Z, Crc32, Bin),
+    Crc1 = erlang:crc32(Crc32, Bin),
     Size1 = Size+size(Bin),
     Data =
         if
@@ -90,12 +90,3 @@ gzip_loop(Z, P, [], C, A) ->
     gzip_loop(Z, P, C, [], A);
 gzip_loop(Z, P, I, C, A) when is_integer(I) ->
     gzip_loop(Z, P, <<I>>, C, A).
-
-
-%% To work around a bug in zlib.
-
-crc32(Z, CRC, Binary) ->
-    case port_control(Z, 17, <<CRC:32, Binary/binary>>) of
-        [2,A,B,C,D] -> {ok, (A bsl 24)+(B bsl 16)+(C bsl 8)+D}
-    end.
-

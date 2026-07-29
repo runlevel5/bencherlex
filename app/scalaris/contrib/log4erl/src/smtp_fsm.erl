@@ -99,7 +99,7 @@ hexdigest(Binary) ->
 
 %% returns hex value of integer (always) as 2 chr string
 hexit(Int) ->
-    Hex = httpd_util:integer_to_hexlist(Int),
+    Hex = integer_to_list(Int, 16),
     case string:len(Hex) of
     1 -> "0" ++ Hex;
     _ -> Hex
@@ -107,9 +107,7 @@ hexit(Int) ->
 
 %% generates MD5 mac and returns as hex string
 md5_hmac(Challenge,Pwd) ->
-    crypto:start(),
-    Md5_bin = crypto:md5_mac(Pwd,Challenge),
-    crypto:stop(),
+    Md5_bin = crypto:mac(hmac, md5, Pwd, Challenge),
     hexdigest(Md5_bin).
 
 %% selects the preferred AUTH method supported

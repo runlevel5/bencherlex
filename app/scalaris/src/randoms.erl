@@ -26,7 +26,9 @@
 
 %% @doc Starts the crypto module's server.
 -spec start() -> ok.
-start() -> crypto:start().
+start() ->
+    {ok, _} = application:ensure_all_started(crypto),
+    ok.
 
 %% @doc Generates a random string in the range 1 =&lt; Id &lt; 2^32
 -spec getRandomString() -> string().
@@ -42,11 +44,13 @@ getRandomInt() ->
 %%      pseudo-random number generator.
 -spec rand_uniform(Lo::integer(), Hi::integer()) -> integer().
 rand_uniform(Lo, Hi) when Lo < Hi ->
-    crypto:rand_uniform(Lo, Hi);
+    Lo + crypto:strong_rand_range(Hi - Lo);
 rand_uniform(Hi, Lo) when Lo < Hi ->
-    crypto:rand_uniform(Lo, Hi);
+    Lo + crypto:strong_rand_range(Hi - Lo);
 rand_uniform(X, X) -> X.
 
 %% @doc Stops the crypto module's server.
 -spec stop() -> ok.
-stop() -> crypto:stop().
+stop() ->
+    _ = application:stop(crypto),
+    ok.

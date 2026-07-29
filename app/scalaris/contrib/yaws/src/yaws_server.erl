@@ -220,7 +220,7 @@ init2(GC, Sconfs, RunMod, Embedded, FirstTime) ->
 
     runmod(RunMod, GC),
 
-    L2 = lists:zf(
+    L2 = lists:filtermap(
            fun(Group) -> start_group(GC, Group) end,
            Sconfs),
     {ok, #state{gc = GC,
@@ -983,12 +983,13 @@ acceptor0(GS, Top) ->
     X = do_accept(GS),
     Top ! {self(), next, X},
     case X of
-        {ok, Client} ->
-            if
+        {ok, Client0} ->
+            %% ssl:handshake/1 returns the socket to use from then on.
+            Client = if
                 GS#gs.ssl == ssl ->
-                    case ssl:ssl_accept(Client) of
-                        ok ->
-                            ok;
+                    case ssl:handshake(Client0) of
+                        {ok, SslClient} ->
+                            SslClient;
                         {error, closed} ->
                             Top ! {self(), decrement},
                             exit(normal);
@@ -1006,7 +1007,7 @@ acceptor0(GS, Top) ->
                             exit(normal)
                     end;
                 true ->
-                    ok
+                    Client0
             end,
 
             case (GS#gs.gconf)#gconf.trace of  %% traffic trace
