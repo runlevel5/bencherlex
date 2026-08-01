@@ -1,5 +1,5 @@
 -module(mime_types). 
--compile(export_all). 
+-export([revt/1, t/1]).
 t("yaws") -> {yaws, "text/html"};
 t("php") -> {php, "text/html"};
 t("cgi") -> {cgi, "text/html"};

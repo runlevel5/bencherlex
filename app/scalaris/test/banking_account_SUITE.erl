@@ -15,7 +15,8 @@
 -module(banking_account_SUITE).
 -author('schuett@zib.de').
 -vsn('$Id: banking_account_SUITE.erl 1445 2011-02-23 11:34:29Z kruber@zib.de $').
--compile(export_all).
+-export([all/0, banking_account/1, end_per_suite/1, init_per_suite/1,
+         money_transfer/2, process/4, process_iter/5, suite/0, wait_for_done/1]).
 
 -include("unittest.hrl").
 

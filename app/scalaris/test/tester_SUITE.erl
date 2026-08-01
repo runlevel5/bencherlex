@@ -10,7 +10,9 @@
 -author('schuett@zib.de').
 -vsn('$Id$ ').
 
--compile(export_all).
+-export([all/0, end_per_suite/1, get_cwd/0, init_per_suite/1, make_ring/2,
+         prop_is_binary/1, suite/0, test_is_binary/1,
+         tester_scheduler_ring_1_tx/1, tester_scheduler_ring_4/1]).
 
 -include_lib("unittest.hrl").
 

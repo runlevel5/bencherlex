@@ -25,7 +25,18 @@
 -author('kruber@zib.de').
 -vsn('$Id: node_details_SUITE.erl 2618 2011-12-29 14:35:15Z kruber@zib.de $').
 
--compile(export_all).
+-export([all/0, end_per_suite/1, init_per_suite/1, node_details_equals/14,
+         safe_compare/5, suite/0, test_new0/0, test_new7/7,
+         test_set_get_hostname/1, test_set_get_load/1, test_set_get_memory/1,
+         test_set_get_message_log/1, test_set_get_my_range/1,
+         test_set_get_node/1, test_set_get_pred/1, test_set_get_predlist/1,
+         test_set_get_rt_size/1, test_set_get_succ/1, test_set_get_succlist/1,
+         tester_new0/1, tester_new7/1, tester_set_get_hostname/1,
+         tester_set_get_load/1, tester_set_get_memory/1,
+         tester_set_get_message_log/1, tester_set_get_my_range/1,
+         tester_set_get_node/1, tester_set_get_pred/1,
+         tester_set_get_predlist/1, tester_set_get_rt_size/1,
+         tester_set_get_succ/1, tester_set_get_succlist/1]).
 
 -include("scalaris.hrl").
 -include("unittest.hrl").

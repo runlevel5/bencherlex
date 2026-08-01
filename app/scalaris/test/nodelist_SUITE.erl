@@ -25,7 +25,18 @@
 -author('kruber@zib.de').
 -vsn('$Id: nodelist_SUITE.erl 2618 2011-12-29 14:35:15Z kruber@zib.de $').
 
--compile(export_all).
+-export([all/0, compare_neighborhood/10, end_per_suite/1, init_per_suite/1,
+         largest_smaller_than2/1, largest_smaller_than3/1,
+         prop_largest_smaller_than2/5,
+         prop_largest_smaller_than2_fixed_types/5,
+         prop_largest_smaller_than3/5,
+         prop_largest_smaller_than3_fixed_types/6, suite/0, test_add_node/1,
+         test_add_nodes/1, test_filter2/1, test_filter3/1,
+         test_filter_min_length4/1, test_lremove_outdated/1,
+         test_lupdate_ids/1, test_merge/1, test_mk2/1, test_mk4/1, test_new/1,
+         test_remove2/1, test_remove3/1, test_to_list/1, test_trunc/1,
+         test_update_ids/1, tester_largest_smaller_than2/1,
+         tester_largest_smaller_than3/1]).
 
 -include("unittest.hrl").
 -include("scalaris.hrl").

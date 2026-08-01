@@ -26,7 +26,31 @@
 -author('kruber@zib.de').
 -vsn('$Id: gossip_SUITE.erl 2618 2011-12-29 14:35:15Z kruber@zib.de $').
 
--compile(export_all).
+-export([all/0, create_gossip_state/5, end_per_suite/1, end_per_testcase/2,
+         fake_node/2, get_ptrigger_delay/1, get_ptrigger_nodelay/0,
+         inc_converge_avg_count/2, inc_msg_exch/2, inc_triggered/2,
+         init_per_suite/1, init_per_testcase/2,
+         prop_on_get_node_details_response_local_info/4, prop_on_trigger/8,
+         reset_config/0, suite/0, test_get_values_all0/1,
+         test_get_values_best0/1, test_init/1, test_on_cy_cache1/1,
+         test_on_cy_cache2/1, test_on_cy_cache3/1,
+         test_on_get_node_details_response_local_info/1,
+         test_on_get_node_details_response_local_info1/0,
+         test_on_get_node_details_response_local_info2/0,
+         test_on_get_node_details_response_local_info3/0,
+         test_on_get_node_details_response_local_info4/0,
+         test_on_get_node_details_response_local_info5/0,
+         test_on_get_node_details_response_local_info6/0,
+         test_on_get_node_details_response_local_info7/0, test_on_get_state/1,
+         test_on_get_state_response/1, test_on_get_values_all1/1,
+         test_on_get_values_all2/1, test_on_get_values_all3/1,
+         test_on_get_values_all4/1, test_on_get_values_all5/1,
+         test_on_get_values_all6/1, test_on_get_values_best1/1,
+         test_on_get_values_best2/1, test_on_get_values_best3/1,
+         test_on_get_values_best4/1, test_on_get_values_best5/1,
+         test_on_get_values_best6/1, test_on_trigger/1, test_on_trigger1/0,
+         test_on_trigger2/0, test_on_trigger3/0, test_on_trigger4/0,
+         test_on_trigger5/0, test_on_trigger6/0, test_on_trigger7/0]).
 
 -include("unittest.hrl").
 -include("scalaris.hrl").

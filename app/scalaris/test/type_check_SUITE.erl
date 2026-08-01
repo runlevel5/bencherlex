@@ -20,7 +20,10 @@
 -author('schintke@zib.de').
 -vsn('$Id: api_tx_SUITE.erl 2689 2012-01-11 10:15:52Z schintke $').
 
--compile(export_all).
+-export([all/0, end_per_suite/1, end_per_testcase/2, init_per_suite/1,
+         init_per_testcase/2, suite/0, tester_type_check_api/1,
+         tester_type_check_module/2, tester_type_check_paxos/1,
+         tester_type_check_util/1]).
 
 -include("scalaris.hrl").
 -include("unittest.hrl").

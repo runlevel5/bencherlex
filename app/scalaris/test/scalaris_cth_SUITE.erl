@@ -20,7 +20,7 @@
 -author('kruber@zib.de').
 -vsn('$Id$').
 
--compile(export_all).
+-export([all/0, end_per_suite/1, init_per_suite/1, suite/0, test_timeout/1]).
 
 -include("unittest.hrl").
 -include("scalaris.hrl").

@@ -23,7 +23,7 @@
 -author('schuett@zib.de').
 -vsn('$Id: pubsub_SUITE.erl 1462 2011-03-02 09:10:21Z kruber@zib.de $').
 
--compile(export_all).
+-export([all/0, end_per_suite/1, init_per_suite/1, suite/0, test_db/1]).
 
 -include("unittest.hrl").
 

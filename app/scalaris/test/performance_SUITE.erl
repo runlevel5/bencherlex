@@ -23,7 +23,19 @@
 -author('schuett@zib.de').
 -vsn('$Id: performance_SUITE.erl 2553 2011-12-13 17:06:37Z kruber@zib.de $').
 
--compile(export_all).
+-export([all/0, comm_local/1, count/0, empty/1, end_per_group/2,
+         end_per_suite/1, erlang_get/1, erlang_put/1, erlang_send/1,
+         erlang_send_after/1, erlang_spawn/1, erlang_timestamp/1,
+         ets_ordset_insert1/1, ets_ordset_insert1N/1, ets_ordset_insert2/1,
+         ets_ordset_insert2N/1, ets_ordset_lookup1/1, ets_ordset_lookup2/1,
+         ets_set_insert1N/1, ets_set_insert2N/1, gb_sets_add_element/1,
+         get_keys_for_replica_string/1, groups/0, helper_rec/2,
+         init_per_group/2, init_per_suite/1, iter/3, iter2/3, iter2_foldl/4,
+         iter2_foldl_helper/3, iter2_inner/2, iter_inner/2, md5/1,
+         next_hop_no_neighbors/1, next_hop_setup/0, next_hop_with_neighbors/1,
+         ordsets_add_element/1, os_timestamp/1, pdb_get/1, pdb_set/1,
+         pid_groups_lookup/1, pid_groups_lookup_by_pid/1, sets_add_element/1,
+         suite/0, term_to_binary1/1, unicode_chars_to_binary1/1]).
 
 -include("unittest.hrl").
 

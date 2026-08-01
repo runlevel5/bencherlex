@@ -10,7 +10,11 @@
 -author('schuett@zib.de').
 -vsn('$Id: vivaldi_SUITE.erl 2576 2011-12-16 18:01:34Z kruber@zib.de $').
 
--compile(export_all).
+-export([all/0, end_per_suite/1, end_per_testcase/2, fake_dht_node/0,
+         get_ptrigger_delay/1, get_ptrigger_nodelay/0, init_per_suite/1,
+         init_per_testcase/2, reset_config/0, suite/0, test_init/1,
+         test_on_cy_cache1/1, test_on_cy_cache2/1, test_on_cy_cache3/1,
+         test_on_trigger/1, test_on_vivaldi_shuffle/1]).
 
 -include("scalaris.hrl").
 -include("unittest.hrl").

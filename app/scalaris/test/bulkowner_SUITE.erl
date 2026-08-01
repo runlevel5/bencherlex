@@ -23,7 +23,8 @@
 -author('schuett@zib.de').
 -vsn('$Id: bulkowner_SUITE.erl 2122 2011-08-15 15:47:12Z kruber@zib.de $').
 
--compile(export_all).
+-export([all/0, collect/2, count/1, end_per_suite/1, init_per_suite/1,
+         reduce/1, suite/0]).
 
 -include("unittest.hrl").
 -include("scalaris.hrl").

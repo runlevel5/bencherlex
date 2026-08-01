@@ -21,7 +21,15 @@
 -author('kruber@zib.de').
 -vsn('$Id: join_leave_SUITE.erl 2480 2011-11-25 09:58:48Z schintke $').
 
--compile(export_all).
+-export([add_1_rm_1_load/1, add_2x3_load/1, add_2x3_load_test/0,
+         add_3_rm_1_load/1, add_3_rm_2_load/1, add_3_rm_3_load/1, add_9/1,
+         add_9_rm_5/1, add_9_rm_5_test/0, add_9_test/0, add_x_rm_y_load/3,
+         add_x_rm_y_load_test/2, all/0, check_size/1, end_per_group/2,
+         end_per_suite/1, end_per_testcase/2, fix_tester_ignored_msg_list/1,
+         groups/0, init_per_group/2, init_per_suite/1, init_per_testcase/2,
+         join_parameters_list/0, prop_join_at/2, prop_join_at_timeouts/3,
+         rm_5/1, rm_5_test/0, send_ignore_msg_list_to/3, stop_time/2, suite/0,
+         test_cases/0, tester_join_at/1, tester_join_at_timeouts/1]).
 
 -include("unittest.hrl").
 -include("scalaris.hrl").

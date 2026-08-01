@@ -20,7 +20,40 @@
 -author('schintke@zib.de').
 -vsn('$Id: api_tx_SUITE.erl 2689 2012-01-11 10:15:52Z schintke $').
 
--compile(export_all).
+-export([all/0, check_commit/3, check_op_on_tlog/5, commit_1/1,
+         conflicting_tx/1, conflicting_tx2/1, end_per_suite/1,
+         end_per_testcase/2, init_per_suite/1, init_per_testcase/2,
+         multi_write/1, new_tlog_0/1, prop_add_del_on_list/4,
+         prop_add_del_on_list2/5, prop_add_del_on_list_maybe_invalid/4,
+         prop_add_del_on_list_not_existing/3, prop_add_on_nr/3,
+         prop_add_on_nr2/4, prop_add_on_nr_maybe_invalid/3,
+         prop_add_on_nr_not_existing/2, prop_encode_decode/1,
+         prop_read_not_existing/1, prop_test_and_set/4, prop_test_and_set2/5,
+         prop_test_and_set_not_existing/3, prop_tester_req_list/1,
+         prop_tester_req_list_on_same_key/2, prop_tlog_add_del_on_list/4,
+         prop_tlog_add_del_on_list2/6,
+         prop_tlog_add_del_on_list_maybe_invalid/4,
+         prop_tlog_add_del_on_list_not_existing/3, prop_tlog_add_on_nr/3,
+         prop_tlog_add_on_nr2/5, prop_tlog_add_on_nr_maybe_invalid/3,
+         prop_tlog_add_on_nr_not_existing/2, prop_tlog_test_and_set/4,
+         prop_tlog_test_and_set2/6, prop_tlog_test_and_set_not_existing/3,
+         prop_write_read/3, prop_write_read_not_existing/2,
+         random_write_read/1, random_write_read2/1, read_1/1, read_2/1,
+         req_list_2/1, suite/0, test_and_set_3/1, tester_add_del_on_list/1,
+         tester_add_del_on_list_maybe_invalid/1,
+         tester_add_del_on_list_not_existing/1, tester_add_on_nr/1,
+         tester_add_on_nr_maybe_invalid/1, tester_add_on_nr_not_existing/1,
+         tester_encode_decode/1, tester_exported_functions/1,
+         tester_read_not_existing/1, tester_req_list/1,
+         tester_req_list_on_same_key/1, tester_test_and_set/1,
+         tester_test_and_set_not_existing/1, tester_tlog_add_del_on_list/1,
+         tester_tlog_add_del_on_list_maybe_invalid/1,
+         tester_tlog_add_del_on_list_not_existing/1, tester_tlog_add_on_nr/1,
+         tester_tlog_add_on_nr_maybe_invalid/1,
+         tester_tlog_add_on_nr_not_existing/1, tester_tlog_test_and_set/1,
+         tester_tlog_test_and_set_not_existing/1, tester_write_read/1,
+         tester_write_read_not_existing/1, write2_read2/1, write_2/1,
+         write_3/1, write_test/1, write_test_race_mult_rings/1]).
 
 -include("scalaris.hrl").
 -include("unittest.hrl").

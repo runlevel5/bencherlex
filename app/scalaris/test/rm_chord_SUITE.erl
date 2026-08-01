@@ -23,7 +23,7 @@
 -author('schuett@zib.de').
 -vsn('$Id: rm_chord_SUITE.erl 1445 2011-02-23 11:34:29Z kruber@zib.de $').
 
--compile(export_all).
+-export([all/0, end_per_suite/1, init_per_suite/1, suite/0]).
 
 -include("unittest.hrl").
 

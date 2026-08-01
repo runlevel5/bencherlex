@@ -25,7 +25,8 @@
 -author('kruber@zib.de').
 -vsn('$Id: dn_cache_SUITE.erl 2059 2011-08-02 17:54:21Z kruber@zib.de $ ').
 
--compile(export_all).
+-export([all/0, dn_detection/1, end_per_suite/1, fake_node/0, fake_process/0,
+         init_per_suite/1, suite/0]).
 
 -include("scalaris.hrl").
 -include("unittest.hrl").

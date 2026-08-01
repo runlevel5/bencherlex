@@ -23,7 +23,9 @@
 -author('schuett@zib.de').
 -vsn('$Id: api_tx_concurrent_SUITE.erl 1502 2011-03-05 09:34:23Z schintke $ ').
 
--compile(export_all).
+-export([all/0, end_per_suite/1, inc/1, increment_test_2/1,
+         increment_test_4/1, increment_test_8/1, increment_test_n/2,
+         init_per_suite/1, process/3, process_iter/4, suite/0, wait_for_done/1]).
 
 -include("unittest.hrl").
 

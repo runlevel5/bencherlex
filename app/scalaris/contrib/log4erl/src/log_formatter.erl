@@ -1,6 +1,7 @@
 -module(log_formatter).
 
--compile(export_all).
+-export([format/2, get_token_value/2, make_log/3, parse/1, parse2/2,
+         parse_char/1, test/0, test2/1]).
 
 -include("../include/log4erl.hrl").
 

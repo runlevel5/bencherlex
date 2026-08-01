@@ -20,7 +20,15 @@
 -author('schuett@zib.de').
 -vsn('$Id: util_SUITE.erl 2618 2011-12-29 14:35:15Z kruber@zib.de $').
 
--compile(export_all).
+-export([all/0, end_per_suite/1, gb_trees_foldl/1, init_per_suite/1,
+         largest_smaller_than/1, min_max/1, p_repeatAndAccumulate_test/1,
+         p_repeatAndCollect_test/1, p_repeat_test/1, prop_minus_all/2,
+         prop_minus_all_sort/2, prop_minus_all_sort_helper/3,
+         prop_minus_first/2, prop_minus_first_sort/2,
+         prop_minus_first_sort_helper/3, s_repeatAndAccumulate_test/1,
+         s_repeatAndCollect_test/1, s_repeat_test/1, suite/0,
+         tester_minus_all/1, tester_minus_all_sort/1, tester_minus_first/1,
+         tester_minus_first_sort/1]).
 
 -include("unittest.hrl").
 

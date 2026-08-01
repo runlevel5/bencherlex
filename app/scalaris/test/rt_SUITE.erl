@@ -20,7 +20,12 @@
 -author('kruber@zib.de').
 -vsn('$Id$').
 
--compile(export_all).
+-export([additional_tests/1, all/0, call_helper_fun/2, end_per_suite/1,
+         fake_dht_node/1, init_per_suite/1, next_hop/1, next_hop2/1,
+         number_to_key/1, prop_client_key_to_binary/2, prop_get_split_key/4,
+         prop_get_split_key_half/2, prop_hash_key/1, suite/0,
+         tester_client_key_to_binary/1, tester_get_split_key/1,
+         tester_get_split_key_half/1, tester_hash_key/1]).
 
 -include("unittest.hrl").
 -include("scalaris.hrl").

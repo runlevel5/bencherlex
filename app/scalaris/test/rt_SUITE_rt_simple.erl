@@ -20,7 +20,8 @@
 -author('kruber@zib.de').
 -vsn('$Id$').
 
--compile(export_all).
+-export([additional_tests/1, check_next_hop/4, check_split_key/4,
+         check_split_key_half/3, create_rt/2, number_to_key/1]).
 
 -include("unittest.hrl").
 -include("scalaris.hrl").

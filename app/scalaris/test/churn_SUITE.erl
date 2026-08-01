@@ -21,7 +21,17 @@
 -author('schuett@zib.de').
 -vsn('$Id: churn_SUITE.erl 2184 2011-09-06 10:22:12Z kruber@zib.de $').
 
--compile(export_all).
+-export([all/0, end_per_group/2, end_per_suite/1, end_per_testcase/2,
+         groups/0, init_per_group/2, init_per_suite/1, init_per_testcase/2,
+         pause_node/1, suite/0, test_cases/0,
+         transactions_1_failure_4_nodes_networksplit_write/1,
+         transactions_1_failure_4_nodes_read/1,
+         transactions_2_failures_4_nodes_networksplit_write/1,
+         transactions_2_failures_4_nodes_read/1,
+         transactions_3_failures_4_nodes_networksplit_write/1,
+         transactions_3_failures_4_nodes_read/1,
+         transactions_more_failures_4_nodes_networksplit_write/1,
+         transactions_more_failures_4_nodes_read/1, unpause_node/1]).
 
 -include("unittest.hrl").
 -include("scalaris.hrl").

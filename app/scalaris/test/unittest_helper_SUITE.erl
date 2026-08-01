@@ -19,7 +19,9 @@
 -author('kruber@zib.de').
 -vsn('$Id: unittest_helper_SUITE.erl 2059 2011-08-02 17:54:21Z kruber@zib.de $').
 
--compile(export_all).
+-export([all/0, end_per_suite/1, end_per_testcase/2, init_per_suite/1,
+         init_per_testcase/2, prop_make_ring_with_ids/1, suite/0,
+         tester_make_ring_with_ids/1]).
 
 -include("unittest.hrl").
 -include("scalaris.hrl").

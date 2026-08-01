@@ -20,7 +20,11 @@
 -author('kruber@zib.de').
 -vsn('$Id: rm_SUITE.erl 2225 2011-09-14 14:05:53Z kruber@zib.de $ ').
 
--compile(export_all).
+-export([all/0, change_id_and_check/2, check_subscr_node_update/2,
+         end_per_suite/1, end_per_testcase/2, init_per_suite/1,
+         init_per_testcase/2, prop_update_id/2, prop_update_id2/1, suite/0,
+         tester_update_id/1, tester_update_id2_1/1, tester_update_id2_2/1,
+         tester_update_id2_3/1, tester_update_id2_4/1]).
 
 -include("unittest.hrl").
 -include("scalaris.hrl").

@@ -7,7 +7,8 @@
 
 -module(mime_type_c).
 -author('klacke@hyber.org').
--compile(export_all).
+-export([c/0, c/3, compile/0, gen/1, nonl/1, revspecial/3, special/3, up/1,
+         upper/1]).
 
 
 %% this module reads the mime.types file and creates
@@ -95,7 +96,7 @@ gen(T) ->
     {ok, Fd} = file:open("mime_types.erl", [write]),
     io:format(Fd,
               "-module(mime_types). ~n"
-              "-compile(export_all). ~n", []),
+              "-export([revt/1, t/1]). ~n", []),
 
     L = lists:sort(ets:tab2list(T)),
     special(Fd, "yaws", yaws),

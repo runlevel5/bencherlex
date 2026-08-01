@@ -22,7 +22,12 @@
 -author('schuett@zib.de').
 -vsn('$Id: paxos_SUITE.erl 2511 2011-12-06 16:09:52Z schintke $').
 
--compile(export_all).
+-export([all/0, collect/1, collector/2, end_per_suite/1, init_per_suite/1,
+         make/4, make_groupname/2, prop_rnd_interleave/3, step_until_decide/3,
+         suite/0, test_acceptors_16/1, test_acceptors_4/1,
+         test_fast_acceptors_16/1, test_fast_acceptors_4/1,
+         test_rnd_interleave/1, test_two_proposers/1, tester_fast_paxos/3,
+         tester_paxos/3]).
 -include("unittest.hrl").
 
 all() -> [

@@ -20,7 +20,9 @@
 
 -include("unittest.hrl").
 
--compile(export_all).
+-export([add/1, all/0, end_per_suite/1, find_smallest_interval/1,
+         init_per_suite/1, insert/1, merge_interval/1, perf_add/1, resize/1,
+         suite/0]).
 
 all()   -> [
             add,

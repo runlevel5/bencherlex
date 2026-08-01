@@ -20,7 +20,19 @@
 -author('kruber@zib.de').
 -vsn('$Id: math_pos_SUITE.erl 2618 2011-12-29 14:35:15Z kruber@zib.de $ ').
 
--compile(export_all).
+-export([all/0, divide/1, end_per_suite/1, init_per_suite/1, minus/1,
+         multiply/1, plus/1, prop_divide_valid/1, prop_divide_valid1/2,
+         prop_divide_valid2/2, prop_divide_valid3/2, prop_divide_valid_base/3,
+         prop_make_same_length/3, prop_minus1/2, prop_minus2/2, prop_minus3/2,
+         prop_minus_base/4, prop_minus_valid1/2, prop_minus_valid2/2,
+         prop_minus_valid3/2, prop_minus_valid_base/4, prop_multiply_valid/1,
+         prop_multiply_valid1/2, prop_multiply_valid2/2,
+         prop_multiply_valid3/2, prop_multiply_valid_base/3,
+         prop_plus_symm1/2, prop_plus_symm2/2, prop_plus_symm3/2,
+         prop_plus_symm_base/4, prop_plus_valid1/2, prop_plus_valid2/2,
+         prop_plus_valid3/2, prop_plus_valid_base/4, suite/0,
+         tester_make_same_length/1, tester_minus/1, tester_minus_valid/1,
+         tester_plus_symm/1, tester_plus_valid/1]).
 
 -include("unittest.hrl").
 -include("scalaris.hrl").

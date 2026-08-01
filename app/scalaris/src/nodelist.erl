@@ -20,7 +20,13 @@
 -author('kruber@zib.de').
 -vsn('$Id: nodelist.erl 2544 2011-12-13 11:44:06Z kruber@zib.de $').
 
--compile([export_all]).
+% Not part of the API above; exported as they were with export_all.
+-export([add_intervals/3, best_node_maxfirst/4, best_node_maxfirst2/3,
+         best_node_minfirst/4, ensure_lists_not_empty/3,
+         ets_insert_newer_node/2, ladd_head_if_noteq/3,
+         largest_smaller_than/5, less_than_id/3, lget_last_and_remove/3,
+         lmerge_helper/5, lrebase_list/2, lremove_head_if_eq/2,
+         lsplit_nodelist/2, lusplit_nodelist/2, new/3, throw_if_newer/2]).
 
 -export([% constructors:
          new_neighborhood/1, new_neighborhood/2, new_neighborhood/3,

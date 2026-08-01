@@ -20,7 +20,13 @@
 
 -include("unittest.hrl").
 
--compile(export_all).
+-export([add_nonexisting_timeslots/1, all/0, apply/2, create_counter/1,
+         create_event/1, create_gauge/1, create_timing/1, end_per_suite/1,
+         fill_test/1, init_per_suite/1, merge_conseq_data/3,
+         prop_counter_gauge_rrd/7, prop_counter_rrd/6, prop_empty_rrd/6,
+         prop_gauge_rrd/6, reduce_timeslots/1, round_us_time/3,
+         simple_create/1, suite/0, tester_counter_rrd/1, tester_empty_rrd/1,
+         tester_gauge_rrd/1, time2us/1, timestamp/1, timing_perf/0]).
 
 all()   -> [simple_create,
             fill_test,

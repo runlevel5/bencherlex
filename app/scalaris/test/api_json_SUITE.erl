@@ -15,7 +15,9 @@
 -module(api_json_SUITE).
 -author('schuett@zib.de').
 -vsn('$Id$').
--compile(export_all).
+-export([all/0, end_per_suite/1, get_node_info/1, get_node_performance/1,
+         get_service_info/1, get_service_performance/1, init_per_suite/1,
+         suite/0]).
 
 -include("unittest.hrl").
 

@@ -20,7 +20,13 @@
 -author('schuett@zib.de').
 -vsn('$Id: tx_tm_rtm_SUITE.erl 2393 2011-11-09 09:20:56Z schintke $').
 
--compile(export_all).
+-export([abort_prepared/4, abort_prepared_r/1, abort_prepared_rc/1,
+         abort_prepared_rmc/1, abort_prepared_w/1, abort_prepared_wmc/1,
+         all/0, all_tp_crash/1, bp_cond_tm_crash/2, calc_rc_outcome/1,
+         calc_rmc_outcome/1, calc_w_outcome/1, calc_wmc_outcome/1, causes/0,
+         end_per_suite/1, end_per_testcase/2, get_db_entries/1,
+         init_new_db_key/1, init_per_suite/1, init_per_testcase/2, suite/0,
+         tm_crash/1, tp_crash/1]).
 -include("unittest.hrl").
 -include("scalaris.hrl").
 

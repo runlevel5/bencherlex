@@ -26,7 +26,9 @@
 -author('schuett@zib.de').
 -vsn('$Id: benchmark_SUITE.erl 1841 2011-06-23 13:42:27Z schintke $').
 
--compile(export_all).
+-export([all/0, end_per_suite/1, init_per_suite/1, run_increment_10_100/1,
+         run_increment_1_1000/1, run_read_10_10000/1, run_read_1_100000/1,
+         suite/0, write_result/2]).
 
 -include("unittest.hrl").
 
