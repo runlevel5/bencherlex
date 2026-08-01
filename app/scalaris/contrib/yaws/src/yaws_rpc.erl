@@ -229,7 +229,7 @@ eval_payload(Args, {M, F}, Payload, {session, CookieName}, ID, RpcType) ->
                 end
         end,
     CbackFun = callback_fun(M, F, Args, Payload, SessionValue, RpcType),
-    case catch CbackFun() of
+    case try CbackFun() catch throw:CaughtT1 -> CaughtT1; error:CaughtR1:CaughtS1 -> {'EXIT', {CaughtR1, CaughtS1}}; exit:CaughtR1 -> {'EXIT', CaughtR1} end of
         {'EXIT', {function_clause, _}} when RpcType == json ->
             case ID of
                 undefined ->
@@ -271,7 +271,7 @@ eval_payload(Args, {M, F}, Payload, {session, CookieName}, ID, RpcType) ->
 %%% call handler/2 without session support
 %%%
 eval_payload(Args, {M, F}, Payload, simple, ID, RpcType) ->
-    case catch M:F(Args#arg.state, Payload) of
+    case try M:F(Args#arg.state, Payload) catch throw:CaughtT2 -> CaughtT2; error:CaughtR2:CaughtS2 -> {'EXIT', {CaughtR2, CaughtS2}}; exit:CaughtR2 -> {'EXIT', CaughtR2} end of
         {'EXIT', Reason} ->
             ?ERROR_LOG({M, F, {'EXIT', Reason}}),
             {send, send(Args, 500)};
@@ -314,7 +314,7 @@ handle_cookie(Cookie, CookieName, SessionValue, NewSessionValue, M, F) ->
 
 %%% Make it possible for callback module to set Cookie Expire string!
 get_expire(M, F) ->
-    case catch M:F(cookie_expire) of
+    case try M:F(cookie_expire) catch throw:CaughtT3 -> CaughtT3; error:CaughtR3:CaughtS3 -> {'EXIT', {CaughtR3, CaughtS3}}; exit:CaughtR3 -> {'EXIT', CaughtR3} end of
         Expire when is_list(Expire) -> Expire;
         _                        -> false
     end.

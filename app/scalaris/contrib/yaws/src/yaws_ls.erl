@@ -219,7 +219,7 @@ allzip() ->
 is_user_dir(SP) ->
     case SP of
         [$/,$~ | T] -> User = string:sub_word(T,1,$/),
-                       case catch yaws:user_to_home(User) of
+                       case try yaws:user_to_home(User) catch throw:CaughtT1 -> CaughtT1; error:CaughtR1:CaughtS1 -> {'EXIT', {CaughtR1, CaughtS1}}; exit:CaughtR1 -> {'EXIT', CaughtR1} end of
                            {'EXIT', _} ->
                                false;
                            Home ->

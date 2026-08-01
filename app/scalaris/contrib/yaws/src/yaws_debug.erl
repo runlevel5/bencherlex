@@ -104,7 +104,7 @@ assert(interval,X,{Min,Max},_) when is_integer(X), is_integer(Min),
                                     X>=Min, Max>=X ->
     ok;
 assert('fun', Fun, _, Failure) ->
-    case catch Fun() of
+    case try Fun() catch throw:CaughtT1 -> CaughtT1; error:CaughtR1:CaughtS1 -> {'EXIT', {CaughtR1, CaughtS1}}; exit:CaughtR1 -> {'EXIT', CaughtR1} end of
         true -> ok;
         _Other -> fail(Failure)
     end;
@@ -132,7 +132,7 @@ fail({{debug,Fstr}, File,Line,Fmt, Args}) ->
                           [Fstr, node(), filename:basename(File),
                            Line, self()])),
 
-    case (catch io:format(user, Str ++ Fmt ++ "~n", Args)) of
+    case (try io:format(user, Str ++ Fmt ++ "~n", Args) catch throw:CaughtT2 -> CaughtT2; error:CaughtR2:CaughtS2 -> {'EXIT', {CaughtR2, CaughtS2}}; exit:CaughtR2 -> {'EXIT', CaughtR2} end) of
         ok -> ok;
         _ -> io:format(user, "ERROR ~p:~p: Pid ~w: (bad format)~n~p,~p~n",
                        [File, Line, self(), Fmt, Args]),
@@ -141,7 +141,7 @@ fail({{debug,Fstr}, File,Line,Fmt, Args}) ->
     end;
 
 fail({format, File,Line,Fmt,Args}) ->
-    case (catch io:format(user, Fmt,Args)) of
+    case (try io:format(user, Fmt,Args) catch throw:CaughtT3 -> CaughtT3; error:CaughtR3:CaughtS3 -> {'EXIT', {CaughtR3, CaughtS3}}; exit:CaughtR3 -> {'EXIT', CaughtR3} end) of
         ok -> ok;
         _ ->
             io:format(user, "ERROR ~p:~p: Pid ~w: (bad format)~n~p,~p~n",
@@ -295,7 +295,7 @@ bad_other(L) ->
 
 
 nobin(X) ->
-    case catch xnobin(X) of
+    case try xnobin(X) catch throw:CaughtT4 -> CaughtT4; error:CaughtR4:CaughtS4 -> {'EXIT', {CaughtR4, CaughtS4}}; exit:CaughtR4 -> {'EXIT', CaughtR4} end of
         {'EXIT', Reason} ->
             error_logger:format("~p~n~p~n", [X, Reason]),
             erlang:error(Reason);

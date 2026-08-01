@@ -243,10 +243,10 @@ write_2(_Config) ->
 
     %% invalid key
     try ?RT:hash_key([a,b,c]) of
-        _ -> ?equals(catch api_tx:write([a,b,c], "Value"), {ok})
+        _ -> ?equals(try api_tx:write([a,b,c], "Value") catch throw:CaughtT1 -> CaughtT1; error:CaughtR1:CaughtS1 -> {'EXIT', {CaughtR1, CaughtS1}}; exit:CaughtR1 -> {'EXIT', CaughtR1} end, {ok})
     catch
         error:badarg ->
-            ?equals_pattern(catch api_tx:write([a,b,c], "Value"), {'EXIT',{badarg, _}})
+            ?equals_pattern(try api_tx:write([a,b,c], "Value") catch throw:CaughtT2 -> CaughtT2; error:CaughtR2:CaughtS2 -> {'EXIT', {CaughtR2, CaughtS2}}; exit:CaughtR2 -> {'EXIT', CaughtR2} end, {'EXIT',{badarg, _}})
     end,
     ok.
 

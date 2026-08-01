@@ -72,7 +72,7 @@ rotate(LogWrapSize) ->
 accesslog(#sconf{servername=Srv}, Ip, Req, InH, OutH, Time) ->
     case ets:lookup(yaws_log, {access, Srv}) of
         [#log{amod=Mod, data=Data}] ->
-            catch Mod:write_log(Srv, access, Data, {Ip, Req, InH, OutH, Time});
+            try Mod:write_log(Srv, access, Data, {Ip, Req, InH, OutH, Time}) catch throw:CaughtT1 -> CaughtT1; error:CaughtR1:CaughtS1 -> {'EXIT', {CaughtR1, CaughtS1}}; exit:CaughtR1 -> {'EXIT', CaughtR1} end;
         _ ->
             ok
     end.
@@ -80,7 +80,7 @@ accesslog(#sconf{servername=Srv}, Ip, Req, InH, OutH, Time) ->
 authlog(#sconf{servername=Srv}, IP, Path, Item) ->
     case ets:lookup(yaws_log, {auth, Srv}) of
         [#log{amod=Mod, data=Data}] ->
-            catch Mod:write_log(Srv, auth, Data, {IP, Path, Item});
+            try Mod:write_log(Srv, auth, Data, {IP, Path, Item}) catch throw:CaughtT2 -> CaughtT2; error:CaughtR2:CaughtS2 -> {'EXIT', {CaughtR2, CaughtS2}}; exit:CaughtR2 -> {'EXIT', CaughtR2} end;
         _ ->
             ok
     end.
@@ -89,7 +89,7 @@ authlog(#sconf{servername=Srv}, IP, Path, Item) ->
 %%% Internal functions
 %%%----------------------------------------------------------------------
 do_open_log(#sconf{servername=Srv, logger_mod=Mod}, Type, Dir) ->
-    case catch Mod:open_log(Srv, Type, Dir) of
+    case try Mod:open_log(Srv, Type, Dir) catch throw:CaughtT3 -> CaughtT3; error:CaughtR3:CaughtS3 -> {'EXIT', {CaughtR3, CaughtS3}}; exit:CaughtR3 -> {'EXIT', CaughtR3} end of
         {true, Data} ->
             AL = #log{id={Type, Srv}, amod=Mod, data=Data},
             ets:insert(yaws_log, AL),
@@ -100,7 +100,7 @@ do_open_log(#sconf{servername=Srv, logger_mod=Mod}, Type, Dir) ->
 
 
 do_close_log(#log{id={Type, Srv}, amod=Mod, data=Data}) ->
-    catch Mod:close_log(Srv, Type, Data).
+    try Mod:close_log(Srv, Type, Data) catch throw:CaughtT4 -> CaughtT4; error:CaughtR4:CaughtS4 -> {'EXIT', {CaughtR4, CaughtS4}}; exit:CaughtR4 -> {'EXIT', CaughtR4} end.
 
 
 do_close_logs('$end_of_table') ->

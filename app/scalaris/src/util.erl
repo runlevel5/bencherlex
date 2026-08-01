@@ -767,7 +767,7 @@ smerge2_helper([], L2 = [H2 | T2], Lte, EqSelect, ML) ->
 is_unittest() ->
     Pid = self(),
     spawn(fun () ->
-                  case catch ct:get_status() of
+                  case try ct:get_status() catch throw:CaughtT1 -> CaughtT1; error:CaughtR1:CaughtS1 -> {'EXIT', {CaughtR1, CaughtS1}}; exit:CaughtR1 -> {'EXIT', CaughtR1} end of
                       no_tests_running -> Pid ! {is_unittest, false};
                       {error, _} -> Pid ! {is_unittest, false};
                       {'EXIT', {undef, _}} -> Pid ! {is_unittest, false};
@@ -908,7 +908,7 @@ p_repeat(Fun, Args, Times, DoAnswer) ->
 
 -spec parallel_run(pid(), fun(), args(), boolean()) -> ok.
 parallel_run(SrcPid, Fun, Args, DoAnswer) ->
-    Res = (catch apply(Fun, Args)),
+    Res = (try apply(Fun, Args) catch throw:CaughtT2 -> CaughtT2; error:CaughtR2:CaughtS2 -> {'EXIT', {CaughtR2, CaughtS2}}; exit:CaughtR2 -> {'EXIT', CaughtR2} end),
     case DoAnswer of
         true -> comm:send_local(SrcPid, {parallel_result, Res});
         _ -> ok 

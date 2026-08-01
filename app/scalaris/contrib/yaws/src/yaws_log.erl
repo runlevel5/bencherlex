@@ -73,10 +73,10 @@ del_sconf(SConf) ->
     gen_server:call(yaws_log, {soft_del_sc, SConf}, infinity).
 
 accesslog(SConf, Ip, Req, InH, OutH, Time) ->
-    catch yaws_logger:accesslog(SConf, Ip, Req, InH, OutH, Time).
+    try yaws_logger:accesslog(SConf, Ip, Req, InH, OutH, Time) catch throw:CaughtT1 -> CaughtT1; error:CaughtR1:CaughtS1 -> {'EXIT', {CaughtR1, CaughtS1}}; exit:CaughtR1 -> {'EXIT', CaughtR1} end.
 
 authlog(SConf, IP, Path, Item) ->
-    catch yaws_logger:authlog(SConf, IP, Path, Item).
+    try yaws_logger:authlog(SConf, IP, Path, Item) catch throw:CaughtT2 -> CaughtT2; error:CaughtR2:CaughtS2 -> {'EXIT', {CaughtR2, CaughtS2}}; exit:CaughtR2 -> {'EXIT', CaughtR2} end.
 
 rotate(Res) ->
     gen_server:cast(?MODULE, {yaws_hupped, Res}).
@@ -346,7 +346,7 @@ handle_cast({_ServerName, access, Fd, {Ip, Req, InH, OutH, _}}, State) ->
 handle_cast({ServerName, auth, Fd, {Ip, Path, Item}}, State) ->
     case State#state.running of
         true ->
-            IpStr = case catch inet_parse:ntoa(Ip) of
+            IpStr = case try inet_parse:ntoa(Ip) catch throw:CaughtT3 -> CaughtT3; error:CaughtR3:CaughtS3 -> {'EXIT', {CaughtR3, CaughtS3}}; exit:CaughtR3 -> {'EXIT', CaughtR3} end of
                         {'EXIT', _} -> "unknownip";
                         Val -> Val
                     end,
@@ -457,7 +457,7 @@ code_change(_OldVsn, Data, _Extra) ->
 %%% Internal functions
 %%%----------------------------------------------------------------------
 safe_decode_path({abs_path, Path}) ->
-    case catch yaws_api:url_decode(Path) of
+    case try yaws_api:url_decode(Path) catch throw:CaughtT4 -> CaughtT4; error:CaughtR4:CaughtS4 -> {'EXIT', {CaughtR4, CaughtS4}}; exit:CaughtR4 -> {'EXIT', CaughtR4} end of
         {'EXIT', _} -> "/undecodable_path";
         Val         -> Val
     end;

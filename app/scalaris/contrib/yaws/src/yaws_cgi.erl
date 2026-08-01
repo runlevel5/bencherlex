@@ -201,7 +201,7 @@ build_env(Arg, Scriptfilename, Pathinfo, ExtraEnv, SC) ->
     PeerAddr = get_socket_peername(Arg#arg.clisock),
     LocalAddr = get_socket_sockname(Arg#arg.clisock),
 
-    Scheme = (catch yaws:redirect_scheme(SC)),
+    Scheme = (try yaws:redirect_scheme(SC) catch throw:CaughtT1 -> CaughtT1; error:CaughtR1:CaughtS1 -> {'EXIT', {CaughtR1, CaughtS1}}; exit:CaughtR1 -> {'EXIT', CaughtR1} end),
     %% Needed by trac, for redirs after POST
     HttpsEnv  = case Scheme of
                     "https://" -> [{"HTTPS", "1"}];

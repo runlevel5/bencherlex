@@ -284,12 +284,12 @@ to() ->
 
 %% pretty good seed, but non portable
 seed() ->
-    case (catch list_to_binary(
-                  os:cmd("dd if=/dev/urandom ibs=12 count=1 2>/dev/null"))) of
+    case (try list_to_binary(
+                  os:cmd("dd if=/dev/urandom ibs=12 count=1 2>/dev/null")) catch throw:CaughtT1 -> CaughtT1; error:CaughtR1:CaughtS1 -> {'EXIT', {CaughtR1, CaughtS1}}; exit:CaughtR1 -> {'EXIT', CaughtR1} end) of
         <<X:32, Y:32, Z:32>> ->
             {X, Y, Z};
         _ ->
-            now()
+            erlang:timestamp()
     end.
 
 gnow() ->

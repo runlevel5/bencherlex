@@ -324,7 +324,7 @@ depth(A) ->
 
 to_depth("infinity") -> infinity;
 to_depth(L) ->
-    case catch list_to_integer(L) of
+    case try list_to_integer(L) catch throw:CaughtT1 -> CaughtT1; error:CaughtR1:CaughtS1 -> {'EXIT', {CaughtR1, CaughtS1}}; exit:CaughtR1 -> {'EXIT', CaughtR1} end of
         I when is_integer(I) -> I;
         _                 -> 0
     end.
@@ -339,7 +339,7 @@ xml_expand(L, Cset) ->
 
 parse_xml([]) -> [];
 parse_xml(L) when is_list(L) ->
-    case catch xmerl_scan:string(L, [{namespace_conformant, true}]) of
+    case try xmerl_scan:string(L, [{namespace_conformant, true}]) catch throw:CaughtT2 -> CaughtT2; error:CaughtR2:CaughtS2 -> {'EXIT', {CaughtR2, CaughtS2}}; exit:CaughtR2 -> {'EXIT', CaughtR2} end of
         {X,_} when is_record(X, xmlElement) ->
             parse_dav(X);
         _Z ->

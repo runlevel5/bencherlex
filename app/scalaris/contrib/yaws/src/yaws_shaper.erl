@@ -35,7 +35,7 @@ behaviour_info(_Other) ->
 check(#sconf{shaper=undefined}, _) ->
     allow;
 check(#sconf{shaper=Mod}, IP) ->
-    case catch Mod:check(IP) of
+    case try Mod:check(IP) catch throw:CaughtT1 -> CaughtT1; error:CaughtR1:CaughtS1 -> {'EXIT', {CaughtR1, CaughtS1}}; exit:CaughtR1 -> {'EXIT', CaughtR1} end of
         allow ->
             allow;
         {deny, Status, Msg} ->
@@ -59,4 +59,4 @@ update(#sconf{shaper=Mod}, IP, Req) ->
                         I2 -> I2
                     end
             end,
-    catch Mod:update(IP, 1, Bytes).
+    try Mod:update(IP, 1, Bytes) catch throw:CaughtT2 -> CaughtT2; error:CaughtR2:CaughtS2 -> {'EXIT', {CaughtR2, CaughtS2}}; exit:CaughtR2 -> {'EXIT', CaughtR2} end.

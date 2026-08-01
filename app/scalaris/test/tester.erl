@@ -108,11 +108,11 @@ test_with_scheduler(Modules, F, Options, Repetitions) ->
     Processes = unittest_helper:get_processes(),
     Res = repeat(fun () ->
                          {ok, Pid} = tester_scheduler:start(Options),
-                         (catch register(usscheduler, Pid)),
-                         Res = (catch F()),
+                         (try register(usscheduler, Pid) catch throw:CaughtT1 -> CaughtT1; error:CaughtR1:CaughtS1 -> {'EXIT', {CaughtR1, CaughtS1}}; exit:CaughtR1 -> {'EXIT', CaughtR1} end),
+                         Res = (try F() catch throw:CaughtT2 -> CaughtT2; error:CaughtR2:CaughtS2 -> {'EXIT', {CaughtR2, CaughtS2}}; exit:CaughtR2 -> {'EXIT', CaughtR2} end),
                          unittest_helper:kill_new_processes(Processes, [quiet]),
-                         (catch exit(Pid)),
-                         (catch unregister(usscheduler)),
+                         (try exit(Pid) catch throw:CaughtT3 -> CaughtT3; error:CaughtR3:CaughtS3 -> {'EXIT', {CaughtR3, CaughtS3}}; exit:CaughtR3 -> {'EXIT', CaughtR3} end),
+                         (try unregister(usscheduler) catch throw:CaughtT4 -> CaughtT4; error:CaughtR4:CaughtS4 -> {'EXIT', {CaughtR4, CaughtS4}}; exit:CaughtR4 -> {'EXIT', CaughtR4} end),
                          Res
                  end, Repetitions),
     _DeleteRes = [code:delete(Module) || Module <- Modules],

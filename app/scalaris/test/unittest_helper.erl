@@ -231,10 +231,10 @@ stop_ring(Pid) ->
             error_logger:delete_report_handler(error_logger_log4erl_h),
             log:set_log_level(none),
             util:supervisor_terminate(main_sup),
-            catch exit(Pid, kill),
+            try exit(Pid, kill) catch _:_ -> ok end,
             util:wait_for_process_to_die(Pid),
             stop_pid_groups(),
-            catch(unregister(ct_test_ring)),
+            try (unregister(ct_test_ring)) catch _:_ -> ok end,
             error_logger:tty(true),
             ct:pal("unittest_helper:stop_ring done."),
             ok
@@ -256,7 +256,7 @@ stop_pid_groups() ->
     gen_component:kill(pid_groups),
     util:wait_for_table_to_disappear(pid_groups),
     util:wait_for_table_to_disappear(pid_groups_hidden),
-    catch unregister(pid_groups),
+    try unregister(pid_groups) catch _:_ -> ok end,
     ok.
 
 

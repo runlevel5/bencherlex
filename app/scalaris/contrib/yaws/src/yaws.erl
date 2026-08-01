@@ -463,7 +463,7 @@ to_list(A) when is_atom(A) ->
 
 
 integer_to_hex(I) ->
-    case catch erlang:integer_to_list(I, 16) of
+    case try erlang:integer_to_list(I, 16) catch throw:CaughtT1 -> CaughtT1; error:CaughtR1:CaughtS1 -> {'EXIT', {CaughtR1, CaughtS1}}; exit:CaughtR1 -> {'EXIT', CaughtR1} end of
         {'EXIT', _} ->
             old_integer_to_hex(I);
         Int ->
@@ -617,7 +617,7 @@ stringdate_to_datetime2([M1, M2, M3, $\s , Y1, Y2, Y3, Y4, $\s ,
 
 %% used by If-Modified-Since header code
 is_modified_p(FI, UTC_string) ->
-    case catch stringdate_to_datetime(UTC_string) of
+    case try stringdate_to_datetime(UTC_string) catch throw:CaughtT2 -> CaughtT2; error:CaughtR2:CaughtS2 -> {'EXIT', {CaughtR2, CaughtS2}}; exit:CaughtR2 -> {'EXIT', CaughtR2} end of
         {'EXIT', _ } ->
             true;
         UTC ->
@@ -986,7 +986,7 @@ tokenize_ua([C|T], Acc) ->
     tokenize_ua(T, [C|Acc]).
 
 parse_ua(Line) ->
-    case catch parse_ua_l(tokenize_ua(Line, [])) of
+    case try parse_ua_l(tokenize_ua(Line, [])) catch throw:CaughtT3 -> CaughtT3; error:CaughtR3:CaughtS3 -> {'EXIT', {CaughtR3, CaughtS3}}; exit:CaughtR3 -> {'EXIT', CaughtR3} end of
         {'EXIT', _} -> [];
         Res -> Res
     end.

@@ -227,7 +227,7 @@ handle_call({close, DB}, _From, State) ->
     {reply, ok, State};
 %%
 handle_call({close, DBMod, DBname}, _From, State) ->
-    catch apply(DBMod, close, [DBname]),
+    try apply(DBMod, close, [DBname]) catch _:_ -> ok end,
     {reply, ok, State};
 %%
 handle_call({insert, Args}, _From, State) ->
@@ -292,7 +292,7 @@ do_open_dir(State, App, Opts) ->
                 false ->
                     {State, {error, "not a proper dets file"}};
                 _     ->
-                    case catch dets:open_file(?DB, [{file, File}]) of
+                    case try dets:open_file(?DB, [{file, File}]) catch throw:CaughtT2 -> CaughtT2; error:CaughtR2:CaughtS2 -> {'EXIT', {CaughtR2, CaughtS2}}; exit:CaughtR2 -> {'EXIT', CaughtR2} end of
                         {ok,DB} = Res   ->
                             {State#s{
                                open_apps = u_insert(App, State#s.open_apps),
@@ -307,7 +307,7 @@ do_open_dir(State, App, Opts) ->
                     end
             end;
         DBmod ->
-            {State, catch apply(DBmod, open, Opts)}
+            {State, try apply(DBmod, open, Opts) catch throw:CaughtT3 -> CaughtT3; error:CaughtR3:CaughtS3 -> {'EXIT', {CaughtR3, CaughtS3}}; exit:CaughtR3 -> {'EXIT', CaughtR3} end}
     end.
 
 get_db_file(Opts) ->
@@ -324,7 +324,7 @@ set_counter(DB, N) ->
     dets:insert(DB, {counter, N}).
 
 do_insert(State, {App, {DbMod,Tag}, Title, Link, Desc, Creator, GregSecs}) ->
-    {State, catch apply(DbMod, insert, [App, Tag,Title,Link,Desc,Creator,GregSecs])};
+    {State, try apply(DbMod, insert, [App, Tag,Title,Link,Desc,Creator,GregSecs]) catch throw:CaughtT4 -> CaughtT4; error:CaughtR4:CaughtS4 -> {'EXIT', {CaughtR4, CaughtS4}}; exit:CaughtR4 -> {'EXIT', CaughtR4} end};
 do_insert(State, {App, Tag, Title, Link, Desc, Creator, GregSecs}) ->
     case lists:member(App, State#s.open_apps) of
         true ->
@@ -343,7 +343,7 @@ do_insert(State, {App, Tag, Title, Link, Desc, Creator, GregSecs}) ->
 
 
 do_retrieve(State, App, {DbMod,Tag}) ->
-    {State, catch apply(DbMod, retrieve, [App, Tag])};
+    {State, try apply(DbMod, retrieve, [App, Tag]) catch throw:CaughtT5 -> CaughtT5; error:CaughtR5:CaughtS5 -> {'EXIT', {CaughtR5, CaughtS5}}; exit:CaughtR5 -> {'EXIT', CaughtR5} end};
 do_retrieve(State, App, Tag) ->
     case lists:member(App, State#s.open_apps) of
         true ->

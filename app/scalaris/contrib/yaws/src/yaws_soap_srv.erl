@@ -175,12 +175,12 @@ code_change(_OldVsn, State, _Extra) ->
 request(State, {M,F} = Id, {Req, Attachments}, SessionValue, Action) ->
     {ok, Model} = get_model(State, Id),
     %%error_logger:info_report([?MODULE, {payload, Req}]),
-    case catch yaws_soap_lib:parseMessage(Req, Model) of
+    case try yaws_soap_lib:parseMessage(Req, Model) catch throw:CaughtT1 -> CaughtT1; error:CaughtR1:CaughtS1 -> {'EXIT', {CaughtR1, CaughtS1}}; exit:CaughtR1 -> {'EXIT', CaughtR1} end of
         {ok, Header, Body} ->
             %% call function
-            result(Model, catch apply(M, F, [Header, Body,
+            result(Model, try apply(M, F, [Header, Body,
                                              Action, SessionValue,
-					     Attachments]));
+					     Attachments]) catch throw:CaughtT2 -> CaughtT2; error:CaughtR2:CaughtS2 -> {'EXIT', {CaughtR2, CaughtS2}}; exit:CaughtR2 -> {'EXIT', CaughtR2} end);
         {error, Error} ->
             cli_error(Error);
         OtherError ->
@@ -189,12 +189,12 @@ request(State, {M,F} = Id, {Req, Attachments}, SessionValue, Action) ->
 request(State, {M,F} = Id, Req, SessionValue, Action) ->
     %%error_logger:info_report([?MODULE, {payload, Req}]),
     {ok, Model} = get_model(State, Id),
-    Umsg = (catch erlsom_lib:toUnicode(Req)),
-    case catch yaws_soap_lib:parseMessage(Umsg, Model) of
+    Umsg = (try erlsom_lib:toUnicode(Req) catch throw:CaughtT3 -> CaughtT3; error:CaughtR3:CaughtS3 -> {'EXIT', {CaughtR3, CaughtS3}}; exit:CaughtR3 -> {'EXIT', CaughtR3} end),
+    case try yaws_soap_lib:parseMessage(Umsg, Model) catch throw:CaughtT4 -> CaughtT4; error:CaughtR4:CaughtS4 -> {'EXIT', {CaughtR4, CaughtS4}}; exit:CaughtR4 -> {'EXIT', CaughtR4} end of
         {ok, Header, Body} ->
             %% call function
-            result(Model, catch apply(M, F, [Header, Body,
-                                             Action, SessionValue]));
+            result(Model, try apply(M, F, [Header, Body,
+                                             Action, SessionValue]) catch throw:CaughtT5 -> CaughtT5; error:CaughtR5:CaughtS5 -> {'EXIT', {CaughtR5, CaughtS5}}; exit:CaughtR5 -> {'EXIT', CaughtR5} end);
         {error, Error} ->
             cli_error(Error);
         OtherError ->
@@ -228,7 +228,7 @@ return(Model, ResHeader, ResBody, ResCode, SessVal, Files) ->
               end,
     Envelope = #'soap:Envelope'{'Body' =  #'soap:Body'{choice = ResBody},
                                 'Header' = Header2},
-    case catch erlsom:write(Envelope, Model) of
+    case try erlsom:write(Envelope, Model) catch throw:CaughtT6 -> CaughtT6; error:CaughtR6:CaughtS6 -> {'EXIT', {CaughtR6, CaughtS6}}; exit:CaughtR6 -> {'EXIT', CaughtR6} end of
         {ok, XmlDoc} ->
 	    case Files of
 		undefined ->

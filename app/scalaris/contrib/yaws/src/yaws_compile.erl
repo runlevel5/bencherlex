@@ -262,7 +262,7 @@ line() ->
     get_line().
 
 is_exported(Fun, A, Mod) ->
-    case (catch Mod:module_info()) of
+    case (try Mod:module_info() catch throw:CaughtT1 -> CaughtT1; error:CaughtR1:CaughtS1 -> {'EXIT', {CaughtR1, CaughtS1}}; exit:CaughtR1 -> {'EXIT', CaughtR1} end) of
         List when is_list(List) ->
             case lists:keysearch(exports, 1, List) of
                 {value, {exports, Exp}} ->
@@ -278,7 +278,7 @@ is_exported(Fun, A, Mod) ->
 new_out_file_module(Tail) ->
     case Tail of
         ">" ++ _ ->
-            Mnum = case catch gen_server:call(yaws_server, mnum, infinity) of
+            Mnum = case try gen_server:call(yaws_server, mnum, infinity) catch throw:CaughtT2 -> CaughtT2; error:CaughtR2:CaughtS2 -> {'EXIT', {CaughtR2, CaughtS2}}; exit:CaughtR2 -> {'EXIT', CaughtR2} end of
                        {'EXIT', _} ->
                            1;
                        Other ->
@@ -381,7 +381,7 @@ proc_compile_file(F, Opts) ->
     Res.
 
 compiler_proc(Top, F, Opts) ->
-    R = (catch compile:file(F, Opts)),
+    R = (try compile:file(F, Opts) catch throw:CaughtT3 -> CaughtT3; error:CaughtR3:CaughtS3 -> {'EXIT', {CaughtR3, CaughtS3}}; exit:CaughtR3 -> {'EXIT', CaughtR3} end),
     Top ! {self(), result, R}.
 
 

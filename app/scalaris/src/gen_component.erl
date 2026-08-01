@@ -293,10 +293,10 @@ start(Module, DefaultHandler, Args, Options, Supervisor) ->
                     %% debugging, for example for etop.
                     EName = list_to_atom(GroupId ++ "-"
                                          ++ atom_to_list(PidName)),
-                    catch(erlang:register(EName, self()));
+                    try (erlang:register(EName, self())) catch throw:CaughtT1 -> CaughtT1; error:CaughtR1:CaughtS1 -> {'EXIT', {CaughtR1, CaughtS1}}; exit:CaughtR1 -> {'EXIT', CaughtR1} end;
                 false ->
                     EName = list_to_atom(GroupId ++ "-" ++ PidName),
-                    catch(erlang:register(EName, self()));
+                    try (erlang:register(EName, self())) catch throw:CaughtT2 -> CaughtT2; error:CaughtR2:CaughtS2 -> {'EXIT', {CaughtR2, CaughtS2}}; exit:CaughtR2 -> {'EXIT', CaughtR2} end;
                 _ -> ok
             end;
         false ->
@@ -306,9 +306,9 @@ start(Module, DefaultHandler, Args, Options, Supervisor) ->
             {erlang_register, Name} ->
                 _ = case whereis(Name) of
                         undefined -> ok;
-                        _ -> catch(erlang:unregister(Name)) %% unittests may leave garbage
+                        _ -> try (erlang:unregister(Name)) catch throw:CaughtT3 -> CaughtT3; error:CaughtR3:CaughtS3 -> {'EXIT', {CaughtR3, CaughtS3}}; exit:CaughtR3 -> {'EXIT', CaughtR3} end %% unittests may leave garbage
                     end,
-                catch(erlang:register(Name, self()));
+                try (erlang:register(Name, self())) catch throw:CaughtT4 -> CaughtT4; error:CaughtR4:CaughtS4 -> {'EXIT', {CaughtR4, CaughtS4}}; exit:CaughtR4 -> {'EXIT', CaughtR4} end;
             false ->
                 ?DEBUG_REGISTER(list_to_atom(atom_to_list(Module) ++ "_"
                                              ++ randoms:getRandomString()), self()),

@@ -67,8 +67,8 @@ load(E) ->
                   end,
             GC3 =  ?gc_set_debug(GC2, E#env.debug),
             GC4 = GC3#gconf{trace = E#env.trace},
-            R = (catch fload(FD, globals, GC4, undefined,
-                             [], 1, io:get_line(FD, ''))),
+            R = (try fload(FD, globals, GC4, undefined,
+                             [], 1, io:get_line(FD, '')) catch throw:CaughtT1 -> CaughtT1; error:CaughtR1:CaughtS1 -> {'EXIT', {CaughtR1, CaughtS1}}; exit:CaughtR1 -> {'EXIT', CaughtR1} end),
             ?Debug("FLOAD: ~p", [R]),
             case R of
                 {ok, GC5, Cs} ->
@@ -134,7 +134,7 @@ load_yaws_auth_from_docroot(Docroot, _) ->
                   SP  = string:sub_string(Path, length(Docroot)+1),
                   Dir = filename:dirname(SP),
                   A = #auth{docroot=Docroot, dir=Dir},
-                  case catch load_yaws_auth_file(Path, A) of
+                  case try load_yaws_auth_file(Path, A) catch throw:CaughtT2 -> CaughtT2; error:CaughtR2:CaughtS2 -> {'EXIT', {CaughtR2, CaughtS2}}; exit:CaughtR2 -> {'EXIT', CaughtR2} end of
                       {ok, L} -> L ++ Acc;
                       _Other  -> Acc
                   end
@@ -183,7 +183,7 @@ load_yaws_auth_from_authdir(Docroot, Auth) ->
               _        -> Auth#auth.dir
           end,
     Path = filename:join([Docroot, Dir, ".yaws_auth"]),
-    case catch load_yaws_auth_file(Path, Auth) of
+    case try load_yaws_auth_file(Path, Auth) catch throw:CaughtT3 -> CaughtT3; error:CaughtR3:CaughtS3 -> {'EXIT', {CaughtR3, CaughtS3}}; exit:CaughtR3 -> {'EXIT', CaughtR3} end of
         {ok, Auths} -> Auths;
         _           -> [Auth]
     end.
@@ -336,7 +336,7 @@ validate_cs(GC, Cs) ->
 validate_groups([]) ->
     ok;
 validate_groups([H|T]) ->
-    case (catch validate_group(H)) of
+    case (try validate_group(H) catch throw:CaughtT4 -> CaughtT4; error:CaughtR4:CaughtS4 -> {'EXIT', {CaughtR4, CaughtS4}}; exit:CaughtR4 -> {'EXIT', CaughtR4} end) of
         ok ->
             validate_groups(T);
         Err ->
@@ -410,7 +410,7 @@ set_server(SC) ->
 add_port(SC, Port) ->
     case string:tokens(SC#sconf.servername, ":") of
         [Srv, Prt] ->
-            case (catch list_to_integer(Prt)) of
+            case (try list_to_integer(Prt) catch throw:CaughtT5 -> CaughtT5; error:CaughtR5:CaughtS5 -> {'EXIT', {CaughtR5, CaughtS5}}; exit:CaughtR5 -> {'EXIT', CaughtR5} end) of
                 {'EXIT', _} ->
                     SC#sconf{servername =
                                  Srv ++ [$:|integer_to_list(Port)]};
@@ -532,8 +532,8 @@ fload(FD, globals, GC, C, Cs, Lno, Chars) ->
                       "Yaws: Using subconfig file ~s~n", [File]),
                     case file:open(File, [read]) of
                         {ok, FD1} ->
-                            R = (catch fload(FD1, globals, GC, undefined,
-                                             Cs, 1, io:get_line(FD1, ''))),
+                            R = (try fload(FD1, globals, GC, undefined,
+                                             Cs, 1, io:get_line(FD1, '')) catch throw:CaughtT6 -> CaughtT6; error:CaughtR6:CaughtS6 -> {'EXIT', {CaughtR6, CaughtS6}}; exit:CaughtR6 -> {'EXIT', CaughtR6} end),
                             ?Debug("FLOAD: ~p", [R]),
                             case R of
                                 {ok, GC1, Cs1} ->
@@ -642,7 +642,7 @@ fload(FD, globals, GC, C, Cs, Lno, Chars) ->
             end;
 
         ["max_connections", '=', Int] ->
-            case (catch list_to_integer(Int)) of
+            case (try list_to_integer(Int) catch throw:CaughtT7 -> CaughtT7; error:CaughtR7:CaughtS7 -> {'EXIT', {CaughtR7, CaughtS7}}; exit:CaughtR7 -> {'EXIT', CaughtR7} end) of
                 I when is_integer(I) ->
                     fload(FD, globals, GC#gconf{max_connections = I},
                           C, Cs, Lno+1, Next);
@@ -662,7 +662,7 @@ fload(FD, globals, GC, C, Cs, Lno, Chars) ->
             end;
 
         ["acceptor_pool_size", '=', Int] ->
-            case catch list_to_integer(Int) of
+            case try list_to_integer(Int) catch throw:CaughtT8 -> CaughtT8; error:CaughtR8:CaughtS8 -> {'EXIT', {CaughtR8, CaughtS8}}; exit:CaughtR8 -> {'EXIT', CaughtR8} end of
                 I when is_integer(I), I >= 0 ->
                     fload(FD, globals, GC#gconf{acceptor_pool_size = I},
                           C, Cs, Lno+1, Next);
@@ -671,7 +671,7 @@ fload(FD, globals, GC, C, Cs, Lno, Chars) ->
             end;
 
         ["log_wrap_size", '=', Int] ->
-            case (catch list_to_integer(Int)) of
+            case (try list_to_integer(Int) catch throw:CaughtT9 -> CaughtT9; error:CaughtR9:CaughtS9 -> {'EXIT', {CaughtR9, CaughtS9}}; exit:CaughtR9 -> {'EXIT', CaughtR9} end) of
                 I when is_integer(I) ->
                     fload(FD, globals, GC#gconf{log_wrap_size = I},
                           C, Cs, Lno+1, Next);
@@ -729,7 +729,7 @@ fload(FD, globals, GC, C, Cs, Lno, Chars) ->
 
         %% keep this bugger for backward compat for a while
         ["keepalive_timeout", '=', Val] ->
-            case (catch list_to_integer(Val)) of
+            case (try list_to_integer(Val) catch throw:CaughtT10 -> CaughtT10; error:CaughtR10:CaughtS10 -> {'EXIT', {CaughtR10, CaughtS10}}; exit:CaughtR10 -> {'EXIT', CaughtR10} end) of
                 I when is_integer(I) ->
                     fload(FD, globals, GC#gconf{keepalive_timeout = I},
                           C, Cs, Lno+1, Next);
@@ -738,7 +738,7 @@ fload(FD, globals, GC, C, Cs, Lno, Chars) ->
             end;
 
         ["keepalive_maxuses", '=', Int] ->
-            case (catch list_to_integer(Int)) of
+            case (try list_to_integer(Int) catch throw:CaughtT11 -> CaughtT11; error:CaughtR11:CaughtS11 -> {'EXIT', {CaughtR11, CaughtS11}}; exit:CaughtR11 -> {'EXIT', CaughtR11} end) of
                 I when is_integer(I) ->
                     fload(FD, globals, GC#gconf{keepalive_maxuses = I},
                           C, Cs, Lno+1, Next);
@@ -766,7 +766,7 @@ fload(FD, globals, GC, C, Cs, Lno, Chars) ->
             fload(FD, globals, GC, C, Cs, Lno+1, Next);
 
         ["max_num_cached_files", '=', Val] ->
-            case (catch list_to_integer(Val)) of
+            case (try list_to_integer(Val) catch throw:CaughtT12 -> CaughtT12; error:CaughtR12:CaughtS12 -> {'EXIT', {CaughtR12, CaughtS12}}; exit:CaughtR12 -> {'EXIT', CaughtR12} end) of
                 I when is_integer(I) ->
                     fload(FD, globals, GC#gconf{max_num_cached_files = I},
                           C, Cs, Lno+1, Next);
@@ -776,7 +776,7 @@ fload(FD, globals, GC, C, Cs, Lno, Chars) ->
 
 
         ["max_num_cached_bytes", '=', Val] ->
-            case (catch list_to_integer(Val)) of
+            case (try list_to_integer(Val) catch throw:CaughtT13 -> CaughtT13; error:CaughtR13:CaughtS13 -> {'EXIT', {CaughtR13, CaughtS13}}; exit:CaughtR13 -> {'EXIT', CaughtR13} end) of
                 I when is_integer(I) ->
                     fload(FD, globals, GC#gconf{max_num_cached_bytes = I},
                           C, Cs, Lno+1, Next);
@@ -786,7 +786,7 @@ fload(FD, globals, GC, C, Cs, Lno, Chars) ->
 
 
         ["max_size_cached_file", '=', Val] ->
-            case (catch list_to_integer(Val)) of
+            case (try list_to_integer(Val) catch throw:CaughtT14 -> CaughtT14; error:CaughtR14:CaughtS14 -> {'EXIT', {CaughtR14, CaughtS14}}; exit:CaughtR14 -> {'EXIT', CaughtR14} end) of
                 I when is_integer(I) ->
                     fload(FD, globals, GC#gconf{max_size_cached_file = I},
                           C, Cs, Lno+1, Next);
@@ -795,7 +795,7 @@ fload(FD, globals, GC, C, Cs, Lno, Chars) ->
             end;
 
         ["cache_refresh_secs", '=', Val] ->
-            case (catch list_to_integer(Val)) of
+            case (try list_to_integer(Val) catch throw:CaughtT15 -> CaughtT15; error:CaughtR15:CaughtS15 -> {'EXIT', {CaughtR15, CaughtS15}}; exit:CaughtR15 -> {'EXIT', CaughtR15} end) of
                 I when is_integer(I), I >= 0 ->
                     fload(FD, globals, GC#gconf{cache_refresh_secs = I},
                           C, Cs, Lno+1, Next);
@@ -953,7 +953,7 @@ fload(FD, server, GC, C, Cs, Lno, Chars) ->
                     {error, ?F("Expect true|false at line ~w", [Lno])}
             end;
         ["port", '=', Val] ->
-            case (catch list_to_integer(Val)) of
+            case (try list_to_integer(Val) catch throw:CaughtT16 -> CaughtT16; error:CaughtR16:CaughtS16 -> {'EXIT', {CaughtR16, CaughtS16}}; exit:CaughtR16 -> {'EXIT', CaughtR16} end) of
                 I when is_integer(I) ->
                     C2 = C#sconf{port = I},
                     fload(FD, server, GC, C2, Cs, Lno+1, Next);
@@ -994,7 +994,7 @@ fload(FD, server, GC, C, Cs, Lno, Chars) ->
                     fload(FD, server, GC, C2, Cs, Lno+1, Next)
             end;
         ["listen_backlog", '=', Val] ->
-            case (catch list_to_integer(Val)) of
+            case (try list_to_integer(Val) catch throw:CaughtT17 -> CaughtT17; error:CaughtR17:CaughtS17 -> {'EXIT', {CaughtR17, CaughtS17}}; exit:CaughtR17 -> {'EXIT', CaughtR17} end) of
                 B when is_integer(B) ->
                     C2 = case proplists:get_value(listen_opts,
                                                   C#sconf.soptions) of
@@ -1036,7 +1036,7 @@ fload(FD, server, GC, C, Cs, Lno, Chars) ->
                     C2 = C#sconf{partial_post_size = nolimit},
                     fload(FD, server, GC, C2, Cs, Lno+1, Next);
                 Val ->
-                    case (catch list_to_integer(Val)) of
+                    case (try list_to_integer(Val) catch throw:CaughtT18 -> CaughtT18; error:CaughtR18:CaughtS18 -> {'EXIT', {CaughtR18, CaughtS18}}; exit:CaughtR18 -> {'EXIT', CaughtR18} end) of
                         I when is_integer(I) ->
                             C2 = C#sconf{partial_post_size = I},
                             fload(FD, server, GC, C2, Cs, Lno+1, Next);
@@ -1136,7 +1136,7 @@ fload(FD, server, GC, C, Cs, Lno, Chars) ->
             fload(FD, server, GC, C2, Cs, Lno+1, Next);
 
         ["revproxy", '=', Prefix, Url] ->
-            case (catch yaws_api:parse_url(Url)) of
+            case (try yaws_api:parse_url(Url) catch throw:CaughtT19 -> CaughtT19; error:CaughtR19:CaughtS19 -> {'EXIT', {CaughtR19, CaughtS19}}; exit:CaughtR19 -> {'EXIT', CaughtR19} end) of
                 {'EXIT', _} ->
                     {error, ?F("Bad url at line ~p",[Lno])};
                 URL when URL#url.path == "/" ->
@@ -1297,7 +1297,7 @@ fload(FD, ssl, GC, C, Cs, Lno, Chars) ->
                                "verify_peer at line ~w", [Lno])}
             end;
         ["fail_if_no_peer_cert", '=', Val0] ->
-            Val = (catch list_to_atom(Val0)),
+            Val = (try list_to_atom(Val0) catch throw:CaughtT20 -> CaughtT20; error:CaughtR20:CaughtS20 -> {'EXIT', {CaughtR20, CaughtS20}}; exit:CaughtR20 -> {'EXIT', CaughtR20} end),
             if
                 is_record(C#sconf.ssl, ssl) ->
                     C2 = C#sconf{ssl = (C#sconf.ssl)#ssl{
@@ -1309,7 +1309,7 @@ fload(FD, ssl, GC, C, Cs, Lno, Chars) ->
                                [Lno])}
             end;
         ["depth", '=', Val0] ->
-            Val = (catch list_to_integer(Val0)),
+            Val = (try list_to_integer(Val0) catch throw:CaughtT21 -> CaughtT21; error:CaughtR21:CaughtS21 -> {'EXIT', {CaughtR21, CaughtS21}}; exit:CaughtR21 -> {'EXIT', CaughtR21} end),
             case lists:member(Val, [0, 1,2,3,4,5,6,7]) of
                 true when  is_record(C#sconf.ssl, ssl) ->
                     C2 = C#sconf{ssl = (C#sconf.ssl)#ssl{depth = Val}},
@@ -1454,7 +1454,7 @@ fload(FD, server_auth, GC, C, Cs, Lno, Chars, Auth) ->
             A2 = Auth#auth{mod = Mod2, headers = H},
             fload(FD, server_auth, GC, C, Cs, Lno+1, Next, A2);
         ["user", '=', User] ->
-            case (catch string:tokens(User, ":")) of
+            case (try string:tokens(User, ":") catch throw:CaughtT22 -> CaughtT22; error:CaughtR22:CaughtS22 -> {'EXIT', {CaughtR22, CaughtS22}}; exit:CaughtR22 -> {'EXIT', CaughtR22} end) of
                 [Name, Passwd] ->
                     A2 = Auth#auth{users = [{Name, Passwd}|Auth#auth.users]},
                     fload(FD, server_auth, GC, C, Cs, Lno+1, Next, A2);
@@ -1820,11 +1820,11 @@ parse_expires(['<', MimeType, ',' , Expire, '>' | Tail], Ack) ->
     {Type, Value} =
         case string:tokens(Expire, "+") of
             [Secs] ->
-                {access, (catch list_to_integer(Secs))};
+                {access, (try list_to_integer(Secs) catch throw:CaughtT23 -> CaughtT23; error:CaughtR23:CaughtS23 -> {'EXIT', {CaughtR23, CaughtS23}}; exit:CaughtR23 -> {'EXIT', CaughtR23} end)};
             ["access", Secs] ->
-                {access, (catch list_to_integer(Secs))};
+                {access, (try list_to_integer(Secs) catch throw:CaughtT24 -> CaughtT24; error:CaughtR24:CaughtS24 -> {'EXIT', {CaughtR24, CaughtS24}}; exit:CaughtR24 -> {'EXIT', CaughtR24} end)};
             ["modify", Secs] ->
-                {modify, (catch list_to_integer(Secs))};
+                {modify, (try list_to_integer(Secs) catch throw:CaughtT25 -> CaughtT25; error:CaughtR25:CaughtS25 -> {'EXIT', {CaughtR25, CaughtS25}}; exit:CaughtR25 -> {'EXIT', CaughtR25} end)};
             _ ->
                 {error, "Bad expires syntax"}
         end,
@@ -1869,7 +1869,7 @@ parse_phpmod(['<', "extern", ',', NodeModFunSpec, '>'], _) ->
 
 
 ssl_start() ->
-    case catch ssl:start() of
+    case try ssl:start() catch throw:CaughtT26 -> CaughtT26; error:CaughtR26:CaughtS26 -> {'EXIT', {CaughtR26, CaughtS26}}; exit:CaughtR26 -> {'EXIT', CaughtR26} end of
         ok ->
             ok;
         {error,{already_started,ssl}} ->
@@ -2276,7 +2276,7 @@ ip_to_integer(_) ->
 
 
 netmask_to_integer(Type, NetMask) ->
-    case catch list_to_integer(NetMask) of
+    case try list_to_integer(NetMask) catch throw:CaughtT27 -> CaughtT27; error:CaughtR27:CaughtS27 -> {'EXIT', {CaughtR27, CaughtS27}}; exit:CaughtR27 -> {'EXIT', CaughtR27} end of
         I when is_integer(I) ->
             case Type of
                 ipv4 -> (1 bsl ?MAXBITS_IPV4) - (1 bsl (?MAXBITS_IPV4 - I));
@@ -2300,13 +2300,13 @@ subconfigdir_fold(File, {ok, GCp, Csp}=Acc) ->
             error_logger:info_msg("Yaws: Using subconfig file ~s~n", [File]),
             case file:open(File, [read]) of
                 {ok, FD1} ->
-                    R = (catch fload(FD1,
+                    R = (try fload(FD1,
                                      globals,
                                      GCp,
                                      undefined,
                                      Csp,
                                      1,
-                                     io:get_line(FD1, ''))),
+                                     io:get_line(FD1, '')) catch throw:CaughtT28 -> CaughtT28; error:CaughtR28:CaughtS28 -> {'EXIT', {CaughtR28, CaughtS28}}; exit:CaughtR28 -> {'EXIT', CaughtR28} end),
                     ?Debug("FLOAD: ~p", [R]),
                     R;
                 _ ->

@@ -361,7 +361,7 @@ rewrite_headers(PS, H) when PS#psock.type == server ->
                   undefined;
               true ->
                   ?Debug("parse_url(~p)~n", [H#headers.location]),
-                  LocUrl = (catch yaws_api:parse_url(H#headers.location)),
+                  LocUrl = (try yaws_api:parse_url(H#headers.location) catch throw:CaughtT1 -> CaughtT1; error:CaughtR1:CaughtS1 -> {'EXIT', {CaughtR1, CaughtS1}}; exit:CaughtR1 -> {'EXIT', CaughtR1} end),
                   ProxyUrl = PS#psock.url,
                   if
                       LocUrl#url.host == ProxyUrl#url.host,

@@ -109,14 +109,13 @@ e(Fmt, Args) ->
 %% That way we're making sure different users
 %% cannot manipulate each others webservers
 w_ctl_file(Sid, Port, Key) ->
-    case catch
-             begin
+    case try begin
                  F = yaws:ctl_file(Sid),
                  error_logger:info_msg("Ctlfile : ~s~n", [F]),
                  file:write_file(F, io_lib:format("~w.", [{Port,Key}])),
                  {ok, FI} = file:read_file_info(F),
                  ok = file:write_file_info(F, FI#file_info{mode = 8#00600})
-             end of
+             end catch throw:CaughtT1 -> CaughtT1; error:CaughtR1:CaughtS1 -> {'EXIT', {CaughtR1, CaughtS1}}; exit:CaughtR1 -> {'EXIT', CaughtR1} end of
              {'EXIT', _} ->
                  error;
              _ ->
@@ -140,7 +139,7 @@ aloop(L, GC, Key) ->
 handle_a(A, GC, Key) ->
     case gen_tcp:recv(A, 0) of
         {ok, Data} ->
-            case catch binary_to_term(Data) of
+            case try binary_to_term(Data) catch throw:CaughtT2 -> CaughtT2; error:CaughtR2:CaughtS2 -> {'EXIT', {CaughtR2, CaughtS2}}; exit:CaughtR2 -> {'EXIT', CaughtR2} end of
                 {hup, Key} ->
                     Res = yaws:dohup(A),
                     Res;

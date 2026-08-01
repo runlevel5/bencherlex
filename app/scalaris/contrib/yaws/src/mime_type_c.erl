@@ -15,7 +15,7 @@
 %% default type is text/plain
 
 compile() ->
-    catch c(),
+    try c() catch _:_ -> ok end,
     erlang:halt().
 
 

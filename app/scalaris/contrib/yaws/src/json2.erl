@@ -555,11 +555,11 @@ test() ->
     Failures =
         lists:foldl(
           fun({E, J}, Fs) ->
-                  case (catch test_e2j(E, J)) of
+                  case (try test_e2j(E, J) catch throw:CaughtT1 -> CaughtT1; error:CaughtR1:CaughtS1 -> {'EXIT', {CaughtR1, CaughtS1}}; exit:CaughtR1 -> {'EXIT', CaughtR1} end) of
                       ok ->
-                          case (catch round_trip(E)) of
+                          case (try round_trip(E) catch throw:CaughtT2 -> CaughtT2; error:CaughtR2:CaughtS2 -> {'EXIT', {CaughtR2, CaughtS2}}; exit:CaughtR2 -> {'EXIT', CaughtR2} end) of
                               ok ->
-                                  case (catch round_trip_one_char(E)) of
+                                  case (try round_trip_one_char(E) catch throw:CaughtT3 -> CaughtT3; error:CaughtR3:CaughtS3 -> {'EXIT', {CaughtR3, CaughtS3}}; exit:CaughtR3 -> {'EXIT', CaughtR3} end) of
                                       ok ->
                                           Fs;
                                       Reason ->

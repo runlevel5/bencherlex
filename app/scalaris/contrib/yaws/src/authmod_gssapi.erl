@@ -140,7 +140,7 @@ auth(Arg, Auth) when is_record(Arg, arg),
             ?INFO("Negotiate~n", []),
             Bin = base64:decode(Data),
 
-             case catch spnego:accept_sec_context(?SERVER, Bin) of
+             case try spnego:accept_sec_context(?SERVER, Bin) catch throw:CaughtT1 -> CaughtT1; error:CaughtR1:CaughtS1 -> {'EXIT', {CaughtR1, CaughtS1}}; exit:CaughtR1 -> {'EXIT', CaughtR1} end of
                 {'EXIT', Reason} ->
                     ?ERROR("spnego failed EXIT:~p~n", [Reason]),
                      throw(Reason);

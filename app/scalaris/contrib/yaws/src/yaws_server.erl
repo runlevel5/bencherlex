@@ -124,7 +124,7 @@ init(Env) -> %% #env{Trace, TraceOut, Conf, RunMod, Embedded, Id}) ->
     put(start_time, calendar:local_time ()),  %% for uptime
     case Env#env.embedded of
         false ->
-            Config = (catch yaws_config:load(Env)),
+            Config = (try yaws_config:load(Env) catch throw:CaughtT1 -> CaughtT1; error:CaughtR1:CaughtS1 -> {'EXIT', {CaughtR1, CaughtS1}}; exit:CaughtR1 -> {'EXIT', CaughtR1} end),
             case Config of
                 {ok, Gconf, Sconfs} ->
                     erase(logdir),
@@ -500,12 +500,12 @@ gserv(Top, GC, Group0) ->
               [inet_parse:ntoa(SC#sconf.listen),
                SC#sconf.port,
                length(Group),
-               catch map(
+               try map(
                        fun(S) ->
                                io_lib:format("~n - ~s under ~s",
                                              [yaws:sconf_to_srvstr(S),
                                               S#sconf.docroot])
-                       end, Group)
+                       end, Group) catch throw:CaughtT2 -> CaughtT2; error:CaughtR2:CaughtS2 -> {'EXIT', {CaughtR2, CaughtS2}}; exit:CaughtR2 -> {'EXIT', CaughtR2} end
               ]),
             proc_lib:init_ack({self(), Group}),
             GS = #gs{gconf = GC,
@@ -1023,7 +1023,7 @@ acceptor0(GS, Top) ->
                 _ ->
                     ok
             end,
-            Res = (catch aloop(Client, GS,  0)),
+            Res = (try aloop(Client, GS,  0) catch throw:CaughtT3 -> CaughtT3; error:CaughtR3:CaughtS3 -> {'EXIT', {CaughtR3, CaughtS3}}; exit:CaughtR3 -> {'EXIT', CaughtR3} end),
             %% Skip closing the socket, as required by web sockets & stream
             %% processes.
             CloseSocket = (get(outh) =:= undefined) orelse
@@ -1377,14 +1377,14 @@ maybe_access_log(Ip, Req, H) ->
     SC=get(sc),
     case ?sc_has_access_log(SC) of
         true ->
-            Time = timer:now_diff(now(), get(request_start_time)),
+            Time = timer:now_diff(erlang:timestamp(), get(request_start_time)),
             yaws_log:accesslog(SC, Ip, Req, H, get(outh), Time);
         false ->
             ignore
     end.
 
 safe_decode_path(Path) ->
-    case (catch decode_path(Path)) of
+    case (try decode_path(Path) catch throw:CaughtT4 -> CaughtT4; error:CaughtR4:CaughtS4 -> {'EXIT', {CaughtR4, CaughtS4}}; exit:CaughtR4 -> {'EXIT', CaughtR4} end) of
         {'EXIT', _} ->
             "/undecodable_path";
         Val ->
@@ -1621,7 +1621,7 @@ handle_request(CliSock, ARG, N) ->
     ?Debug("SrvReq=~s~n",[?format_record(Req, http_request)]),
     case Req#http_request.path of
         {abs_path, RawPath} ->
-            case (catch yaws_api:url_decode_q_split(RawPath)) of
+            case (try yaws_api:url_decode_q_split(RawPath) catch throw:CaughtT5 -> CaughtT5; error:CaughtR5:CaughtS5 -> {'EXIT', {CaughtR5, CaughtS5}}; exit:CaughtR5 -> {'EXIT', CaughtR5} end) of
                 {'EXIT', _} ->   %% weird broken cracker requests
                     deliver_400(CliSock, Req);
                 {DecPath, QueryPart} ->
@@ -1940,7 +1940,7 @@ handle_auth(ARG, _Auth_H, Auth_methods=#auth{users=[],pam=false,mod=[]}, Ret) ->
     {Ret, Auth_methods};
 
 handle_auth(ARG, Auth_H, Auth_methods = #auth{mod = Mod}, Ret) when Mod /= [] ->
-    case catch Mod:auth(ARG, Auth_methods) of
+    case try Mod:auth(ARG, Auth_methods) catch throw:CaughtT6 -> CaughtT6; error:CaughtR6:CaughtS6 -> {'EXIT', {CaughtR6, CaughtS6}}; exit:CaughtR6 -> {'EXIT', CaughtR6} end of
         {'EXIT', Reason} ->
             L = ?F("authmod crashed ~n~p:auth(~p, ~n ~p) \n"
                    "Reason: ~p~n"
@@ -2180,7 +2180,7 @@ handle_ut(CliSock, ARG, UT = #urltype{type = {unauthorized, Auth, Realm}}, N) ->
     Outmod = get_unauthorized_outmod(UT#urltype.path, Auth,
                                      SC#sconf.errormod_401),
     OutFun = fun (A) ->
-                     case catch Outmod:out401(A, Auth, Realm) of
+                     case try Outmod:out401(A, Auth, Realm) catch throw:CaughtT7 -> CaughtT7; error:CaughtR7:CaughtS7 -> {'EXIT', {CaughtR7, CaughtS7}}; exit:CaughtR7 -> {'EXIT', CaughtR7} end of
                          {'EXIT', {undef, _}} ->
                              %% Possibly a deprecated warning
                              Outmod:out(A);
@@ -2650,7 +2650,7 @@ deliver_dyn_part(CliSock,                       % essential params
                 ) ->
     put(yaws_ut, UT),
     put(yaws_arg, Arg),
-    Res = (catch YawsFun(Arg)),
+    Res = (try YawsFun(Arg) catch throw:CaughtT8 -> CaughtT8; error:CaughtR8:CaughtS8 -> {'EXIT', {CaughtR8, CaughtS8}}; exit:CaughtR8 -> {'EXIT', CaughtR8} end),
     case handle_out_reply(Res, LineNo, YawsFile, UT, Arg) of
         {get_more, Cont, State} when
         element(1, Arg#arg.clidata) == partial  ->
@@ -3343,7 +3343,7 @@ ssi(File, Delimiter, Bindings, UT, ARG, SC) ->
     Mtime = path_to_mtime(FullPath),
     case ets:lookup(SC#sconf.ets, Key) of
         [{_, Parts, Mtime}] ->
-            case (catch expand_parts(Parts, Bindings, [])) of
+            case (try expand_parts(Parts, Bindings, []) catch throw:CaughtT9 -> CaughtT9; error:CaughtR9:CaughtS9 -> {'EXIT', {CaughtR9, CaughtS9}}; exit:CaughtR9 -> {'EXIT', CaughtR9} end) of
                 {'EXIT', ErrStr} ->
                     {error, ErrStr};
                 Value ->
@@ -3444,7 +3444,7 @@ handle_crash(ARG, L) ->
     ?Debug("handle_crash(~p)~n", [L]),
     SC=get(sc),
     yaws:outh_set_status_code(500),
-    case catch apply(SC#sconf.errormod_crash, crashmsg, [ARG, SC, L]) of
+    case try apply(SC#sconf.errormod_crash, crashmsg, [ARG, SC, L]) catch throw:CaughtT10 -> CaughtT10; error:CaughtR10:CaughtS10 -> {'EXIT', {CaughtR10, CaughtS10}}; exit:CaughtR10 -> {'EXIT', CaughtR10} end of
         {content,MimeType,Cont} ->
 	   yaws:outh_set_content_type(MimeType),
 	   accumulate_content(Cont);
@@ -3647,7 +3647,7 @@ ut_read(UT) ->
 
 
 parse_range(L, Tot) ->
-    case catch parse_range_throw(L, Tot) of
+    case try parse_range_throw(L, Tot) catch throw:CaughtT11 -> CaughtT11; error:CaughtR11:CaughtS11 -> {'EXIT', {CaughtR11, CaughtS11}}; exit:CaughtR11 -> {'EXIT', CaughtR11} end of
         {'EXIT', _} ->
             error;
         R -> R
@@ -3834,12 +3834,12 @@ url_type(GetPath, ArgDocroot, VirtualDir) ->
                             cache_file(SC, GC, GetPath, UT2);
                         false ->
                             ?Debug("Using unchanged cached version~n", []),
-                            (catch ets:update_counter(E, {urlc, GetPath}, 1)),
+                            (try ets:update_counter(E, {urlc, GetPath}, 1) catch throw:CaughtT12 -> CaughtT12; error:CaughtR12:CaughtS12 -> {'EXIT', {CaughtR12, CaughtS12}}; exit:CaughtR12 -> {'EXIT', CaughtR12} end),
                             UT
                     end;
                 true ->
                     ?Debug("Serve page from cache ~p", [{When , N, N-When}]),
-                    (catch ets:update_counter(E, {urlc, GetPath}, 1)),
+                    (try ets:update_counter(E, {urlc, GetPath}, 1) catch throw:CaughtT13 -> CaughtT13; error:CaughtR13:CaughtS13 -> {'EXIT', {CaughtR13, CaughtS13}}; exit:CaughtR13 -> {'EXIT', CaughtR13} end),
                     UT
             end
     end.
@@ -4492,7 +4492,7 @@ ret_user_dir(Upath)  ->
                     %% FIXME doesn't work if passwd contains ::
                     %% also this is unix only
                     %% and it ain't the fastest code around.
-                    case catch yaws:user_to_home(User) of
+                    case try yaws:user_to_home(User) catch throw:CaughtT14 -> CaughtT14; error:CaughtR14:CaughtS14 -> {'EXIT', {CaughtR14, CaughtS14}}; exit:CaughtR14 -> {'EXIT', CaughtR14} end of
                         {'EXIT', _} ->
                             #urltype{type=error};
                         Home ->
@@ -4600,7 +4600,7 @@ flush(Sock, Sz) ->
 
 
 strip_list_to_integer(L) ->
-    case catch list_to_integer(L) of
+    case try list_to_integer(L) catch throw:CaughtT15 -> CaughtT15; error:CaughtR15:CaughtS15 -> {'EXIT', {CaughtR15, CaughtS15}}; exit:CaughtR15 -> {'EXIT', CaughtR15} end of
         {'EXIT', _} ->
             list_to_integer(string:strip(L, both));
         Int ->
@@ -4662,7 +4662,7 @@ load_and_run(Mod, Debug) ->
 
 
 safe_ehtml_expand(X) ->
-    case (catch ehtml_expand(X)) of
+    case (try ehtml_expand(X) catch throw:CaughtT16 -> CaughtT16; error:CaughtR16:CaughtS16 -> {'EXIT', {CaughtR16, CaughtS16}}; exit:CaughtR16 -> {'EXIT', CaughtR16} end) of
         {'EXIT', R} ->
             {error, err_pre(R)};
         Val ->

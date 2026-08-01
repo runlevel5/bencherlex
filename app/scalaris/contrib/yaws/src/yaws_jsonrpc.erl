@@ -143,7 +143,7 @@ eval_payload(Args, {M, F}, Payload, {session, CookieName},ID) ->
                 end
         end,
 
-    case catch M:F(Args#arg.state, Payload, SessionValue) of
+    case try M:F(Args#arg.state, Payload, SessionValue) catch throw:CaughtT1 -> CaughtT1; error:CaughtR1:CaughtS1 -> {'EXIT', {CaughtR1, CaughtS1}}; exit:CaughtR1 -> {'EXIT', CaughtR1} end of
         {'EXIT', Reason} ->
             ?ERROR_LOG({M, F, {'EXIT', Reason}}),
             send(Args, 500);
@@ -182,7 +182,7 @@ eval_payload(Args, {M, F}, Payload, {session, CookieName},ID) ->
 %%% call handler/2 without session support
 %%%
 eval_payload(Args, {M, F}, Payload, simple, ID) ->
-    case catch M:F(Args#arg.state, Payload) of
+    case try M:F(Args#arg.state, Payload) catch throw:CaughtT2 -> CaughtT2; error:CaughtR2:CaughtS2 -> {'EXIT', {CaughtR2, CaughtS2}}; exit:CaughtR2 -> {'EXIT', CaughtR2} end of
         {'EXIT', Reason} ->
             ?ERROR_LOG({M, F, {'EXIT', Reason}}),
             send(Args, 500);
