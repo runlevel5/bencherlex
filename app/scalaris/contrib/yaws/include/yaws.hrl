@@ -59,58 +59,58 @@
 
 
 %% global conf
--record(gconf,{yaws_dir,           %% topdir of Yaws installation
-               trace,              %% false | {true,http}|{true,traffic}
-               flags = ?GC_DEF,    %% boolean flags
-               logdir,
-               ebin_dir = [],
-               runmods = [],       %% runmods for entire server
-               keepalive_timeout = 30000,
-               keepalive_maxuses = nolimit, %% nolimit or non negative integer
-               max_num_cached_files = 400,
-               max_num_cached_bytes = 1000000,  %% 1 MEG
-               max_size_cached_file = 8000,
-               max_connections = nolimit, % max number of TCP connections
-               process_options = [],  % Override default connection handler
+-record(gconf,{yaws_dir :: any(),           %% topdir of Yaws installation
+               trace :: any(),              %% false | {true,http}|{true,traffic}
+               flags = ?GC_DEF :: any(),    %% boolean flags
+               logdir :: any(),
+               ebin_dir = [] :: any(),
+               runmods = [] :: any(),       %% runmods for entire server
+               keepalive_timeout = 30000 :: any(),
+               keepalive_maxuses = nolimit :: any(), %% nolimit or non negative integer
+               max_num_cached_files = 400 :: any(),
+               max_num_cached_bytes = 1000000 :: any(),  %% 1 MEG
+               max_size_cached_file = 8000 :: any(),
+               max_connections = nolimit :: any(), % max number of TCP connections
+               process_options = [] :: any(),  % Override default connection handler
                                     % processes spawn options for
                                     % performance/memory tuning.  [] |
                                     % [{fullsweep_after,Number},
                                     % {min_heap_size, Size}] other options such
                                     % as monitor, link are ignored.
-               large_file_chunk_size = 10240,
-               mnesia_dir = [],
-               log_wrap_size = 10000000,  % wrap logs after 10M
-               cache_refresh_secs = 30,  % seconds  (auto zero when debug)
-               include_dir = [],    %% list of inc dirs for .yaws files
-               phpexe = "/usr/bin/php-cgi",  %% cgi capable php executable
-               x_forwarded_for_log_proxy_whitelist = [], % list of proxy server
+               large_file_chunk_size = 10240 :: any(),
+               mnesia_dir = [] :: any(),
+               log_wrap_size = 10000000 :: any(),  % wrap logs after 10M
+               cache_refresh_secs = 30 :: any(),  % seconds  (auto zero when debug)
+               include_dir = [] :: any(),    %% list of inc dirs for .yaws files
+               phpexe = "/usr/bin/php-cgi" :: any(),  %% cgi capable php executable
+               x_forwarded_for_log_proxy_whitelist = [] :: any(), % list of proxy server
                                     % ips we will replace with the last element
                                     % of the list in the X-Forwarded-For http
                                     % header in logs
-               yaws,                % server string
-               id = "default",      % string identifying this instance of yaws
-               enable_soap = false, % start yaws_soap_srv iff true
-               soap_srv_mods = [],  % a list of
+               yaws :: any(),                % server string
+               id = "default" :: any(),      % string identifying this instance of yaws
+               enable_soap = false :: any(), % start yaws_soap_srv iff true
+               soap_srv_mods = [] :: any(),  % a list of
                                     % {{Mod, Func}, WsdlFile, Prefix } |
                                     %        {{Mod, Func}, WsdlFile}
                                     % automatically setup in yaws_soap_srv init.
-               ysession_mod = yaws_session_server, % storage module for ysession
-               acceptor_pool_size = 8              % size of acceptor proc pool
+               ysession_mod = yaws_session_server :: any(), % storage module for ysession
+               acceptor_pool_size = 8 :: any()              % size of acceptor proc pool
               }).
 
 
 
 -record(ssl,
         {
-         keyfile,
-         certfile,
-         verify = 0,
-         fail_if_no_peer_cert,
-         depth = 1,
-         password,
-         cacertfile,
-         ciphers,
-         cachetimeout}).
+         keyfile :: any(),
+         certfile :: any(),
+         verify = 0 :: any(),
+         fail_if_no_peer_cert :: any(),
+         depth = 1 :: any(),
+         password :: any(),
+         cacertfile :: any(),
+         ciphers :: any(),
+         cachetimeout :: any()}).
 
 
 %% flags for sconfs
@@ -195,46 +195,46 @@
 
 %% server conf
 -record(sconf,
-        {port = 8000,                %% which port is this server listening to
-         flags = ?SC_DEF,
-         redirect_map=[],            %% a list of
+        {port = 8000 :: any(),                %% which port is this server listening to
+         flags = ?SC_DEF :: any(),
+         redirect_map=[] :: any(),            %% a list of
                                      %% {Prefix, #url{}, append|noappend}
                                      %% #url{} can be partially populated
 
-         rhost,                      %% forced redirect host (+ optional port)
-         rmethod,                    %% forced redirect method
-         docroot,                    %% path to the docs
-         xtra_docroots = [],         %% if we have additional pseudo docroots
-         listen = [{127,0,0,1}],     %% bind to this IP, {0,0,0,0} is possible
-         servername = "localhost",   %% servername is what Host: header is
-         ets,                        %% local store for this server
-         ssl,                        %% undefined | #ssl{}
-         authdirs = [],
-         partial_post_size = 10240,
-         appmods = [],
+         rhost :: any(),                      %% forced redirect host (+ optional port)
+         rmethod :: any(),                    %% forced redirect method
+         docroot :: any(),                    %% path to the docs
+         xtra_docroots = [] :: any(),         %% if we have additional pseudo docroots
+         listen = [{127,0,0,1}] :: any(),     %% bind to this IP, {0,0,0,0} is possible
+         servername = "localhost" :: any(),   %% servername is what Host: header is
+         ets :: any(),                        %% local store for this server
+         ssl :: any(),                        %% undefined | #ssl{}
+         authdirs = [] :: any(),
+         partial_post_size = 10240 :: any(),
+         appmods = [] :: any(),
          %%  An item in the appmods list  can be either of the
          %% following, this is all due to backwards compat issues.
          %% 1.  an atom - this is the equivalent to {atom, atom}
          %% 2 . A two tuple {Path, Mod}
          %% 3 A three tuple {Path, Mod, [ExcludeDir ....]}
 
-         expires = [],
-         errormod_401 = yaws_outmod,     %% the default 401 error module
-         errormod_404 = yaws_outmod,     %% the default 404 error module
-         errormod_crash = yaws_outmod,   %% use the same module for crashes
-         arg_rewrite_mod = yaws,
-         logger_mod = yaws_log,          %% access/auth logging module
-         opaque = [],                    %% useful in embedded mode
-         start_mod,                      %% user provided module to be started
-         allowed_scripts = [yaws,php,cgi,fcgi],
-         tilde_allowed_scripts = [],
-         revproxy = [],
-         soptions = [],
-         extra_cgi_vars = [],
-	 stats,                       %% raw traffic statistics
-         fcgi_app_server,             %% FastCGI application server {host,port}
-         php_handler = {cgi, "/usr/bin/php-cgi"},
-         shaper
+         expires = [] :: any(),
+         errormod_401 = yaws_outmod :: any(),     %% the default 401 error module
+         errormod_404 = yaws_outmod :: any(),     %% the default 404 error module
+         errormod_crash = yaws_outmod :: any(),   %% use the same module for crashes
+         arg_rewrite_mod = yaws :: any(),
+         logger_mod = yaws_log :: any(),          %% access/auth logging module
+         opaque = [] :: any(),                    %% useful in embedded mode
+         start_mod :: any(),                      %% user provided module to be started
+         allowed_scripts = [yaws,php,cgi,fcgi] :: any(),
+         tilde_allowed_scripts = [] :: any(),
+         revproxy = [] :: any(),
+         soptions = [] :: any(),
+         extra_cgi_vars = [] :: any(),
+	 stats :: any(),                       %% raw traffic statistics
+         fcgi_app_server :: any(),             %% FastCGI application server {host,port}
+         php_handler = {cgi, "/usr/bin/php-cgi"} :: any(),
+         shaper :: any()
         }).
 
 %% we cannot compare sconfs directly due to the ets
@@ -243,17 +243,17 @@
 
 % Auth conf - from server conf and .yaws_auth
 -record(auth,
-         {dir = [],
-          docroot = [],
-          files = [],
-          realm = "",
-          type = "Basic",
-          headers = [],  %% headers to send on 401
-          users = [],   %% list of {User, Password} tuples
-          acl = none,    %% list of allowed/denies IPs or none
-          mod = [],     %% authentication module callback
-          outmod = [],   %% module to handles 401 unauthorized messages
-          pam = false   %% should we use pam to auth a user
+         {dir = [] :: any(),
+          docroot = [] :: any(),
+          files = [] :: any(),
+          realm = "" :: any(),
+          type = "Basic" :: any(),
+          headers = [] :: any(),  %% headers to send on 401
+          users = [] :: any(),   %% list of {User, Password} tuples
+          acl = none :: any(),    %% list of allowed/denies IPs or none
+          mod = [] :: any(),     %% authentication module callback
+          outmod = [] :: any(),   %% module to handles 401 unauthorized messages
+          pam = false :: any()   %% should we use pam to auth a user
          }).
 
 
@@ -261,19 +261,19 @@
 %% this internal record is used and returned by the URL path parser
 
 
--record(urltype, {type,   %% error | yaws | regular | directory |
+-record(urltype, {type :: any(),   %% error | yaws | regular | directory |
                           %% forbidden | appmod
-                  finfo,
-                  path = [],
-                  fullpath = [], %% deep list (WHY?)
-                  dir = [],      %% relative dir where the path leads to
+                  finfo :: any(),
+                  path = [] :: any(),
+                  fullpath = [] :: any(), %% deep list (WHY?)
+                  dir = [] :: any(),      %% relative dir where the path leads to
                                  %% flat | unflat need flat for authentication
-                  data,          %% type-specific e.g: Binary | FileDescriptor
+                  data :: any(),          %% type-specific e.g: Binary | FileDescriptor
                                  %% | DirListing | undefined
-                  deflate,       %% undefined | Binary | dynamic
-                  mime = "text/html",    %% MIME type
-                  getpath,       %% as GET'ed by client
-                  pathinfo
+                  deflate :: any(),       %% undefined | Binary | dynamic
+                  mime = "text/html" :: any(),    %% MIME type
+                  getpath :: any(),       %% as GET'ed by client
+                  pathinfo :: any()
                  }).
 
 
@@ -283,37 +283,37 @@
 %% the outgoing headers
 
 -record(outh, {
-          status,        %% int status code
+          status :: any(),        %% int status code
 
-          doclose,       %% bool
-          chunked,       %% bool
-          exceedmaxuses=false,
+          doclose :: any(),       %% bool
+          chunked :: any(),       %% bool
+          exceedmaxuses=false :: any(),
                          %% bool, true if hit keep-alive max uses
-          encoding=identity,
+          encoding=identity :: any(),
                          %% identity, deflate
-          contlen,       %% integer
-          act_contlen,   %% actual content length for dynamic pages
+          contlen :: any(),       %% integer
+          act_contlen :: any(),   %% actual content length for dynamic pages
 
 
                          %% and the total set of out headers we can have
                          %% as actual strings
-          connection,
-          server,
-          location,
-          cache_control,
-          expires,
-          date,
-          allow,
-          last_modified,
-          etag,
-          set_cookie,
-          content_range,
-          content_length,
-          content_type,
-          content_encoding,
-          transfer_encoding,
-          www_authenticate,
-          other     %% misc other headers
+          connection :: any(),
+          server :: any(),
+          location :: any(),
+          cache_control :: any(),
+          expires :: any(),
+          date :: any(),
+          allow :: any(),
+          last_modified :: any(),
+          etag :: any(),
+          set_cookie :: any(),
+          content_range :: any(),
+          content_length :: any(),
+          content_type :: any(),
+          content_encoding :: any(),
+          transfer_encoding :: any(),
+          www_authenticate :: any(),
+          other :: any()     %% misc other headers
 }).
 
 
@@ -322,13 +322,13 @@
 
 
 %% as read by application:get_env()
--record(env, {debug,
-              trace,
-              traceoutput,
-              conf,
-              runmod,
-              embedded,
-              id
+-record(env, {debug :: any(),
+              trace :: any(),
+              traceoutput :: any(),
+              conf :: any(),
+              runmod :: any(),
+              embedded :: any(),
+              id :: any()
              }).
 
 %% Typically used in error printouts as in:

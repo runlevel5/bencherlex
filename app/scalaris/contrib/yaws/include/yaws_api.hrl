@@ -8,107 +8,107 @@
 -author('klacke@hyber.org').
 
 -record(arg, {
-          clisock,        %% the socket leading to the peer client
-          client_ip_port, %% {ClientIp, ClientPort} tuple
-          headers,        %% headers
-          req,            %% request
-          clidata,        %% The client data (as a binary in POST requests)
-          server_path,    %% The normalized server path
+          clisock :: any(),        %% the socket leading to the peer client
+          client_ip_port :: any(), %% {ClientIp, ClientPort} tuple
+          headers :: any(),        %% headers
+          req :: any(),            %% request
+          clidata :: any(),        %% The client data (as a binary in POST requests)
+          server_path :: any(),    %% The normalized server path
                           %% (pre-querystring part of URI)
-          querydata,      %% For URIs of the form ...?querydata
+          querydata :: any(),      %% For URIs of the form ...?querydata
                           %%  equiv of cgi QUERY_STRING
-          appmoddata,     %% (deprecated - use pathinfo instead) the remainder
+          appmoddata :: any(),     %% (deprecated - use pathinfo instead) the remainder
                           %% of the path leading up to the query
-          docroot,        %% Physical base location of data for this request
-          docroot_mount,  %% virtual directory e.g /myapp/ that the docroot
+          docroot :: any(),        %% Physical base location of data for this request
+          docroot_mount :: any(),  %% virtual directory e.g /myapp/ that the docroot
                           %%  refers to.
-          fullpath,       %% full deep path to yaws file
-          cont,           %% Continuation for chunked multipart uploads
-          state,          %% State for use by users of the out/1 callback
-          pid,            %% pid of the yaws worker process
-          opaque,         %% useful to pass static data
-          appmod_prepath, %% (deprecated - use prepath instead) path in front
+          fullpath :: any(),       %% full deep path to yaws file
+          cont :: any(),           %% Continuation for chunked multipart uploads
+          state :: any(),          %% State for use by users of the out/1 callback
+          pid :: any(),            %% pid of the yaws worker process
+          opaque :: any(),         %% useful to pass static data
+          appmod_prepath :: any(), %% (deprecated - use prepath instead) path in front
                           %%of: <appmod><appmoddata>
-          prepath,        %% Path prior to 'dynamic' segment of URI.
+          prepath :: any(),        %% Path prior to 'dynamic' segment of URI.
                           %%  ie http://some.host/<prepath>/<script-point>/d/e
                           %% where <script-point> is an appmod mount point,
                           %% or .yaws,.php,.cgi,.fcgi etc script file.
-          pathinfo        %% Set to '/d/e' when calling c.yaws for the request
+          pathinfo :: any()        %% Set to '/d/e' when calling c.yaws for the request
                           %% http://some.host/a/b/c.yaws/d/e
                           %%  equiv of cgi PATH_INFO
          }).
 
 
--record(http_request, {method,
-                       path,
-                       version}).
+-record(http_request, {method :: any(),
+                       path :: any(),
+                       version :: any()}).
 
--record(http_response, {version,
-                        status,
-                        phrase}).
+-record(http_response, {version :: any(),
+                        status :: any(),
+                        phrase :: any()}).
 
--record(rewrite_response, {status,
-                           headers = [],
-                           content = <<>>}).
+-record(rewrite_response, {status :: any(),
+                           headers = [] :: any(),
+                           content = <<>> :: any()}).
 
 -record(headers, {
-          connection,
-          accept,
-          host,
-          if_modified_since,
-          if_match,
-          if_none_match,
-          if_range,
-          if_unmodified_since,
-          range,
-          referer,
-          user_agent,
-          accept_ranges,
-          cookie = [],
-          keep_alive,
-          location,
-          content_length,
-          content_type,
-          content_encoding,
-          authorization,
-          transfer_encoding,
-          x_forwarded_for,
-          other = []   %% misc other headers
+          connection :: any(),
+          accept :: any(),
+          host :: any(),
+          if_modified_since :: any(),
+          if_match :: any(),
+          if_none_match :: any(),
+          if_range :: any(),
+          if_unmodified_since :: any(),
+          range :: any(),
+          referer :: any(),
+          user_agent :: any(),
+          accept_ranges :: any(),
+          cookie = [] :: any(),
+          keep_alive :: any(),
+          location :: any(),
+          content_length :: any(),
+          content_type :: any(),
+          content_encoding :: any(),
+          authorization :: any(),
+          transfer_encoding :: any(),
+          x_forwarded_for :: any(),
+          other = [] :: any()   %% misc other headers
          }).
 
 
 
 
 -record(url,
-        {scheme,          %% undefined means not set
-         host,            %% undefined means not set
-         port,            %% undefined means not set
-         path = [],
-         querypart = []}).
+        {scheme :: any(),          %% undefined means not set
+         host :: any(),            %% undefined means not set
+         port :: any(),            %% undefined means not set
+         path = [] :: any(),
+         querypart = [] :: any()}).
 
 
 -record(setcookie,{
-            key,
-            value,
-            quoted,
-            comment,
-            comment_url,
-            discard,
-            domain,
-            max_age,
-            expires,
-            path,
-            port,
-            secure,
-            version}).
+            key :: any(),
+            value :: any(),
+            quoted :: any(),
+            comment :: any(),
+            comment_url :: any(),
+            discard :: any(),
+            domain :: any(),
+            max_age :: any(),
+            expires :: any(),
+            path :: any(),
+            port :: any(),
+            secure :: any(),
+            version :: any()}).
 
 
 -record(redir_self, {
-          host,        %% string() - our own host
-          scheme,      %% http | https
-          scheme_str,  %% "https://"  | "http://"
-          port,        %% integer()  - our own port
-          port_str     %% "" | ":<int>" - the optional port part
+          host :: any(),        %% string() - our own host
+          scheme :: any(),      %% http | https
+          scheme_str :: any(),  %% "https://"  | "http://"
+          port :: any(),        %% integer()  - our own port
+          port_str :: any()     %% "" | ":<int>" - the optional port part
                        %%                 to append to the url
          }).
 
@@ -116,15 +116,15 @@
 %% http://tools.ietf.org/html/draft-ietf-hybi-thewebsocketprotocol-08#section-4
 %% plus 'data' and 'ws_state'
 -record(ws_frame_info, {
-	  fin,
-	  rsv,
-	  opcode,
-	  masked,
-	  masking_key,
-	  length,
-	  payload,
-	  data,        %% The unmasked payload. Makes payload redundant.
-	  ws_state     %% The ws_state after unframing this frame.
+	  fin :: any(),
+	  rsv :: any(),
+	  opcode :: any(),
+	  masked :: any(),
+	  masking_key :: any(),
+	  length :: any(),
+	  payload :: any(),
+	  data :: any(),        %% The unmasked payload. Makes payload redundant.
+	  ws_state :: any()     %% The ws_state after unframing this frame.
                        %% This is useful for the endpoint to know what type of
                        %% fragment a potentially fragmented message is.
 	 }).
@@ -139,6 +139,6 @@
                             %% of any fragmented message.
 -record(ws_state, {
 	  vsn :: integer(),                     % WebSocket version number
-	  sock,                                 % gen_tcp or gen_ssl socket
+	  sock :: any(),                                 % gen_tcp or gen_ssl socket
 	  frag_type :: frag_type()
 	 }).
