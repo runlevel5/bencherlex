@@ -32,6 +32,7 @@
 -include("scalaris.hrl").
 
 -export([init/4, now/1, next/2, stop/1]).
+-export_type([state/0]).
 
 -opaque state() :: {trigger:interval_fun(), comm:message_tag(), reference() | ok}.
 

@@ -612,10 +612,10 @@ bp_active(Message, State,
                     Decision;
                 false -> Decision
             end
-        end
-        orelse
-        bp_active(Message, State,
-                  {Options, Slowest, {RemainingBPs, BPActive, HB_BP_Ops, BPStepped, StepperPid}}).
+            orelse
+            bp_active(Message, State,
+                      {Options, Slowest, {RemainingBPs, BPActive, HB_BP_Ops, BPStepped, StepperPid}})
+        end.
 
 -spec wait_for_bp_leave(comm:message(), any(), component_state(), boolean())
                        -> component_state().

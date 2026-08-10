@@ -28,6 +28,7 @@
          getGossipRendered/0, getVivaldiMap/0,
          getMonitorClientData/0, getMonitorRingData/0,
          lookup/1, set_key/2, delete_key/2, isPost/1]).
+-export_type([attribute_type/0, html_type/0]).
 
 -opaque attribute_type() :: {atom(), string()}.
 -ifdef(forward_or_recursive_types_are_not_allowed).

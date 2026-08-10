@@ -97,7 +97,7 @@ test_on_vivaldi_shuffle(Config) ->
         {ping, SourcePid} -> comm:send(SourcePid, {pong})
     end,
 
-    ?expect_message({update_vivaldi_coordinate, _Latency, {[0.0, 0.0], 1.0}}),
+    ?expect_message({update_vivaldi_coordinate, _Latency, {[+0.0, +0.0], 1.0}}),
     ?expect_no_message(),
     % TODO: check the node's state
     Config.

@@ -39,7 +39,6 @@
 -endif.
 
 -ifdef(types_not_builtin).
--type reference() :: erlang:reference().
 -type gb_set() :: gb_sets:gb_set().
 -type queue() :: queue:queue().
 -type gb_tree() :: gb_trees:gb_tree().

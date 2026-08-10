@@ -34,6 +34,7 @@
 -include("scalaris.hrl").
 
 -export([init/4, now/1, next/2, stop/1]).
+-export_type([state/0]).
 
 -opaque state() :: {BaseIntervalFun::trigger:interval_fun(),
                     MinIntervalFun::trigger:interval_fun(),

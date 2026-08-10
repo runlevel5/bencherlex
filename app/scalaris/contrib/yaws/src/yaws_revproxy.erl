@@ -253,7 +253,8 @@ ploop(From0, To, Pid) ->
                                 yaws_api:reformat_request(
                                   rewrite_path(R, From#psock.prefix))
                         end,
-                    Hstr = yaws:headers_to_str(H = rewrite_headers(From, H0)),
+                    H = rewrite_headers(From, H0),
+                    Hstr = yaws:headers_to_str(H),
                     yaws:gen_tcp_send(TS, [RStr, "\r\n", Hstr]),
                     From2 = sockmode(H, R, From),
                     yaws:gen_tcp_send(TS,"\r\n"),

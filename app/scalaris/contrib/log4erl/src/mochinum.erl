@@ -26,7 +26,8 @@
 %% human-readable output, or compact ASCII serializations for floats.
 digits(N) when is_integer(N) ->
     integer_to_list(N);
-digits(0.0) ->"0.0";
+%% Both 0.0 and -0.0:
+digits(F) when F == 0.0 -> "0.0";
 digits(Float) ->
     {Frac, Exp} = frexp(Float),
     Exp1 = Exp - 53,
@@ -265,7 +266,7 @@ test_digits() ->
 
 test_frexp() ->
     %% zero
-    {0.0, 0} = frexp(0.0),
+    {+0.0, 0} = frexp(0.0),
     %% one
     {0.5, 1} = frexp(1.0),
     %% negative one
