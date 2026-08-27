@@ -576,7 +576,7 @@ t_opaque_match_atom(_, _) -> [].
 t_opaque_atom_vals(OpaqueStruct) ->
   case OpaqueStruct of
     ?atom(_) -> t_atom_vals(OpaqueStruct);
-    ?union([Atom,_,_,_,_,_,_,_,_,_]) -> t_atom_vals(Atom);
+    #c{tag=?union_tag, elements=[Atom,_,_,_,_,_,_,_,_,_]} -> t_atom_vals(Atom);
     _ -> unknown
   end.
 	  
@@ -595,7 +595,7 @@ t_opaque_tuple_tags(OpaqueStruct) ->
     ?tuple_set(_) = TupleSet ->
       Tuples = t_tuple_subtypes(TupleSet),
       lists:flatten([t_opaque_tuple_tags(T) || T <- Tuples]);
-    ?union([_,_,_,_,_,_,Tuples,_,_,_]) -> t_opaque_tuple_tags(Tuples);
+    #c{tag=?union_tag, elements=[_,_,_,_,_,_,Tuples,_,_,_]} -> t_opaque_tuple_tags(Tuples);
     _ -> []
   end.
 
@@ -3114,7 +3114,7 @@ t_unopaque(?tuple_set(Set), Opaques) ->
   NewSet = [{Sz, [t_unopaque(T, Opaques) || T <- Tuples]}
 	    || {Sz, Tuples} <- Set],
   ?tuple_set(NewSet);
-t_unopaque(?union([A,B,F,I,L,N,T,M,O,R]), Opaques) ->
+t_unopaque(#c{tag=?union_tag, elements=[A,B,F,I,L,N,T,M,O,R]}, Opaques) ->
   UL = t_unopaque(L, Opaques),
   UT = t_unopaque(T, Opaques),
   UO = case O of

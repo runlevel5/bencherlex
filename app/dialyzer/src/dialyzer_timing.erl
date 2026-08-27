@@ -38,7 +38,8 @@ init(Active) ->
   case Active of
     true ->
       io:format("\n"),
-      spawn_link(fun() -> loop(now(), 0, "") end);
+      Start = erlang:monotonic_time(),
+      spawn_link(fun() -> loop(Start, 0, "") end);
     debug ->
       io:format("\n"),
       spawn_link(fun() -> debug_loop("") end);
@@ -105,14 +106,14 @@ debug_loop(Phase) ->
 
 start_stamp(none, _) -> ok;
 start_stamp(Pid, Msg) ->
-  Pid ! {stamp, Msg, now()},
+  Pid ! {stamp, Msg, erlang:monotonic_time()},
   ok.
 
 -spec end_stamp(timing_server()) -> ok.
 
 end_stamp(none) -> ok;
 end_stamp(Pid) ->
-  Pid ! {stamp, now()},
+  Pid ! {stamp, erlang:monotonic_time()},
   ok.
 
 -spec send_size_info(timing_server(), integer(), string()) -> ok.
@@ -126,9 +127,9 @@ send_size_info(Pid, Size, Unit) ->
 
 stop(none) -> ok;
 stop(Pid) ->
-  Pid ! {self(), stop, now()},
+  Pid ! {self(), stop, erlang:monotonic_time()},
   receive ok -> ok end.
 
 diff(T2, T1) ->
-  timer:now_diff(T2,T1) / 1000000.
+  erlang:convert_time_unit(T2 - T1, native, microsecond) / 1000000.
 

@@ -787,7 +787,7 @@ all_subdirs(Dirs) ->
 
 all_subdirs([Dir|T], Acc) ->
   {ok, Files} = file:list_dir(Dir),
-  SubDirs = lists:zf(fun(F) ->
+  SubDirs = lists:filtermap(fun(F) ->
                        SubDir = filename:join(Dir, F),
                        case filelib:is_dir(SubDir) of
                          true -> {true, SubDir};

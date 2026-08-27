@@ -232,7 +232,7 @@ get_file([_|Tail]) -> get_file(Tail).
 translatable_behaviours(Tree) ->
   Attrs = cerl:module_attrs(Tree),
   {Behaviours, _BehLines} = get_behaviours(Attrs),
-  [{B, Calls} || B <- Behaviours, (Calls = behaviour_api_calls(B)) =/= []].
+  [{B, Calls} || B <- Behaviours, Calls <- [behaviour_api_calls(B)], Calls =/= []].
 
 -spec get_behaviour_apis([behaviour()]) -> [mfa()].
 
