@@ -1,5 +1,5 @@
 ERLC = erlc
-ERLC_OPTS = -DVSN=\"42\" +native
+ERLC_OPTS = -DVSN=\"42\" +debug_info
 ERL = erl
 ERL_LIB_DIR = 
 

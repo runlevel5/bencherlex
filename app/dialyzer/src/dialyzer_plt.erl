@@ -448,10 +448,9 @@ compute_new_md5_1([], NewList, Diff) ->
 -spec compute_implementation_md5() -> [file_md5()].
 
 compute_implementation_md5() ->
-  Dir = code:lib_dir(hipe),
-  Files1 = ["erl_bif_types.beam", "erl_types.beam"],
-  Files2 = [filename:join([Dir, "ebin", F]) || F <- Files1],
-  compute_md5_from_files(Files2).
+  %% These were part of HiPE, which no longer exists; use the ones loaded.
+  Files = [code:which(M) || M <- [erl_bif_types, erl_types]],
+  compute_md5_from_files(Files).
 
 -spec compute_md5_from_files([file:filename()]) -> [file_md5()].
 

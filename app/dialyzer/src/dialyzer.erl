@@ -179,7 +179,8 @@ run(Opts) ->
 internal_gui(Type, OptsRecord) ->
   F = fun() ->
 	  case Type of
-	    gs -> dialyzer_gui:start(OptsRecord);
+	    %% The gs-based GUI is gone with gs; both use the wx-based one.
+	    gs -> dialyzer_gui_wx:start(OptsRecord);
 	    wx -> dialyzer_gui_wx:start(OptsRecord)
 	  end,
 	  ?RET_NOTHING_SUSPICIOUS
@@ -202,7 +203,7 @@ gui(Opts) ->
       case cl_check_init(OptsRecord) of
 	{ok, ?RET_NOTHING_SUSPICIOUS} ->
 	  F = fun() ->
-		  dialyzer_gui:start(OptsRecord)
+		  dialyzer_gui_wx:start(OptsRecord)
 	      end,
 	  case doit(F) of
 	    {ok, _} -> ok;

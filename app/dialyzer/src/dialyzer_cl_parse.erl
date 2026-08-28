@@ -468,7 +468,7 @@ Options:
   --fullpath
       Display the full path names of files for which warnings are emitted.
   --gui
-      Use the gs-based GUI.
+      Use the wx-based GUI (the gs-based one no longer exists).
   --wx
       Use the wx-based GUI.
 

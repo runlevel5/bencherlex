@@ -2950,7 +2950,7 @@ constraints_to_dot(Cs0, Name, State) ->
   NofCs = length(Cs0),
   Cs = lists:zip(lists:seq(1, NofCs), Cs0),
   {Graph, Opts, _N} = constraints_to_nodes(Cs, NofCs + 1, 1, [], [], State),
-  hipe_dot:translate_list(Graph, "/tmp/cs.dot", "foo", Opts),
+  dialyzer_dot:translate_list(Graph, "/tmp/cs.dot", "foo", Opts),
   Res = os:cmd("dot -o /tmp/"++ Name ++ ".ps -T ps /tmp/cs.dot"),
   io:format("Res: ~p~n", [Res]),
   ok.
