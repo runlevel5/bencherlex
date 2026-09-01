@@ -150,12 +150,32 @@ get_core_from_abstract_code(AbstrCode, Opts) ->
   %% performed them. In some cases we end up in trouble when
   %% performing them again.
   AbstrCode1 = cleanup_parse_transforms(AbstrCode),
-  try compile:forms(AbstrCode1, Opts ++ src_compiler_opts()) of
-      {ok, _, Core} -> {ok, Core};
+  try compile:forms(strip_types(AbstrCode1), Opts ++ src_compiler_opts()) of
+      {ok, _, Core} -> {ok, dialyzer_clean_core:clean(Core)};
       _What -> error
   catch
     error:_ -> error
   end.
+
+%% Dialyzer reads the specs and types from the abstract code itself, so the
+%% compiler does not need them; and the compiler of a newer Erlang/OTP can
+%% reject types written for an older one (as in the modules that
+%% dialyzer_bench analyses), which would make the whole module unusable.
+strip_types(AbstrCode) ->
+  [case Form of
+     {attribute, L, record, {Name, Fields}} ->
+       {attribute, L, record, {Name, [untype_field(F) || F <- Fields]}};
+     _ ->
+       Form
+   end || Form <- AbstrCode, not is_type_attribute(Form)].
+
+is_type_attribute({attribute, _, Name, _}) ->
+  lists:member(Name, [spec, type, opaque, callback, export_type]);
+is_type_attribute(_) ->
+  false.
+
+untype_field({typed_record_field, Field, _Type}) -> Field;
+untype_field(Field) -> Field.
 
 %% ============================================================================
 %%
@@ -399,7 +419,9 @@ sets_filter([Mod|Mods], ExpTypes) ->
 src_compiler_opts() ->
   [no_copt, to_core, binary, return_errors,
    no_inline, strict_record_tests, strict_record_updates,
-   no_is_record_optimization].
+   no_is_record_optimization,
+   %% Core Erlang suited to dialyzer_clean_core.
+   dialyzer].
 
 -spec get_module(abstract_code()) -> module().
 

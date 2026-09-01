@@ -392,6 +392,31 @@ traverse(Tree, DefinedVars, State) ->
 	match_fail -> throw(error);
 	raise -> throw(error);
 	bs_init_writable -> {State, t_from_term(<<>>)};
+	%% Primops of the Core Erlang of newer compilers, handled as the
+	%% dialyzer of Erlang/OTP 29 does:
+	build_stacktrace ->
+	  V = mk_var(Tree),
+	  State1 = state__store_conj(V, sub, t_list(), State),
+	  {State1, V};
+	recv_peek_message ->
+	  {State1, Vars} = state__mk_vars(2, State),
+	  {State1, t_product(Vars)};
+	recv_wait_timeout ->
+	  [Timeout] = cerl:primop_args(Tree),
+	  case cerl:is_c_atom(Timeout) andalso
+	    cerl:atom_val(Timeout) =:= infinity of
+	    true ->
+	      {State, t_none()};
+	    false ->
+	      {State1, TimeoutVar} = traverse(Timeout, DefinedVars, State),
+	      State2 = state__store_conj(TimeoutVar, sub, t_timeout(), State1),
+	      {State2, mk_var(Tree)}
+	  end;
+	remove_message -> {State, t_any()};
+	dialyzer_unknown -> {State, mk_var(Tree)};
+	nif_start -> {State, t_any()};
+	debug_line -> {State, t_any()};
+	executable_line -> {State, t_any()};
 	Other -> erlang:error({'Unsupported primop', Other})
       end;
     'receive' ->

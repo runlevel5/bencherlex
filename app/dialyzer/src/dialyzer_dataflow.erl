@@ -296,6 +296,16 @@ traverse(Tree, Map, State) ->
 	  match_fail -> t_none();
 	  raise -> t_none();
 	  bs_init_writable -> t_from_term(<<>>);
+	  %% Primops of the Core Erlang of newer compilers, handled as the
+	  %% dialyzer of Erlang/OTP 29 does:
+	  build_stacktrace -> t_list();
+	  recv_peek_message -> t_product([t_boolean(), t_any()]);
+	  recv_wait_timeout -> t_boolean();
+	  remove_message -> t_any();
+	  dialyzer_unknown -> t_any();
+	  nif_start -> t_any();
+	  debug_line -> t_any();
+	  executable_line -> t_any();
 	  Other -> erlang:error({'Unsupported primop', Other})
 	end,
       {State, Map, Type};
