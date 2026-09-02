@@ -1,0 +1,4 @@
+# Windows batch files keep CRLF line endings when checked out; everything
+# else uses LF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
