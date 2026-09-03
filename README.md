@@ -22,15 +22,9 @@ Make sure you have the following installed on your machine:
 
 ### How to build the web interface ###
 
-The web interface is built on ChicagoBoss 0.9, which `make ui` downloads
-together with rebar 2 and patches to work with current Erlang/OTP (see
-`ui/patches`). It needs git, network access and rebar3.
+The web interface is a Cowboy application, built with rebar3, which
+downloads Cowboy from hex.pm.
 
-	$ make ui
-
-You have to build the web interface again if you move your bencherl folder:
-
-	$ make clean-ui
 	$ make ui
 
 ### How to run the benchmark suite ###
@@ -250,7 +244,10 @@ Use `bencherlui` with the `-u` (up) option to start the web server.
 
 By default the web interface can be found at "`http://localhost:8001`".
 
-You can change the port of the web server in `ui/bencherlui/boss.config`.
+You can change the port of the web server with the `BENCHERLUI_PORT`
+environment variable:
+
+    $ BENCHERLUI_PORT=8080 ./bencherlui -u
 
 ### How to stop the web server that serves the web interface of the benchmark suite ###
 

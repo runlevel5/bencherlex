@@ -1,8 +1,13 @@
 {application, bencherlui, [
-        {description, "My Awesome Web Framework"},
-        {vsn, "0.0.1"},
-        {modules, []},
-        {registered, []},
-        {applications, [kernel, stdlib, crypto, boss]},
-        {env, []}
+        {description, "The web interface of the benchmark suite"},
+        {vsn, "0.1.0"},
+        {registered, [bencherlui_sup]},
+        {mod, {bencherlui_app, []}},
+        {applications, [kernel, stdlib, cowboy]},
+        {env, [
+            %% The port to serve on.
+            {port, 8001},
+            %% Where bencherl writes the results.
+            {results_dir, "results"}
+        ]}
     ]}.

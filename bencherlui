@@ -13,7 +13,8 @@ Usage: bencherlui [OPTION..]
 Start or stop the web server that serves bencherl UI.
 
   -h         display this help and exit
-  -u         start the web server that serves bencherl UI (change port in ui/bencherlui/boss.config)
+  -u         start the web server that serves bencherl UI (on port 8001, or
+             the one in the BENCHERLUI_PORT environment variable)
   -d         stop the web server that serves bencherl UI
 
 For complete documentation, see the README.md file.
@@ -25,8 +26,24 @@ if [ "$#" -ne 1 ] ; then
     exit 1
 fi
 
-START=`date +%s`
 cd "$( dirname "${BASH_SOURCE[0]}" )"
+
+# The node is named after the bencherl directory, so that the web servers of
+# several copies can run on the same host.
+NODE="bencherlui_$(pwd | sed 's/[^a-zA-Z0-9]//g')"
+NODE_AT_HOST="$NODE@$(hostname -s)"
+PORT=${BENCHERLUI_PORT:-8001}
+
+# Runs Erlang code in a temporary node next to the web server's.
+ctl()
+{
+    erl -sname "${NODE}_ctl_$$" -noshell -eval "N = '$NODE_AT_HOST', $1"
+}
+
+is_running()
+{
+    ctl "halt(case net_adm:ping(N) of pong -> 0; pang -> 1 end)."
+}
 
 while getopts ":udh" opt; do
   case $opt in
@@ -35,26 +52,47 @@ while getopts ":udh" opt; do
         exit 0
         ;;
     u)
-        echo "Starting web server... The port can be changed in ui/bencherlui/boss.config." 
-        cd ui/bencherlui
-        START_OUTPUT=$( { ./init.sh start; } 2>&1)
-        if [ "$START_OUTPUT" == 'starting boss in production mode...' ];
-        then
-            echo "Web server started."
-            host=`hostname -f`
-            port=`cat boss.config  | grep port | grep -v db_port | cut -d',' -f 2 | cut -d'}' -f1 |sed -e 's/^[ \t]*//'`
-            echo "Use your web browser and go to  http://$host:$port."
-            echo "Use the following command to stop the web server:"
-            echo "./bencherlui -d"  
-        else
-            echo $START_OUTPUT
+        if is_running; then
+            echo "The web server is already running."
+            exit 1
         fi
+        echo "Starting web server..."
+        # Started from here, the server finds the results in results/.
+        erl -sname "$NODE" -detached -noshell \
+            -pa ui/bencherlui/_build/default/lib/*/ebin \
+            -bencherlui port "$PORT" \
+            -eval "{ok, _} = application:ensure_all_started(bencherlui)."
+        # Wait for the application to start, or the node to fail.
+        ctl "Wait = fun W(0) -> halt(1);
+                        W(I) -> case rpc:call(N, application, which_applications, []) of
+                                    Apps when is_list(Apps) ->
+                                        case lists:keymember(bencherlui, 1, Apps) of
+                                            true -> halt(0);
+                                            false -> timer:sleep(500), W(I - 1)
+                                        end;
+                                    _ -> timer:sleep(500), W(I - 1)
+                                end
+                    end,
+             Wait(20)."
+        if [ $? -ne 0 ]; then
+            echo "The web server did not start. Has it been built (make ui)?"
+            is_running && ctl "rpc:call(N, init, stop, []), halt()."
+            exit 1
+        fi
+        echo "Web server started."
+        host=`hostname -f`
+        echo "Use your web browser and go to  http://$host:$PORT."
+        echo "Use the following command to stop the web server:"
+        echo "./bencherlui -d"
         exit 0
         ;;
     d)
+        if ! is_running; then
+            echo "The web server is not running."
+            exit 1
+        fi
         echo "Stopping web server..."
-        cd ui/bencherlui
-        ./init.sh stop
+        ctl "rpc:call(N, init, stop, []), halt()."
         exit 0
         ;;
     \?)

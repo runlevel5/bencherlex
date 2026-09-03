@@ -5,9 +5,7 @@
     <title>BenchErl - UI</title>
     <link rel="stylesheet" type="text/css" href="/static/css/default.css"></link>
     <link rel="shortcut icon" href="/static/images/favicon.ico"></link>
-    <script type="text/javascript" src="/static/js/jquery-1.8.2.js"></script>  
-    {% block javascript %}
-    {% endblock %}
+    <script type="text/javascript" src="/static/js/jquery-1.8.2.js"></script>
   </head>
   <body>
     <div id="sindex" style="display: none">2</div>
@@ -17,7 +15,7 @@
           <img src="/static/images/logo.png" width="300px"></img>
         </div>
         <div id="info">
-          
+
         </div>
         <br style="clear: both" />
       </div>
@@ -29,8 +27,17 @@
         <br style="clear: both" />
       </div>
       <div id="main">
-        {% block body %}
-        {% endblock %}
+<p>This is the result viewer for BenchErl.</p>
+<br/>
+<p>Click on <a href="/results">Results</a> to view the results of the benchmarks you have run.</p>
+<br/>
+<p>You can find information about how to use BenchErl <a href="http://release.softlab.ntua.gr/bencherl/">here</a>.</p>
+<br/>
+<p>In the BenchErl base directory, execute:
+<pre>./bencherlui -u</pre>
+to <i>start</i>, and:
+<pre>./bencherlui -d</pre>
+to <i>stop</i> the web server that serves this web interface.
         <br style="clear: both" />
       </div>
       <div id="footer">
@@ -39,4 +46,4 @@
     </div>
 
   </body>
-</htm>
+</html>

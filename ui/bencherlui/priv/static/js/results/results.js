@@ -235,9 +235,12 @@
 
     $(document).ready(function(){
         
-        var runList = $.parseJSON($('#benchmarkRunListDiv').text());
-
-        $('#benchmarkRunListDiv').replaceWith(createRunList(runList));
+        $.get(
+            '/results/benchmark_runs_json',
+            function(data){
+                $('#benchmarkRunListDiv').replaceWith(createRunList(data.benchmark_runs));
+            },
+            'json');
         
         $("#graph").resizable();
 

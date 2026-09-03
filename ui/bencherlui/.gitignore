@@ -1,9 +1,2 @@
-boss.config
-ebin/*.app
-ebin/*.beam
-log
-[#]*[#]
-*~
-.*#
-*#
-rebar
+_build/
+rebar3.crashdump

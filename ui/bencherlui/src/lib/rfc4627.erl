@@ -256,13 +256,16 @@ decode(Bytes) ->
 decode_noauto(Bin) when is_binary(Bin) ->
     decode_noauto(binary_to_list(Bin));
 decode_noauto(Chars) ->
-    case catch parse(skipws(Chars)) of
-	{'EXIT', Reason} ->
-	    %% Reason is usually far too much information, but helps
-	    %% if needing to debug this module.
-	    {error, Reason};
+    try parse(skipws(Chars)) of
 	{Value, Remaining} ->
 	    {ok, Value, skipws(Remaining)}
+    catch
+	%% Reason is usually far too much information, but helps
+	%% if needing to debug this module.
+	error:Reason:Stacktrace ->
+	    {error, {Reason, Stacktrace}};
+	exit:Reason ->
+	    {error, Reason}
     end.
 
 %% @spec ([byte()]) -> [char()]
@@ -403,9 +406,8 @@ digit_hex(C) when is_integer(C), C >= $a, C =< $f -> C - $a + 10.
 
 finish_number(Acc, Rest) ->
     Str = lists:reverse(Acc),
-    {case catch list_to_integer(Str) of
-	 {'EXIT', _} -> list_to_float(Str);
-	 Value -> Value
+    {try list_to_integer(Str)
+     catch error:badarg -> list_to_float(Str)
      end, Rest}.
 
 parse_number([$- | Rest], Acc) ->
