@@ -9,9 +9,12 @@ accomodate more use-cases.
 
 Make sure you have the following installed on your machine:
 
-* make
-* [gnuplot](http://www.gnuplot.info/) 
-* [Erlang/OTP](http://www.erlang.org/)
+* make and bash
+* [Erlang/OTP](https://www.erlang.org/) 25 or later
+* [gnuplot](http://www.gnuplot.info/) and bc, to plot the results (see
+  [PLOT](#how-to-specify-whether-to-produce-scalability-graphs-or-not) below)
+* ssh, to start slave nodes on other hosts
+* [rebar3](https://rebar3.org/), to build the web interface
 
 ### How to build the benchmark suite ###
 
@@ -85,7 +88,7 @@ Set the `OTPS` variable in `conf/run.conf`.
 
 The value of this variable is one or more alias-path pairs separated with commas.
 
-	OTPS="R14B04=/usr/local/otp_src_R14B04,R15B01=/usr/local/otp_src_R15B01"
+	OTPS="OTP28=/usr/local/otp-28,OTP29=/usr/local/otp-29"
 
 By default, benchmarks are compiled and run with the `erlc` and `erl` programs
 found in the OS path.
