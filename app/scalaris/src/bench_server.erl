@@ -1,4 +1,4 @@
-% @copyright 2007-2011 Zuse Institute Berlin
+% @copyright 2007-2015 Zuse Institute Berlin
 
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
@@ -15,20 +15,29 @@
 %% @author Thorsten Schuett <schuett@zib.de>
 %% @doc This is a small server for running benchmarks
 %% @end
+%% @version $Id$
 -module(bench_server).
 -author('schuett@zib.de').
--vsn('$Id: bench_server.erl 2576 2011-12-16 18:01:34Z kruber@zib.de $').
+-vsn('$Id$').
 
 -behaviour(gen_component).
 
--export([start_link/0, init/1, on/2]).
+-export([start_link/1, init/1, on/2]).
 
 -include("scalaris.hrl").
 
 -export([run_threads/2]).
 
+-include("gen_component.hrl").
+
 -record(state,
-        {load_pid :: pid() | ok
+        {load_pid             :: pid() | ok,
+         bench_owner   = ok   :: comm:mypid() | ok,
+         bench_start   = ok   :: erlang_timestamp() | ok,
+         bench_threads = 0    :: ThreadsLeft::non_neg_integer(),
+         bench_data    = null :: {N::non_neg_integer(), Mean::float(), M2::float(),
+                                  Min::non_neg_integer(), Max::non_neg_integer(),
+                                  AggAborts::non_neg_integer()} | null
          }).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -58,11 +67,46 @@ on({bench, Op, Threads, Iterations, Owner, Param}, State) ->
                 read_read ->
                     bench_fun:read_read(Iterations)
             end,
-    {Time, {MeanTime, Variance, MinTime, MaxTime, Aborts}} = util:tc(?MODULE, run_threads,
-                                                        [Threads, Bench]),
-    comm:send(Owner, {done, comm_server:get_local_address_port(),
-                      Time, MeanTime, Variance, MinTime, MaxTime, Aborts}),
-    State.
+    BenchStart = os:timestamp(),
+    run_threads(Threads, Bench),
+    State#state{bench_start = BenchStart,
+                bench_owner = Owner,
+                bench_threads = Threads};
+on({done, Time, Aborts},
+   State = #state{bench_owner = BenchOwner,
+                  bench_start = BenchStart,
+                  bench_threads = BenchThreads,
+                  bench_data = BenchData})
+  when BenchOwner =/= ok andalso BenchStart =/= ok andalso BenchThreads > 0 ->
+  % see http://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#On-line_algorithm
+    NewBenchData =
+        case BenchData of
+            null ->
+                {1, Time, 0.0, Time, Time, Aborts};
+            {N, Mean, M2, Min, Max, AggAborts} ->
+                Delta = Time - Mean,
+                NewMean = Mean + Delta / (N + 1),
+                {N + 1, NewMean, M2 + Delta*(Time - NewMean),
+                 erlang:min(Time, Min), erlang:max(Time, Max),
+                 AggAborts + Aborts}
+        end,
+    if BenchThreads =:= 1 ->
+           RepTime = timer:now_diff(os:timestamp(), BenchStart),
+           {NewN, RepMeanTime, NewM2, RepMinTime, RepMaxTime, RepAborts} = NewBenchData,
+           RepVariance = if NewN =:= 1 -> 0.0;
+                            true       -> NewM2 / (NewN - 1)
+                         end,
+           comm:send(BenchOwner, {done, comm_server:get_local_address_port(),
+                                  RepTime, RepMeanTime, RepVariance,
+                                  RepMinTime, RepMaxTime, RepAborts}),
+           State#state{bench_owner = ok,
+                       bench_start = ok,
+                       bench_threads = 0,
+                       bench_data = null};
+       true ->
+           State#state{bench_threads = BenchThreads - 1,
+                       bench_data = NewBenchData}
+    end.
 
 -spec init([]) -> #state{}.
 init([]) ->
@@ -71,9 +115,10 @@ init([]) ->
     #state{load_pid=ok}.
 
 %% @doc spawns a bench_server
--spec start_link() -> {ok, pid()}.
-start_link() ->
-    gen_component:start_link(?MODULE, fun ?MODULE:on/2, [], [{erlang_register, bench_server}]).
+-spec start_link(pid_groups:groupname()) -> {ok, pid()}.
+start_link(ServiceGroup) ->
+    gen_component:start_link(?MODULE, fun ?MODULE:on/2, [], [{pid_groups_join_as, ServiceGroup, ?MODULE},
+                                                             {erlang_register, ?MODULE}]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
@@ -82,35 +127,21 @@ start_link() ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % @doc spawns threads and collect statistics
 -spec run_threads(integer(),
-                  fun((Parent::comm:erl_local_pid()) -> any())) ->
-    {Mean::float(), Variance::float(), Min::non_neg_integer(),
-     Max::non_neg_integer(), Aborts::non_neg_integer()}.
+                  fun((Parent::comm:erl_local_pid()) -> any())) -> ok.
 run_threads(Threads, Bench) ->
     Self = self(),
-    util:for_to(1, Threads, fun(_X) -> spawn(fun()->Bench(Self) end) end),
-    collect(Threads).
-
-% @doc see http://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#On-line_algorithm
--spec collect(pos_integer()) ->
-    {Mean::float(), Variance::float(), Min::non_neg_integer(),
-     Max::non_neg_integer(), Aborts::non_neg_integer()}.
-collect(1) ->
-    receive {done, Time, Aborts} ->
-            {Time, 0.0, Time, Time, Aborts}
-    end;
-collect(Threads) ->
-    {Mean, M2, Min, Max, Aborts} =
-        receive {done, Time, TAborts} ->
-                collect(Threads - 1, 1, Time, 0.0, Time, Time, TAborts)
-        end,
-    {Mean, M2 / (Threads - 1), Min, Max, Aborts}.
-
-collect(0, _N, Mean, M2, Min, Max, Aborts) ->
-    {Mean, M2, Min, Max, Aborts};
-collect(ThreadsLeft, N, Mean, M2, Min, Max, AggAborts) ->
-    receive {done, Time, Aborts} ->
-            Delta = Time - Mean,
-            NewMean = Mean + Delta / (N + 1),
-            collect(ThreadsLeft - 1, N + 1, NewMean, M2 + Delta*(Time - NewMean),
-                    erlang:min(Time, Min), erlang:max(Time, Max), AggAborts + Aborts)
-    end.
+    util:for_to(1, Threads,
+       fun(_X) ->
+           Pid = spawn_link(fun()->
+                         trace_mpath:thread_yield(),
+                         receive
+                             ?SCALARIS_RECV({start_thread}, ok)
+                         end,
+                         log:log(debug, "Bench is infected ~p", [proto_sched:infected()]),
+                         Bench(Self),
+                         trace_mpath:thread_yield()
+                       end),
+                         log:log(debug, "Sending to spawned Bench ~p", [proto_sched:infected()]),
+               comm:send_local(Pid, {start_thread})
+       end),
+    ok.

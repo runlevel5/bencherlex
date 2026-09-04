@@ -6,6 +6,11 @@
     <meta http-equiv="pragma" content="no-cache">
     <meta http-equiv="cache-control" content="no-cache">
     <meta http-equiv="expires" content="-1">
+    <link rel='shortcut icon' type='image/x-icon' href='/favicon.ico' />
+<erl>
+out(Arg) ->
+    {header, {cache_control, "no-cache"}}.
+</erl>
     <title>Scalaris Management Interface</title>
     <link rel="stylesheet" type="text/css" href="main.css">
   <!--[if lte IE 5.5999]>
@@ -45,6 +50,17 @@ out(Arg) ->
       </div>
       <div class=\"nothighlighted\">
         <a class=\"menua\" href=\"vivaldi.yaws\">Vivaldi Map</a>
+      </div>" ++ 
+    case config:read(dc_clustering_enable) of
+        true -> "
+      <div class=\"nothighlighted\">
+        <a class=\"menua\" href=\"dc.yaws\">Datacenter Clusters Map</a>
+      </div>
+";
+        _ -> ""
+    end ++ "
+      <div class=\"nothighlighted\">
+        <a class=\"menua\" href=\"bench.yaws\">Benchmarks</a>
       </div>
 "}
     end.
@@ -186,14 +202,13 @@ $(function() {
 <p>Lookup Hop Count</p>
 <div id="lh_count" style="width: 800px; height: 300px; margin-bottom:50px"></div>
 
-Last update:
+<hr />
+<p>Last update:
 <erl>
- 
  out(Arg) ->
-	{Date, {Hour, Minute, Second}} = calendar:local_time(),
+    {Date, {Hour, Minute, Second}} = calendar:local_time(),
     {html, io_lib:format("~2..0B:~2..0B:~2..0B", [Hour, Minute, Second])}.
-</erl>
-</p>
+</erl></p>
 </div>
 <br class="br_class">&nbsp;
 </div>

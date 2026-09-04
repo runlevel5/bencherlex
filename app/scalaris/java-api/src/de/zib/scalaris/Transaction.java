@@ -15,7 +15,8 @@
  */
 package de.zib.scalaris;
 
-
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 
 import com.ericsson.otp.erlang.OtpErlangDouble;
@@ -24,6 +25,14 @@ import com.ericsson.otp.erlang.OtpErlangLong;
 import com.ericsson.otp.erlang.OtpErlangObject;
 import com.ericsson.otp.erlang.OtpErlangString;
 import com.ericsson.otp.erlang.OtpErlangTuple;
+
+import de.zib.scalaris.operations.AddDelOnListOp;
+import de.zib.scalaris.operations.AddOnNrOp;
+import de.zib.scalaris.operations.CommitOp;
+import de.zib.scalaris.operations.Operation;
+import de.zib.scalaris.operations.TestAndSetOp;
+import de.zib.scalaris.operations.TransactionOperation;
+import de.zib.scalaris.operations.WriteOp;
 
 /**
  * Provides means to realise a transaction with the scalaris ring using Java.
@@ -98,19 +107,27 @@ import com.ericsson.otp.erlang.OtpErlangTuple;
  * number of automatic retries is adjustable (default: 3).
  *
  * @author Nico Kruber, kruber@zib.de
- * @version 3.9
+ * @version 3.18
  * @since 2.0
  */
-public class Transaction {
+public class Transaction extends
+        AbstractTransaction<de.zib.scalaris.Transaction.RequestList, de.zib.scalaris.Transaction.ResultList> {
     /**
      * Erlang transaction log.
      */
-    private OtpErlangObject transLog = null;
+    protected final Translog transLog = getTranslogImpl();
 
     /**
-     * Connection to a Scalaris node.
+     * Gets the {@link Translog} implementation to use for {@link #transLog}.
+     * Will be executed only once during construction of the object!
+     *
+     * Re-define in sub-classes to use a different implementation.
+     *
+     * @return a translog object
      */
-    private final Connection connection;
+    protected Translog getTranslogImpl() {
+        return new FilteringTransLog();
+    }
 
     /**
      * Constructor, uses the default connection returned by
@@ -120,7 +137,7 @@ public class Transaction {
      *             if the connection fails
      */
     public Transaction() throws ConnectionException {
-        connection = ConnectionFactory.getInstance().createConnection();
+        super();
     }
 
     /**
@@ -130,7 +147,7 @@ public class Transaction {
      *            connection to use for the transaction
      */
     public Transaction(final Connection conn) {
-        connection = conn;
+        super(conn);
     }
 
     /**
@@ -138,7 +155,7 @@ public class Transaction {
      * {@link Transaction#req_list(RequestList)}.
      *
      * @author Nico Kruber, kruber@zib.de
-     * @version 3.5
+     * @version 3.18
      * @since 3.4
      */
     public static class RequestList extends de.zib.scalaris.RequestList {
@@ -150,12 +167,35 @@ public class Transaction {
         }
 
         /**
+         * Creates a new request list with the given operation.
+         *
+         * Provided for convenience.
+         *
+         * @since 3.18
+         */
+        protected RequestList(final TransactionOperation op) {
+            super(op);
+        }
+
+        /**
          * Copy constructor.
          *
          * @param other the request list to copy from
          */
         public RequestList(final RequestList other) {
             super(other);
+        }
+
+        /* (non-Javadoc)
+         * @see de.zib.scalaris.RequestList#addOp(de.zib.scalaris.operations.Operation)
+         */
+        @Override
+        public RequestList addOp(final Operation op)
+                throws UnsupportedOperationException {
+            if (!(op instanceof TransactionOperation)) {
+                throw new UnsupportedOperationException();
+            }
+            return (RequestList) super.addOp(op);
         }
 
         /**
@@ -182,32 +222,17 @@ public class Transaction {
         /**
          * Default constructor.
          *
-         * @param results  the raw results list as returned by scalaris.
+         * @param results
+         *            the raw results list as returned by scalaris
+         * @param compressed
+         *            whether the value part in the term is encoded, i.e.
+         *            compressed into an Erlang binary, or not
+         * @param requests
+         *            request list which created this result list
          */
-        ResultList(final OtpErlangList results) {
-            super(results);
-        }
-
-        /**
-         * Processes the result at the given position which originated from a read
-         * request and returns the value that has been read.
-         *
-         * @param pos
-         *            the position in the result list (starting at 0)
-         *
-         * @return the stored value
-         *
-         * @throws TimeoutException
-         *             if a timeout occurred while trying to fetch the value
-         * @throws NotFoundException
-         *             if the requested key does not exist
-         * @throws UnknownException
-         *             if any other error occurs
-         */
-        public ErlangValue processReadAt(final int pos) throws TimeoutException,
-                NotFoundException, UnknownException {
-            return new ErlangValue(
-                    CommonErlangObjects.processResult_read(results.elementAt(pos)));
+        ResultList(final OtpErlangList results, final boolean compressed,
+                final RequestList requests) {
+            super(results, compressed, requests);
         }
 
         /**
@@ -217,14 +242,12 @@ public class Transaction {
          * @param pos
          *            the position in the result list (starting at 0)
          *
-         * @throws TimeoutException
-         *             if a timeout occurred while trying to write the value
          * @throws UnknownException
          *             if any other error occurs
          */
-        public void processWriteAt(final int pos) throws TimeoutException,
-                UnknownException {
-            CommonErlangObjects.processResult_write(results.elementAt(pos));
+        @Override
+        public void processWriteAt(final int pos) throws UnknownException {
+            ((WriteOp) get(pos)).processResult();
         }
 
         /**
@@ -234,8 +257,6 @@ public class Transaction {
          * @param pos
          *            the position in the result list (starting at 0)
          *
-         * @throws TimeoutException
-         *             if a timeout occurred while trying to write the value
          * @throws NotAListException
          *             if the previously stored value was no list
          * @throws UnknownException
@@ -243,9 +264,10 @@ public class Transaction {
          *
          * @since 3.9
          */
-        public void processAddDelOnListAt(final int pos) throws TimeoutException,
-                NotAListException, UnknownException {
-            CommonErlangObjects.processResult_addDelOnList(results.elementAt(pos));
+        @Override
+        public void processAddDelOnListAt(final int pos)
+                throws NotAListException, UnknownException {
+            ((AddDelOnListOp) get(pos)).processResult();
         }
 
         /**
@@ -255,8 +277,6 @@ public class Transaction {
          * @param pos
          *            the position in the result list (starting at 0)
          *
-         * @throws TimeoutException
-         *             if a timeout occurred while trying to write the value
          * @throws NotANumberException
          *             if the previously stored value was not a number
          * @throws UnknownException
@@ -264,9 +284,10 @@ public class Transaction {
          *
          * @since 3.9
          */
-        public void processAddOnNrAt(final int pos) throws TimeoutException,
-                NotANumberException, UnknownException {
-            CommonErlangObjects.processResult_addOnNr(results.elementAt(pos));
+        @Override
+        public void processAddOnNrAt(final int pos) throws NotANumberException,
+                UnknownException {
+            ((AddOnNrOp) get(pos)).processResult();
         }
 
         /**
@@ -276,8 +297,6 @@ public class Transaction {
          * @param pos
          *            the position in the result list (starting at 0)
          *
-         * @throws TimeoutException
-         *             if a timeout occurred while trying to fetch/write the value
          * @throws NotFoundException
          *             if the requested key does not exist
          * @throws KeyChangedException
@@ -287,29 +306,215 @@ public class Transaction {
          *
          * @since 3.8
          */
-        public void processTestAndSetAt(final int pos) throws TimeoutException,
-                NotFoundException, KeyChangedException, UnknownException {
-            CommonErlangObjects.processResult_testAndSet(results.elementAt(pos));
+        @Override
+        public void processTestAndSetAt(final int pos)
+                throws NotFoundException, KeyChangedException, UnknownException {
+            ((TestAndSetOp) get(pos)).processResult();
         }
 
         /**
          * Processes the result at the given position which originated from
          * a commit request.
          *
+         * Note: it is not necessary to call this method manually! A commit at
+         * the end of a request list will be evaluated automatically!
+         *
          * @param pos
          *            the position in the result list (starting at 0)
          *
-         * @throws TimeoutException
-         *             if a timeout occurred while trying to write the value
          * @throws AbortException
          *             if the commit failed
          * @throws UnknownException
          *             if any other error occurs
          */
-        public void processCommitAt(final int pos) throws TimeoutException,
-                AbortException, UnknownException {
-            CommonErlangObjects.processResult_commit(results.elementAt(pos));
+        public void processCommitAt(final int pos) throws AbortException,
+                UnknownException {
+            ((CommitOp) get(pos)).processResult();
         }
+    }
+
+    /**
+     * TransLog abstraction layer, tightly coupled with <tt>tx_tlog</tt>.
+     *
+     * @author Nico Kruber, kruber@zib.de
+     * @version 3.17
+     * @since 3.17
+     */
+    protected static interface Translog {
+        /**
+         * Merges a new tlog object (from Scalaris) with this translog by adding
+         * new entries and replacing existing ones.
+         *
+         * @param newTLog
+         *            new tlog entries from Scalaris
+         *
+         * @return this object
+         */
+        public abstract Translog merge(final OtpErlangObject newTLog);
+
+        /**
+         * Checks whether the translog is empty.
+         *
+         * @return <tt>true</tt> if empty
+         */
+        public abstract boolean isEmpty();
+
+        /**
+         * Clears the translog.
+         */
+        public abstract void reset();
+
+        /**
+         * Creates a minimal tlog only containing entries for the keys in the
+         * given request list.
+         *
+         * @param req
+         *            the request list
+         *
+         * @return minimal tlog
+         */
+        public abstract OtpErlangObject filter(final RequestList req);
+    }
+
+    /**
+     * TransLog abstraction layer sending the whole tlog for each request,
+     * using the Scalaris-provided tlog as is.
+     *
+     * @author Nico Kruber, kruber@zib.de
+     * @version 3.17
+     * @since 3.17
+     */
+    protected static class FullTransLog implements Translog {
+        protected OtpErlangObject tlog = null;
+
+        /* (non-Javadoc)
+         * @see de.zib.scalaris.Translog#merge(com.ericsson.otp.erlang.OtpErlangObject)
+         */
+        @Override
+        public Translog merge(final OtpErlangObject newTLog) {
+            this.tlog = newTLog;
+            return this;
+        }
+
+        /* (non-Javadoc)
+         * @see de.zib.scalaris.Translog#isEmpty()
+         */
+        @Override
+        public boolean isEmpty() {
+            return this.tlog == null;
+        }
+
+        /* (non-Javadoc)
+         * @see de.zib.scalaris.Translog#reset()
+         */
+        @Override
+        public void reset() {
+            this.tlog = null;
+        }
+
+        /* (non-Javadoc)
+         * @see de.zib.scalaris.Translog#filter(de.zib.scalaris.Transaction.RequestList)
+         */
+        @Override
+        public OtpErlangObject filter(final RequestList req) {
+            return this.tlog;
+        }
+    }
+
+    /**
+     * TransLog abstraction layer only sending the subset of the tlog that is
+     * actually required for a request, tightly coupled with <tt>tx_tlog</tt>.
+     *
+     * @author Nico Kruber, kruber@zib.de
+     * @version 3.17
+     * @since 3.17
+     */
+    protected static class FilteringTransLog implements Translog {
+        protected LinkedHashMap<OtpErlangString, OtpErlangTuple> entries = new LinkedHashMap<OtpErlangString, OtpErlangTuple>();
+
+        /* (non-Javadoc)
+         * @see de.zib.scalaris.Translog#merge(com.ericsson.otp.erlang.OtpErlangObject)
+         */
+        @Override
+        public Translog merge(final OtpErlangObject newTLog) {
+            try {
+                final OtpErlangList newTLogL = (OtpErlangList) newTLog;
+                for (int i = 0; i < newTLogL.arity(); ++i) {
+                    final OtpErlangTuple entry = (OtpErlangTuple) newTLogL.elementAt(i);
+                    final OtpErlangString key = ErlangValue.otpObjectToOtpString(entry.elementAt(1));
+                    entries.put(key, entry);
+                }
+            } catch (final ClassCastException e) {
+                throw new UnknownException(newTLog);
+            }
+            return this;
+        }
+
+        /* (non-Javadoc)
+         * @see de.zib.scalaris.Translog#isEmpty()
+         */
+        @Override
+        public boolean isEmpty() {
+            return entries.isEmpty();
+        }
+
+        /* (non-Javadoc)
+         * @see de.zib.scalaris.Translog#reset()
+         */
+        @Override
+        public void reset() {
+            entries.clear();
+        }
+
+        /* (non-Javadoc)
+         * @see de.zib.scalaris.Translog#filter(de.zib.scalaris.Transaction.RequestList)
+         */
+        @Override
+        public OtpErlangObject filter(final RequestList req) {
+            OtpErlangList result;
+            if (req.isCommit()) {
+                result = new OtpErlangList(entries.values()
+                        .toArray(new OtpErlangTuple[entries.size()]));
+            } else {
+                final HashSet<OtpErlangTuple> resultJ = new HashSet<OtpErlangTuple>(
+                        req.size());
+                for (final Operation op : req.getRequests()) {
+                    final OtpErlangTuple entry = entries.get(op.getKey());
+                    if (entry != null) {
+                        resultJ.add(entry);
+                    }
+                }
+                result = new OtpErlangList(
+                        resultJ.toArray(new OtpErlangTuple[resultJ.size()]));
+            }
+            return result;
+        }
+    }
+
+    /**
+     * Executes the given operation.
+     *
+     * @param op
+     *            the operation to execute
+     *
+     * @return results list containing a single result of the given operation
+     *
+     * @throws ConnectionException
+     *             if the connection is not active or a communication error
+     *             occurs or an exit signal was received or the remote node
+     *             sends a message containing an invalid cookie
+     * @throws AbortException
+     *             if a commit failed (if there was one)
+     * @throws UnknownException
+     *             if any other error occurs
+     *
+     * @see #req_list(RequestList)
+     *
+     * @since 3.18
+     */
+    public ResultList req_list(final TransactionOperation op)
+            throws ConnectionException, AbortException, UnknownException {
+        return super.req_list(op);
     }
 
     /**
@@ -332,26 +537,25 @@ public class Transaction {
      *             if the connection is not active or a communication error
      *             occurs or an exit signal was received or the remote node
      *             sends a message containing an invalid cookie
-     * @throws TimeoutException
-     *             if a timeout occurred while trying to write the value
      * @throws AbortException
      *             if the commit failed
      * @throws UnknownException
      *             if any other error occurs
      */
+    @Override
     public ResultList req_list(final RequestList req)
-            throws ConnectionException, TimeoutException, AbortException, UnknownException {
+            throws ConnectionException, AbortException, UnknownException {
         if (req.isEmpty()) {
-            return new ResultList(new OtpErlangList());
+            return new ResultList(new OtpErlangList(), compressed, req);
         }
         OtpErlangObject received_raw = null;
-        final OtpErlangList erlangReqList = req.getErlangReqList();
-        if (transLog == null) {
-            received_raw = connection.doRPC("api_tx", "req_list",
+        final OtpErlangList erlangReqList = req.getErlangReqList(compressed);
+        if (transLog.isEmpty()) {
+            received_raw = connection.doRPC(module(), "req_list",
                     new OtpErlangObject[] { erlangReqList });
         } else {
-            received_raw = connection.doRPC("api_tx", "req_list",
-                    new OtpErlangObject[] { transLog, erlangReqList });
+            received_raw = connection.doRPC(module(), "req_list",
+                    new OtpErlangObject[] { transLog.filter(req), erlangReqList });
         }
         try {
             /*
@@ -359,17 +563,13 @@ public class Transaction {
              *  {tx_tlog:tlog(), [{ok} | {ok, Value} | {fail, abort | timeout | not_found}]}
              */
             final OtpErlangTuple received = (OtpErlangTuple) received_raw;
-            transLog = received.elementAt(0);
+            transLog.merge(received.elementAt(0));
             if (received.arity() == 2) {
-                final ResultList result = new ResultList((OtpErlangList) received.elementAt(1));
+                final ResultList result = new ResultList((OtpErlangList) received.elementAt(1), compressed, req);
                 if (req.isCommit()) {
-                    if (result.size() >= 1) {
-                        result.processCommitAt(result.size() - 1);
-                        // transaction was successful: reset transaction log
-                        transLog = null;
-                    } else {
-                        throw new UnknownException(result.getResults());
-                    }
+                    req.getCommit().processResult();
+                    // transaction was successful: reset transaction log
+                    transLog.reset();
                 }
                 return result;
             }
@@ -393,8 +593,6 @@ public class Transaction {
      *             if the connection is not active or a communication error
      *             occurs or an exit signal was received or the remote node
      *             sends a message containing an invalid cookie
-     * @throws TimeoutException
-     *             if a timeout occurred while trying to commit the transaction
      * @throws AbortException
      *             if the commit failed
      * @throws UnknownException
@@ -405,7 +603,7 @@ public class Transaction {
      *
      * @see #abort()
      */
-    public void commit() throws ConnectionException, TimeoutException, AbortException, UnknownException {
+    public void commit() throws ConnectionException, AbortException, UnknownException {
         req_list((RequestList) new RequestList().addCommit());
     }
 
@@ -421,446 +619,118 @@ public class Transaction {
      * @see #commit()
      */
     public void abort() {
-        transLog = null;
+        transLog.reset();
     }
 
-    /**
-     * Gets the value stored under the given <code>key</code>.
-     *
-     * @param key
-     *            the key to look up
-     *
-     * @return the value stored under the given <code>key</code>
-     *
-     * @throws ConnectionException
-     *             if the connection is not active or a communication error
-     *             occurs or an exit signal was received or the remote node
-     *             sends a message containing an invalid cookie
-     * @throws TimeoutException
-     *             if a timeout occurred while trying to fetch the value
-     * @throws NotFoundException
-     *             if the requested key does not exist
-     * @throws UnknownException
-     *             if any other error occurs
-     *
-     * @since 2.9
-     */
-    public ErlangValue read(final OtpErlangString key)
-            throws ConnectionException, TimeoutException, NotFoundException,
-            UnknownException {
-        try {
-            final ResultList result = req_list((RequestList) new RequestList().addRead(key));
-            if (result.size() == 1) {
-                return result.processReadAt(0);
-            }
-            throw new UnknownException(result.getResults());
-        } catch (final AbortException e) {
-            // should not occur (we did not commit anything)
-            throw new UnknownException(e);
-        }
+    @Override
+    protected RequestList newReqList() {
+        return new RequestList();
     }
 
-    /**
-     * Gets the value stored under the given <code>key</code>.
-     *
-     * @param key
-     *            the key to look up
-     *
-     * @return the value stored under the given <code>key</code>
-     *
-     * @throws ConnectionException
-     *             if the connection is not active or a communication error
-     *             occurs or an exit signal was received or the remote node
-     *             sends a message containing an invalid cookie
-     * @throws TimeoutException
-     *             if a timeout occurred while trying to fetch the value
-     * @throws NotFoundException
-     *             if the requested key does not exist
-     * @throws UnknownException
-     *             if any other error occurs
-     *
-     * @see #read(OtpErlangString)
-     * @since 2.9
-     */
-    public ErlangValue read(final String key) throws ConnectionException,
-            TimeoutException, NotFoundException, UnknownException {
-        return read(new OtpErlangString(key));
-    }
+    // some overrides (we do not commit transactions in these methods and thus
+    // do not throw an AbortException):
 
-    /**
-     * Stores the given <code>key</code>/<code>value</code> pair.
-     *
-     * @param key
-     *            the key to store the value for
-     * @param value
-     *            the value to store
-     *
-     * @throws ConnectionException
-     *             if the connection is not active or a communication error
-     *             occurs or an exit signal was received or the remote node
-     *             sends a message containing an invalid cookie
-     * @throws TimeoutException
-     *             if a timeout occurred while trying to write the value
-     * @throws UnknownException
-     *             if any other error occurs
-     *
-     * @since 2.9
-     */
+    @Override
     public void write(final OtpErlangString key, final OtpErlangObject value)
-            throws ConnectionException, TimeoutException, UnknownException {
+            throws ConnectionException, UnknownException {
         try {
-            final ResultList result = req_list((RequestList) new RequestList().addWrite(key, value));
-            if (result.size() == 1) {
-                result.processWriteAt(0);
-            } else {
-                throw new UnknownException(result.getResults());
-            }
+            super.write(key, value);
         } catch (final AbortException e) {
             // should not occur (we did not commit anything)
             throw new UnknownException(e);
         }
     }
 
-    /**
-     * Stores the given <code>key</code>/<code>value</code> pair.
-     *
-     * @param <T>
-     *            the type of the <tt>value</tt>
-     * @param key
-     *            the key to store the value for
-     * @param value
-     *            the value to store
-     *
-     * @throws ConnectionException
-     *             if the connection is not active or a communication error
-     *             occurs or an exit signal was received or the remote node
-     *             sends a message containing an invalid cookie
-     * @throws TimeoutException
-     *             if a timeout occurred while trying to write the value
-     * @throws UnknownException
-     *             if any other error occurs
-     *
-     * @see #write(OtpErlangString, OtpErlangObject)
-     * @since 2.9
-     */
-    public <T> void write(final String key, final T value) throws ConnectionException,
-            TimeoutException, UnknownException {
-        write(new OtpErlangString(key), ErlangValue.convertToErlang(value));
-    }
-
-    /**
-     * Changes the list stored at the given key, i.e. first adds all items in
-     * <tt>toAdd</tt> then removes all items in <tt>toRemove</tt>.
-     * Assumes en empty list if no value exists at <tt>key</tt>.
-     *
-     * @param key
-     *            the key to write the value to
-     * @param toAdd
-     *            a list of values to add to a list
-     * @param toRemove
-     *            a list of values to remove from a list
-     *
-     * @throws ConnectionException
-     *             if the connection is not active or a communication error
-     *             occurs or an exit signal was received or the remote node
-     *             sends a message containing an invalid cookie
-     * @throws TimeoutException
-     *             if a timeout occurred while trying to write the value
-     * @throws NotAListException
-     *             if the previously stored value was no list
-     * @throws UnknownException
-     *             if any other error occurs
-     *
-     * @since 3.9
-     */
-    public void addDelOnList(final OtpErlangObject key, final OtpErlangList toAdd,
-            final OtpErlangList toRemove) throws ConnectionException,
-            TimeoutException, NotAListException, UnknownException {
+    @Override
+    public <T> void write(final String key, final T value)
+            throws ConnectionException, UnknownException {
         try {
-            final RequestList reqs = new RequestList();
-            reqs.addAddDelOnList(key, toAdd, toRemove);
-            final ResultList result = req_list(reqs);
-            if (result.size() == 1) {
-                result.processAddDelOnListAt(0);
-            } else {
-                throw new UnknownException(result.getResults());
-            }
+            super.write(key, value);
         } catch (final AbortException e) {
             // should not occur (we did not commit anything)
             throw new UnknownException(e);
         }
     }
 
-    /**
-     * Changes the list stored at the given key, i.e. first adds all items in
-     * <tt>toAdd</tt> then removes all items in <tt>toRemove</tt>.
-     * Assumes en empty list if no value exists at <tt>key</tt>.
-     *
-     * @param key
-     *            the key to write the value to
-     * @param toAdd
-     *            a list of values to add to a list
-     * @param toRemove
-     *            a list of values to remove from a list
-     *
-     * @throws ConnectionException
-     *             if the connection is not active or a communication error
-     *             occurs or an exit signal was received or the remote node
-     *             sends a message containing an invalid cookie
-     * @throws TimeoutException
-     *             if a timeout occurred while trying to write the value
-     * @throws NotAListException
-     *             if the previously stored value was no list
-     * @throws UnknownException
-     *             if any other error occurs
-     *
-     * @see #addDelOnList(OtpErlangObject, OtpErlangList, OtpErlangList)
-     * @since 3.9
-     */
+    @Override
+    public void addDelOnList(final OtpErlangString key,
+            final OtpErlangList toAdd, final OtpErlangList toRemove)
+            throws ConnectionException, NotAListException, UnknownException {
+        try {
+            super.addDelOnList(key, toAdd, toRemove);
+        } catch (final AbortException e) {
+            // should not occur (we did not commit anything)
+            throw new UnknownException(e);
+        }
+    }
+
+    @Override
     public <T> void addDelOnList(final String key, final List<T> toAdd,
             final List<T> toRemove) throws ConnectionException,
-            TimeoutException, NotAListException, UnknownException {
-        OtpErlangList toAddErl;
-        OtpErlangList toRemoveErl;
+            NotAListException, UnknownException {
         try {
-            toAddErl = (OtpErlangList) ErlangValue.convertToErlang(toAdd);
-            toRemoveErl = (OtpErlangList) ErlangValue.convertToErlang(toRemove);
-        } catch (final ClassCastException e) {
-            // one of the parameters was no list
-            // note: a ClassCastException inside ErlangValue.convertToErlang is
-            // converted to an UnknownException
-            throw new NotAListException(e);
-        }
-        addDelOnList(new OtpErlangString(key), toAddErl, toRemoveErl);
-    }
-
-    /**
-     * Changes the number stored at the given key, i.e. adds some value.
-     * Assumes <tt>0</tt> if no value exists at <tt>key</tt>.
-     *
-     * @param key
-     *            the key to write the value to
-     * @param toAdd
-     *            the number to add to the number stored at key (may also be
-     *            negative)
-     *
-     * @throws ConnectionException
-     *             if the connection is not active or a communication error
-     *             occurs or an exit signal was received or the remote node
-     *             sends a message containing an invalid cookie
-     * @throws TimeoutException
-     *             if a timeout occurred while trying to write the value
-     * @throws NotANumberException
-     *             if the previously stored value was no number
-     * @throws UnknownException
-     *             if any other error occurs
-     *
-     * @see #addOnNr_(RequestList)
-     * @since 3.9
-     */
-    public void addOnNr(final OtpErlangObject key, final OtpErlangLong toAdd)
-            throws ConnectionException, TimeoutException, NotANumberException,
-            UnknownException {
-        final RequestList reqs = new RequestList();
-        reqs.addAddOnNr(key, toAdd);
-        addOnNr_(reqs);
-    }
-
-    /**
-     * Changes the number stored at the given key, i.e. adds some value.
-     * Assumes <tt>0</tt> if no value exists at <tt>key</tt>.
-     *
-     * @param key
-     *            the key to write the value to
-     * @param toAdd
-     *            the number to add to the number stored at key (may also be
-     *            negative)
-     *
-     * @throws ConnectionException
-     *             if the connection is not active or a communication error
-     *             occurs or an exit signal was received or the remote node
-     *             sends a message containing an invalid cookie
-     * @throws TimeoutException
-     *             if a timeout occurred while trying to write the value
-     * @throws NotANumberException
-     *             if the previously stored value was no number
-     * @throws UnknownException
-     *             if any other error occurs
-     *
-     * @see #addOnNr_(RequestList)
-     * @since 3.9
-     */
-    public void addOnNr(final OtpErlangObject key, final OtpErlangDouble toAdd)
-            throws ConnectionException, TimeoutException, NotANumberException,
-            UnknownException {
-        final RequestList reqs = new RequestList();
-        reqs.addAddOnNr(key, toAdd);
-        addOnNr_(reqs);
-    }
-
-    /**
-     * Changes the number stored at the given key, i.e. adds some value.
-     * Assumes <tt>0</tt> if no value exists at <tt>key</tt>.
-     *
-     * @param reqs
-     *            the request list containing a single add_on_nr operation
-     *
-     * @throws ConnectionException
-     *             if the connection is not active or a communication error
-     *             occurs or an exit signal was received or the remote node
-     *             sends a message containing an invalid cookie
-     * @throws TimeoutException
-     *             if a timeout occurred while trying to write the value
-     * @throws NotANumberException
-     *             if the previously stored value was no number
-     * @throws UnknownException
-     *             if any other error occurs
-     *
-     * @see #addOnNr(OtpErlangObject, OtpErlangLong)
-     * @see #addOnNr(OtpErlangObject, OtpErlangDouble)
-     * @since 3.9
-     */
-    protected void addOnNr_(final RequestList reqs)
-            throws ConnectionException, TimeoutException, NotANumberException,
-            UnknownException {
-        try {
-            final ResultList result = req_list(reqs);
-            if (result.size() == 1) {
-                result.processAddOnNrAt(0);
-            } else {
-                throw new UnknownException(result.getResults());
-            }
+            super.addDelOnList(key, toAdd, toRemove);
         } catch (final AbortException e) {
             // should not occur (we did not commit anything)
             throw new UnknownException(e);
         }
     }
 
-    /**
-     * Changes the number stored at the given key, i.e. adds some value.
-     * Assumes <tt>0</tt> if no value exists at <tt>key</tt>.
-     *
-     * @param key
-     *            the key to write the value to
-     * @param toAdd
-     *            the number to add to the number stored at key (may also be
-     *            negative)
-     *
-     * @throws ConnectionException
-     *             if the connection is not active or a communication error
-     *             occurs or an exit signal was received or the remote node
-     *             sends a message containing an invalid cookie
-     * @throws TimeoutException
-     *             if a timeout occurred while trying to write the value
-     * @throws NotANumberException
-     *             if the previously stored value was no number
-     * @throws UnknownException
-     *             if any other error occurs
-     *
-     * @see #addOnNr(OtpErlangObject, OtpErlangLong)
-     * @see #addOnNr(OtpErlangObject, OtpErlangDouble)
-     * @since 3.9
-     */
-    public <T> void addOnNr(final String key, final T toAdd)
-            throws ConnectionException, TimeoutException, NotANumberException,
-            UnknownException {
-        final OtpErlangObject toAddErl = ErlangValue.convertToErlang(toAdd);
-        if (toAddErl instanceof OtpErlangLong) {
-            addOnNr(new OtpErlangString(key), (OtpErlangLong) toAddErl);
-        } else if (toAddErl instanceof OtpErlangDouble) {
-            addOnNr(new OtpErlangString(key), (OtpErlangDouble) toAddErl);
-        } else {
-            throw new NotANumberException(toAddErl);
+    @Override
+    public void addOnNr(final OtpErlangString key, final OtpErlangLong toAdd)
+            throws ConnectionException, NotANumberException, UnknownException {
+        try {
+            super.addOnNr(key, toAdd);
+        } catch (final AbortException e) {
+            // should not occur (we did not commit anything)
+            throw new UnknownException(e);
         }
     }
 
-    /**
-     * Stores the given <tt>key</tt>/<tt>new_value</tt> pair if the old value
-     * at <tt>key</tt> is <tt>old_value</tt> (atomic test_and_set).
-     *
-     * @param key
-     *            the key to store the value for
-     * @param oldValue
-     *            the old value to check
-     * @param newValue
-     *            the value to store
-     *
-     * @throws ConnectionException
-     *             if the connection is not active or a communication error
-     *             occurs or an exit signal was received or the remote node
-     *             sends a message containing an invalid cookie
-     * @throws TimeoutException
-     *             if a timeout occurred while trying to write the value
-     * @throws NotFoundException
-     *             if the requested key does not exist
-     * @throws KeyChangedException
-     *             if the key did not match <tt>old_value</tt>
-     * @throws UnknownException
-     *             if any other error occurs
-     *
-     * @since 3.9
-     */
+    @Override
+    public void addOnNr(final OtpErlangString key, final OtpErlangDouble toAdd)
+            throws ConnectionException, NotANumberException, UnknownException {
+        try {
+            super.addOnNr(key, toAdd);
+        } catch (final AbortException e) {
+            // should not occur (we did not commit anything)
+            throw new UnknownException(e);
+        }
+    }
+
+    @Override
+    public <T> void addOnNr(final String key, final T toAdd)
+            throws ConnectionException, NotANumberException, UnknownException {
+        try {
+            super.addOnNr(key, toAdd);
+        } catch (final AbortException e) {
+            // should not occur (we did not commit anything)
+            throw new UnknownException(e);
+        }
+    }
+
+    @Override
     public void testAndSet(final OtpErlangString key,
             final OtpErlangObject oldValue, final OtpErlangObject newValue)
-            throws ConnectionException, TimeoutException, NotFoundException,
-            KeyChangedException, UnknownException {
+            throws ConnectionException, NotFoundException, KeyChangedException,
+            UnknownException {
         try {
-            final RequestList reqs = new RequestList();
-            reqs.addTestAndSet(key, oldValue, newValue);
-            final ResultList result = req_list(reqs);
-            if (result.size() == 1) {
-                result.processTestAndSetAt(0);
-            } else {
-                throw new UnknownException(result.getResults());
-            }
+            super.testAndSet(key, oldValue, newValue);
         } catch (final AbortException e) {
             // should not occur (we did not commit anything)
             throw new UnknownException(e);
         }
     }
 
-    /**
-     * Stores the given <tt>key</tt>/<tt>new_value</tt> pair if the old value
-     * at <tt>key</tt> is <tt>old_value</tt> (atomic test_and_set).
-     *
-     * @param key
-     *            the key to store the value for
-     * @param oldValue
-     *            the old value to check
-     * @param newValue
-     *            the value to store
-     *
-     * @throws ConnectionException
-     *             if the connection is not active or a communication error
-     *             occurs or an exit signal was received or the remote node
-     *             sends a message containing an invalid cookie
-     * @throws TimeoutException
-     *             if a timeout occurred while trying to write the value
-     * @throws NotFoundException
-     *             if the requested key does not exist
-     * @throws KeyChangedException
-     *             if the key did not match <tt>old_value</tt>
-     * @throws UnknownException
-     *             if any other error occurs
-     *
-     * @see #testAndSet(OtpErlangString, OtpErlangObject, OtpErlangObject)
-     * @since 3.9
-     */
+    @Override
     public <OldT, NewT> void testAndSet(final String key, final OldT oldValue,
-            final NewT newValue) throws ConnectionException, TimeoutException,
-            NotFoundException, KeyChangedException, UnknownException {
-        testAndSet(new OtpErlangString(key),
-                ErlangValue.convertToErlang(oldValue),
-                ErlangValue.convertToErlang(newValue));
-    }
-
-    /**
-     * Closes the transaction's connection to a scalaris node.
-     *
-     * Note: Subsequent calls to the other methods will throw
-     * {@link ConnectionException}s!
-     */
-    public void closeConnection() {
-        connection.close();
+            final NewT newValue) throws ConnectionException, NotFoundException,
+            KeyChangedException, UnknownException {
+        try {
+            super.testAndSet(key, oldValue, newValue);
+        } catch (final AbortException e) {
+            // should not occur (we did not commit anything)
+            throw new UnknownException(e);
+        }
     }
 }

@@ -15,7 +15,10 @@
  */
 package de.zib.scalaris;
 
+import java.util.Collection;
+import java.util.Iterator;
 import java.util.LinkedList;
+import java.util.Set;
 
 /**
  * Implements a simple (thread-safe) connection pool for Scalaris connections.
@@ -103,7 +106,9 @@ public class ConnectionPool {
         Connection conn;
         while ((conn = getConnection()) == null) {
             try {
-                wait(timeout);
+                synchronized (this) {
+                    wait(timeout);
+                }
             } catch (final InterruptedException e) {
             }
             final long timeAtEnd = System.currentTimeMillis();
@@ -137,6 +142,30 @@ public class ConnectionPool {
             conn.close();
         }
         availableConns.clear();
+    }
+
+    /**
+     * Closes all available pooled connections to any node not in the given
+     * collection.
+     *
+     * NOTE: This does not include any checked out connections!
+     *
+     * @param remainingNodes
+     *            a set of nodes to which connections should remain (fast access
+     *            to {@link Collection#contains(Object)} is preferable, e.g. use
+     *            {@link Set})
+     */
+    public synchronized void closeAllBut(
+            final Collection<PeerNode> remainingNodes) {
+        for (final Iterator<Connection> iterator = availableConns.iterator();
+                iterator.hasNext();) {
+            final Connection conn = iterator.next();
+            if (!remainingNodes.contains(conn.getRemote())) {
+                conn.close();
+                iterator.remove();
+            }
+
+        }
     }
 
     /* (non-Javadoc)

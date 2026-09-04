@@ -1,4 +1,4 @@
-% @copyright 2007-2011 Zuse Institute Berlin
+% @copyright 2007-2012 Zuse Institute Berlin
 
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
@@ -14,20 +14,19 @@
 
 %% @author Thorsten Schuett <schuett@zib.de>
 %% @doc log service
-%% @version $Id: log.erl 2185 2011-09-06 10:22:24Z kruber@zib.de $
+%% @version $Id$
 -module(log).
 -author('schuett@zib.de').
--vsn('$Id: log.erl 2185 2011-09-06 10:22:24Z kruber@zib.de $').
+-vsn('$Id$').
 
 -include("log4erl.hrl").
 
 -export([start_link/0]).
--export([log/2, log/3, log/4, set_log_level/1]).
+-export([log/1, log/2, log/3, log/4, set_log_level/1]).
+-export([pal/1, pal/2]).
 -export([check_config/0]).
 
--ifdef(with_export_type_support).
 -export_type([log_level/0]).
--endif.
 
 -type log_level() :: debug | info | warn | error | fatal.
 
@@ -35,48 +34,74 @@
 %%      error_logger_file_h report handlers and registers itself as the (only)
 %%      report handler. Note: requires a running config process and can only be
 %%      run once!
--spec start_link() -> {ok, Pid::pid()} | ignore |
-                      {error, Error::{already_started, Pid::pid()} | shutdown | term()}.
+-spec start_link() -> {ok, Pid::pid()}.
 start_link() ->
     Link = log4erl:start(log4erl, []),
     case Link of
         {ok, _} ->
+            LogLevel = config:read(log_level),
+            LogLevelFile = config:read(log_level_file),
+            % determine lowest log level, adapt cut-off level accordingly
+            case log4erl_utils:to_log(LogLevel, LogLevelFile) of
+                true  -> % LogLevel >= LogLevelFile
+                    log_filter_codegen:set_cutoff_level(LogLevelFile);
+                false -> % LogLevel < LogLevelFile
+                    log_filter_codegen:set_cutoff_level(LogLevel)
+            end,
             case util:is_unittest() of
                 true ->
                     log4erl:add_appender(?DEFAULT_LOGGER,
                                          {log4erl_ctpal_appender, ctpal},
-                                         {config:read(log_level),
+                                         {LogLevel,
                                           config:read(log_format)});
                 _ ->
                     log4erl:add_console_appender(stdout,
-                                                 {config:read(log_level),
+                                                 {LogLevel,
                                                   config:read(log_format)})
             end,
+            ErrorLoggerFile = filename:join(config:read(log_path),
+                                            config:read(log_file_name_log4erl)),
+            ok = filelib:ensure_dir(ErrorLoggerFile),
             log4erl:add_file_appender(file, {config:read(log_path),
                                              config:read(log_file_name_log4erl),
                                              {size, config:read(log_file_size)},
                                              config:read(log_file_rotations),
                                              "txt",
-                                             config:read(log_level_file)}),
+                                             LogLevelFile}),
 
 %%             log4erl:change_format(stdout, config:read(log_format)),
             log4erl:change_format(file, config:read(log_format_file)),
-            
+
             % remove the default error_logger's file and tty handlers
-            error_logger:delete_report_handler(error_logger_file_h),
-            error_logger:delete_report_handler(error_logger_tty_h),
+            _ = error_logger:logfile(close),
+            error_logger:tty(false),
+            error_logger:delete_report_handler(error_logger),
             % there should not be any previous log4erl handler - just in case, delete it:
             error_logger:delete_report_handler(error_logger_log4erl_h),
-            % add a log4erl handler instead:
+            % erlang >= R15B adds cth_log_redirect in common_test, delete it:
+            error_logger:delete_report_handler(cth_log_redirect),
+            % now register log4erl error logger:
             log4erl:error_logger_handler(),
-            ok;
-        _ -> ok
+            %% check whether erlang error_logger only reports to log4erl
+            case gen_event:which_handlers(error_logger) of
+                [error_logger_log4erl_h] -> ok;
+                Loggers -> log(info, "additional error loggers installed: ~.0p",
+                               [[L || L <- Loggers, L =/= error_logger_log4erl_h]])
+            end,
+            ok
     end,
     Link.
 
--spec log(Level::log_level(), LogMsg::string()) -> any().
-log(Level, Log) ->
-    log4erl:log(Level,Log).
+-spec log(LogMsg::string()) -> any().
+log(Log) ->
+    log(Log, []).
+
+-spec log(Level::log_level(), LogMsg::string()) -> any();
+         (LogMsg::string(), Data::list()) -> any().
+log(Level, Log) when is_atom(Level) ->
+    log4erl:log(Level, Log);
+log(Log, Data) ->
+    log4erl:log(warn, Log, Data).
 
 -spec log(Level::log_level(), LogMsg::string(), Data::list()) -> any().
 log(Level, Log, Data) ->
@@ -89,6 +114,13 @@ log(Logger, Level, Log, Data) ->
 -spec set_log_level(Level::log_level() | none) -> any().
 set_log_level(Level) ->
     log4erl:change_log_level(Level).
+
+% for (temporary) debugging, use log:pal/1 and log:pal/2
+-spec pal(LogMsg::string()) -> any().
+pal(Log) -> log(Log).
+
+-spec pal(LogMsg::string(), Data::list()) -> any().
+pal(Log, Data) -> log(Log, Data).
 
 %% @doc Checks whether config parameters of the log4erl process exist and are
 %%      valid.

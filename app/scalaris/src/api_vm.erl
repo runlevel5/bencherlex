@@ -1,4 +1,4 @@
-%  @copyright 2011 Zuse Institute Berlin
+%  @copyright 2011-2014 Zuse Institute Berlin
 
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
@@ -18,14 +18,15 @@
 %% @version $Id$
 -module(api_vm).
 -author('kruber@zib.de').
--vsn('$Id$ ').
+-vsn('$Id$').
 
 -export([get_version/0, get_info/0,
-         number_of_nodes/0, get_nodes/0, add_nodes/1,
+         number_of_nodes/0, get_nodes/0, add_nodes/1, add_nodes_at_ids/1,
          shutdown_node/1, shutdown_nodes/1, shutdown_nodes_by_name/1,
          kill_node/1, kill_nodes/1, kill_nodes_by_name/1,
          get_other_vms/1,
-         shutdown_vm/0, kill_vm/0]).
+         shutdown_vm/0, kill_vm/0,
+         wait_for_scalaris_to_start/0]).
 
 -include("scalaris.hrl").
 
@@ -62,10 +63,27 @@ get_nodes() ->
     [pid_groups:group_of(Pid) || Pid <- pid_groups:find_all(dht_node),
                                  DhtModule:is_alive(gen_component:get_state(Pid))].
 
+%% userdevguide-begin api_vm:add_nodes
 %% @doc Adds Number Scalaris nodes to this VM.
 -spec add_nodes(non_neg_integer()) -> {[pid_groups:groupname()], [{error, term()}]}.
 add_nodes(Number) when is_integer(Number) andalso Number >= 0 ->
     Result = {Ok, _Failed} = admin:add_nodes(Number),
+    % at least wait for the successful nodes to have joined, i.e. left the join phases
+    util:wait_for(
+      fun() ->
+              DhtModule = config:read(dht_node),
+              NotReady = [Name || Name <- Ok,
+                                  not DhtModule:is_alive(
+                                    gen_component:get_state(
+                                      pid_groups:pid_of(Name, dht_node)))],
+              [] =:= NotReady
+      end),
+    Result.
+%% userdevguide-end api_vm:add_nodes
+
+-spec add_nodes_at_ids(list(?RT:key())) -> {[pid_groups:groupname()], [{error, term()}]}.
+add_nodes_at_ids(Keys) when is_list(Keys) ->
+    Result = {Ok, _Failed} = admin:add_nodes_at_ids(Keys),
     % at least wait for the successful nodes to have joined, i.e. left the join phases
     util:wait_for(
       fun() ->
@@ -116,14 +134,36 @@ kill_node(Name) ->
 %% @doc Kills multiple nodes.
 -spec kill_nodes(Count::non_neg_integer()) -> Ok::[pid_groups:groupname()].
 kill_nodes(Count) when is_integer(Count) andalso Count >= 0 ->
-    Ok = admin:del_nodes(Count, false),
-    wait_for_nodes_to_disappear(Ok),
-    Ok.
+    %% spawn to be sure that all nodes are killed, even when killing
+    %% ourselves.
+    Pid = self(),
+    Child = spawn(
+              fun() -> %% infection is passed via {do_kill_nodes} message
+                      trace_mpath:thread_yield(),
+                      receive ?SCALARIS_RECV({do_kill_nodes}, ok) end,
+                      Ok = admin:del_nodes(Count, false),
+                      wait_for_nodes_to_disappear(Ok),
+                      comm:send_local(Pid, {kill_nodes_done, Ok}),
+                      %% pass flow control back to proto_sched
+                      trace_mpath:thread_yield()
+              end),
+    comm:send_local(Child, {do_kill_nodes}),
+    trace_mpath:thread_yield(),
+    receive ?SCALARIS_RECV({kill_nodes_done, Result}, Result) end.
+
 -spec kill_nodes_by_name(Names::[pid_groups:groupname()]) -> {Ok::[pid_groups:groupname()], NotFound::[pid_groups:groupname()]}.
 kill_nodes_by_name(Names) when is_list(Names) ->
-    Result = {Ok, _NotFound} = admin:del_nodes_by_name(Names, false),
-    wait_for_nodes_to_disappear(Ok),
-    Result.
+    %% spawn to be sure that all nodes are killed, even when killing
+    %% ourselves.
+    Pid = self(),
+    spawn(
+      fun() ->
+              Result = {Ok, _NotFound} = admin:del_nodes_by_name(Names, false),
+              wait_for_nodes_to_disappear(Ok),
+              Pid ! {kill_nodes_done, Result}
+            end),
+    trace_mpath:thread_yield(),
+    receive ?SCALARIS_RECV({kill_nodes_done, Result}, Result) end.
 
 %% @doc Gets connection info for a random subset of known nodes by the cyclon
 %%      processes of the dht_node processes in this VM.
@@ -134,27 +174,46 @@ get_other_vms(MaxVMs) when is_integer(MaxVMs) andalso MaxVMs > 0 ->
         lists:append(
           [begin
                GlobalPid = comm:make_global(Pid),
-               comm:send(GlobalPid, {get_subset_rand, MaxVMs, self()},
-                         [{group_member, cyclon}]),
+               comm:send(GlobalPid,
+                         {cb_msg, {gossip_cyclon, default}, {get_subset_rand, MaxVMs, self()}},
+                         [{group_member, gossip}]),
+               trace_mpath:thread_yield(),
                receive
-                   {cy_cache, Cache} ->
-                       [{node:erlNode(Node),
+                   ?SCALARIS_RECV({cy_cache, Cache}, %% ->
+                       [{erlang:node(comm:make_local(node:pidX(Node))),
                          comm:get_ip(node:pidX(Node)),
                          comm:get_port(node:pidX(Node)),
-                         node:yawsPort(Node)} || Node <- Cache]
+                         node:yawsPort(Node)} || Node <- Cache])
                end
            end || Pid <- pid_groups:find_all(dht_node),
                   DhtModule:is_alive_fully_joined(gen_component:get_state(Pid))]),
     util:random_subset(MaxVMs, lists:usort(RandomConns)).
 
-%% @doc Graceful shutdown of this VM.
--spec shutdown_vm() -> no_return().
+%% @doc Graceful shutdown of this VM. If the last Scalaris node of this VM
+%%      cannot gracefully shut down because it doesn't know any other node to
+%%      move its data to, 'no_partner_found' will be returned.
+-spec shutdown_vm() -> ok | no_partner_found.
 shutdown_vm() ->
-    _ = shutdown_nodes(number_of_nodes()),
-    util:wait_for(fun() -> number_of_nodes() =:= 0 end),
-    erlang:halt().
+    NodesToShutdown = number_of_nodes(),
+    Ok = shutdown_nodes(NodesToShutdown),
+    Rest = erlang:max(0, NodesToShutdown - length(Ok)),
+    util:wait_for(fun() -> number_of_nodes() =:= Rest end),
+    if Rest =:= 0 -> kill_vm();
+       true       -> no_partner_found
+    end.
 
 %% @doc Kills this VM.
--spec kill_vm() -> no_return().
+-spec kill_vm() -> ok.
 kill_vm() ->
+    spawn(fun kill_vm2/0),
+    ok.
+
+-spec kill_vm2() -> no_return().
+kill_vm2() ->
+    timer:sleep(1000),
     erlang:halt().
+
+%% @doc waits until the supervisor has started and the VM has IP+port
+-spec wait_for_scalaris_to_start() -> ok.
+wait_for_scalaris_to_start() ->
+    util:wait_for(fun service_per_vm:is_scalaris_ready/0).

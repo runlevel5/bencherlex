@@ -15,13 +15,13 @@
 
 %% @author Ahmed Nawras
 %% @author Nico Kruber <kruber@zib.de>
-%% @doc Log4erl appender using ct:pal/1 instead if io:format/1 based on
+%% @doc Log4erl appender using log:pal/1 instead if io:format/1 based on
 %%      console_appender.
-%% @version $Id: log4erl_ctpal_appender.erl 1440 2011-02-22 19:37:24Z schintke $
+%% @version $Id$
 -module(log4erl_ctpal_appender).
 -author('Ahmed Nawras').
 -author('kruber@zib.de').
--vsn('$Id: log4erl_ctpal_appender.erl 1440 2011-02-22 19:37:24Z schintke $').
+-vsn('$Id$').
 
 -include("log4erl.hrl").
 

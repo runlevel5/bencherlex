@@ -1,12 +1,27 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<%@ page language="java" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8"
- import="java.util.Calendar,java.util.Locale,java.text.DateFormat,java.text.SimpleDateFormat,java.util.TimeZone,java.util.Iterator,de.zib.scalaris.examples.wikipedia.bliki.WikiPageListBean,java.util.Map,java.util.List"%>
+<%@page import="de.zib.scalaris.examples.wikipedia.bliki.WikiServlet"%>
+<%@page import="de.zib.scalaris.examples.wikipedia.InvolvedKey"%>
+<%@page language="java" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8"
+ import="java.util.Calendar,java.util.Locale,java.text.DateFormat,java.text.SimpleDateFormat,java.util.TimeZone,java.util.Iterator,de.zib.scalaris.examples.wikipedia.bliki.WikiPageListBean,java.util.Map,java.util.List,org.apache.commons.lang.StringEscapeUtils,java.net.URLEncoder"%>
 <% String req_render = request.getParameter("render"); %>
 <jsp:useBean id="pageBean" type="de.zib.scalaris.examples.wikipedia.bliki.WikiPageListBean" scope="request" />
+<jsp:useBean id="servlet" type="de.zib.scalaris.examples.wikipedia.WikiServletContext" scope="request" />
 <% /* created page based on https://secure.wikimedia.org/wiktionary/simple/wiki/relief */ %>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html lang="${ pageBean.wikiLang }" dir="${ pageBean.wikiLangDir }" xmlns="http://www.w3.org/1999/xhtml">
 <head>
+<%
+final String safePageTitle = StringEscapeUtils.escapeHtml(URLEncoder.encode(pageBean.getTitle(), "UTF-8"));
+final String pageTitleWithPars = pageBean.titleWithParameters();
+final String safePageTitleWithPars = StringEscapeUtils.escapeHtml(pageTitleWithPars);
+
+final String safeFromTitle = StringEscapeUtils.escapeHtml(pageBean.getFromPage());
+final String safeToTitle = StringEscapeUtils.escapeHtml(pageBean.getToPage());
+final String safeTargetTitle = StringEscapeUtils.escapeHtml(pageBean.getTarget());
+final String safePrefixTitle = StringEscapeUtils.escapeHtml(pageBean.getPrefix());
+final String safeSearchTitle = StringEscapeUtils.escapeHtml(pageBean.getSearch());
+final String andServiceUser = pageBean.getServiceUser().isEmpty() ? "" : "&amp;service_user=" + pageBean.getServiceUser();
+%>
 <title>${ pageBean.pageHeading } - ${ pageBean.wikiTitle }</title>
 <!--<% if (!pageBean.getError().isEmpty()) { %>
 <error>${ pageBean.error }</error>
@@ -15,8 +30,6 @@
 <meta http-equiv="Content-Style-Type" content="text/css" />
 <% /* 
 <meta name="generator" content="MediaWiki 1.17wmf1" />
-<link rel="alternate" type="application/x-wiki" title="change this page" href="https://secure.wikimedia.org/wiktionary/simple/w/index.php?title=${ pageBean.title }&amp;action=edit">
-<link rel="edit" title="change this page" href="https://secure.wikimedia.org/wiktionary/simple/w/index.php?title=${ pageBean.title }&amp;action=edit">
 <link rel="apple-touch-icon" href="http://simple.wiktionary.org/apple-touch-icon.png">
 */ %>
 <link rel="shortcut icon" href="favicon-wikipedia.ico" />
@@ -80,26 +93,26 @@ ${ pageBean.page }
                       <% if (pageBean.getFormType() == WikiPageListBean.FormType.FromToForm ) { %>
                               <tr>
                                 <td class='mw-label'><label for="nsfrom">Display pages starting at:</label> </td>
-                                <td class='mw-input'><input name="from" size="30" value="${ pageBean.fromPage }" id="nsfrom" />  </td>
+                                <td class='mw-input'><input name="from" size="30" value="<%= safeFromTitle %>" id="nsfrom" />  </td>
                               </tr>
                               <tr>
                                 <td class='mw-label'><label for="nsto">Display pages ending at:</label> </td>
-                                <td class='mw-input'><input name="to" size="30" value="${ pageBean.toPage }" id="nsto" />      </td>
+                                <td class='mw-input'><input name="to" size="30" value="<%= safeToTitle %>" id="nsto" />      </td>
                               </tr>
                       <% } else if (pageBean.getFormType() == WikiPageListBean.FormType.TargetPageForm) { %>
                               <tr>
                                 <td class='mw-label'><label for="target">Page:</label> </td>
-                                <td class='mw-input'><input name="target" size="30" value="${ pageBean.target }" id="nstarget" /> <input type="submit" value="Go" />  </td>
+                                <td class='mw-input'><input name="target" size="30" value="<%= safeTargetTitle %>" id="nstarget" /> <input type="submit" value="Go" />  </td>
                               </tr>
                       <% } else if (pageBean.getFormType() == WikiPageListBean.FormType.PagePrefixForm) { %>
                               <tr>
                                 <td class='mw-label'><label for="prefix">Display pages with prefix:</label> </td>
-                                <td class='mw-input'><input name="prefix" size="30" value="${ pageBean.prefix }" id="nsprefix" />  </td>
+                                <td class='mw-input'><input name="prefix" size="30" value="<%= safePrefixTitle %>" id="nsprefix" />  </td>
                               </tr>
                       <% } else if (pageBean.getFormType() == WikiPageListBean.FormType.PageSearchForm) { %>
                               <tr>
                                 <td class='mw-label'><label for="search">Display pages containing:</label> </td>
-                                <td class='mw-input'><input name="search" size="30" value="${ pageBean.search }" id="nsprefix" />  </td>
+                                <td class='mw-input'><input name="search" size="30" value="<%= safeSearchTitle %>" id="nsprefix" />  </td>
                               </tr>
                       <% } %>
                       <% if (pageBean.getFormType() != WikiPageListBean.FormType.TargetPageForm) { %>
@@ -108,7 +121,7 @@ ${ pageBean.page }
                                 <td class='mw-input'>
                                   <select id="namespace" name="namespace" class="namespaceselector">
                       <% for (int i = 0; i <= 15; ++i) {
-                          String namespace = (i == 0) ? "(Main)" : pageBean.getWikiNamespace().getNamespaceByNumber(i);
+                          String namespace = (i == 0) ? "Article" : pageBean.getWikiNamespace().getNamespaceByNumber(i);
                           String selected = (pageBean.getNamespaceId() == i) ? " selected=\"selected\"" : "";
                       %>
                                     <option value="<%= i %>"<%= selected %>><%= namespace %></option>
@@ -123,11 +136,22 @@ ${ pageBean.page }
                         </form>
                       </div>
                     </td>
-<% /*               <td class="mw-allpages-nav"><a href="wiki?title=Special:AllPages" title="Special:AllPages">All pages</a></td> */ %>
+<% /*               <td class="mw-allpages-nav"><a href="wiki?title=Special:AllPages<%= andServiceUser >" title="Special:AllPages">All pages</a></td> */ %>
                   </tr>
                 </table>
                 <% } %>
 
+<% if (pageBean.getFormType() == WikiPageListBean.FormType.PageSearchForm) { %>
+  <p class="mw-search-createlink">
+  <%
+      if (pageBean.isFoundFullMatch()) {
+  %>
+    <b>There is a page named "<a href="wiki?title=<%= safeSearchTitle %><%= andServiceUser %>" title="<%= safeSearchTitle %>"><%= pageBean.getSearch() %></a>" on this wiki.</b>
+  <% } else {%>
+    <b>Create the page "<a href="wiki?title=<%= safeSearchTitle %>&amp;action=edit<%= andServiceUser %>" class="new" title="<%= safeSearchTitle %>"><%= pageBean.getSearch() %></a>" on this wiki!</b>
+  <% } %>
+  </p>
+<% } %>
                 <table class="mw-allpages-table-chunk">
 <% if (!pageBean.getPages().isEmpty()) {
     Iterator<String> iter = pageBean.getPages().iterator();
@@ -136,18 +160,18 @@ ${ pageBean.page }
 %>
                   <tr>
                     <td style="width:33%">
-                      <a href="wiki?title=<%= value %>"><%= value %></a>
-          <% if (de.zib.scalaris.examples.wikipedia.Options.WIKI_USE_BACKLINKS) { %> 
-                      <span class="mw-whatlinkshere-tools">(<a href="wiki?title=Special:WhatLinksHere&amp;target=<%= value %>" title="Special:WhatLinksHere">← links</a>)</span>
+                      <a href="wiki?title=<%= value %><%= andServiceUser %>"><%= value %></a>
+          <% if (de.zib.scalaris.examples.wikipedia.Options.getInstance().WIKI_USE_BACKLINKS) { %> 
+                      <span class="mw-whatlinkshere-tools">(<a href="wiki?title=Special:WhatLinksHere&amp;target=<%= value %><%= andServiceUser %>" title="Special:WhatLinksHere">← links</a>)</span>
           <% } %>
                     </td>
                     <td style="width:33%">
 <%      if (iter.hasNext()) {
             value = iter.next();
 %>
-                      <a href="wiki?title=<%= value %>"><%= value %></a> 
-          <% if (de.zib.scalaris.examples.wikipedia.Options.WIKI_USE_BACKLINKS) { %>
-                      <span class="mw-whatlinkshere-tools">(<a href="wiki?title=Special:WhatLinksHere&amp;target=<%= value %>" title="Special:WhatLinksHere">← links</a>)</span>
+                      <a href="wiki?title=<%= value %><%= andServiceUser %>"><%= value %></a> 
+          <% if (de.zib.scalaris.examples.wikipedia.Options.getInstance().WIKI_USE_BACKLINKS) { %>
+                      <span class="mw-whatlinkshere-tools">(<a href="wiki?title=Special:WhatLinksHere&amp;target=<%= value %><%= andServiceUser %>" title="Special:WhatLinksHere">← links</a>)</span>
           <% } %>
 <%      } %>
                     </td>
@@ -155,9 +179,9 @@ ${ pageBean.page }
 <%      if (iter.hasNext()) {
             value = iter.next();
 %>
-                      <a href="wiki?title=<%= value %>"><%= value %></a>
-          <% if (de.zib.scalaris.examples.wikipedia.Options.WIKI_USE_BACKLINKS) { %> 
-                      <span class="mw-whatlinkshere-tools">(<a href="wiki?title=Special:WhatLinksHere&amp;target=<%= value %>" title="Special:WhatLinksHere">← links</a>)</span>
+                      <a href="wiki?title=<%= value %><%= andServiceUser %>"><%= value %></a>
+          <% if (de.zib.scalaris.examples.wikipedia.Options.getInstance().WIKI_USE_BACKLINKS) { %> 
+                      <span class="mw-whatlinkshere-tools">(<a href="wiki?title=Special:WhatLinksHere&amp;target=<%= value %><%= andServiceUser %>" title="Special:WhatLinksHere">← links</a>)</span>
           <% } %>
 <%      } %>
                     </td>
@@ -168,9 +192,9 @@ ${ pageBean.page }
 %>
                 </table>
                 <hr />
-<% /*           <p class="mw-allpages-nav"><a href="wiki?title=Special:AllPages" title="Special:AllPages">All pages</a></p> */ %>
+<% /*           <p class="mw-allpages-nav"><a href="wiki?title=Special:AllPages<%= andServiceUser >" title="Special:AllPages">All pages</a></p> */ %>
                 <div class="printfooter">
-                Retrieved from "<a href="wiki?title=${ pageBean.title }">wiki?title=${ pageBean.title }</a>"</div>
+                Retrieved from "<a href="wiki?title=<%= pageTitleWithPars %><%= andServiceUser %>">wiki?title=${ pageBean.title }</a>"</div>
                 <!-- /bodytext -->
 <% if (req_render == null || !req_render.equals("0")) { %>
                 <!-- catlinks -->
@@ -189,7 +213,7 @@ ${ pageBean.page }
 <div id="p-personal" class="">
     <h5>Personal tools</h5>
     <ul>
-                    <li id="pt-login"><a href="wiki?title=Spezial:Special:UserLogin&amp;returnto=${ pageBean.title }" title="You are encouraged to log in; however, it is not mandatory [o]" accesskey="o">Log in / create account</a></li>
+                    <li id="pt-login"><a href="wiki?title=Special:UserLogin&amp;returnto=<%= safePageTitleWithPars %><%= andServiceUser %>" title="You are encouraged to log in; however, it is not mandatory [o]" accesskey="o">Log in / create account</a></li>
     </ul>
 </div>
 
@@ -200,7 +224,7 @@ ${ pageBean.page }
 <div id="p-namespaces" class="vectorTabs">
     <h5>Namespaces</h5>
     <ul>
-                    <li id="ca-special" class="selected"><span><a href="wiki?title=${ pageBean.title }" >Special page</a></span></li>
+                    <li id="ca-special" class="selected"><span><a href="wiki?title=<%= pageTitleWithPars %><%= andServiceUser %>" >Special page</a></span></li>
     </ul>
 </div>
 
@@ -245,8 +269,9 @@ ${ pageBean.page }
     <form action="wiki?" id="searchform">
         <input name="title" value="Special:Search" type="hidden" />
         <div id="simpleSearch">
-                        <input autocomplete="off" placeholder="Search" tabindex="1" id="searchInput" name="search" title="Search Wikipedia [f]" accesskey="f" type="text" />
-                        <button id="searchButton" type="submit" name="button" title="Search the pages for this text"><img src="skins/search-ltr.png" alt="Search" /></button>
+            <input type="hidden" value="${ pageBean.serviceUser }" name="service_user"/>
+            <input autocomplete="off" placeholder="Search" tabindex="1" id="searchInput" name="search" title="Search Wikipedia [f]" accesskey="f" type="text" />
+            <button id="searchButton" type="submit" name="button" title="Search the pages for this text"><img src="skins/search-ltr.png" alt="Search" /></button>
         </div>
     </form>
 </div>
@@ -258,7 +283,7 @@ ${ pageBean.page }
         <!-- panel -->
             <div id="mw-panel" class="noprint collapsible-nav">
                 <!-- logo -->
-                    <div id="p-logo"><a style="background-image: url(&quot;images/Wikipedia.png&quot;);" href="wiki?title=Main Page" title="Visit the main page"></a></div>
+                    <div id="p-logo"><a style="background-image: url(&quot;images/Wikipedia.png&quot;);" href="wiki?title=Main Page<%= andServiceUser %>" title="Visit the main page"></a></div>
                 <!-- /logo -->
                 
 <!-- navigation -->
@@ -266,10 +291,10 @@ ${ pageBean.page }
     <h5>Links</h5>
     <div class="body">
                 <ul>
-                    <li id="n-mainpage"><a href="wiki?title=Main Page" title="Visit the main page [z]" accesskey="z">Main Page</a></li>
-                    <li id="n-recentchanges"><a href="wiki?title=Special:RecentChanges" title="The list of recent changes in the wiki [r]" accesskey="r">New changes</a></li>
-                    <li id="n-randompage"><a href="wiki?title=Special:Random" title="Load a random page [x]" accesskey="x">Show any entry</a></li>
-                    <li id="n-help"><a href="wiki?title=Help:Contents" title="The place to find out">Help</a></li>
+                    <li id="n-mainpage"><a href="wiki?title=Main Page<%= andServiceUser %>" title="Visit the main page [z]" accesskey="z">Main Page</a></li>
+                    <li id="n-recentchanges"><a href="wiki?title=Special:RecentChanges<%= andServiceUser %>" title="The list of recent changes in the wiki [r]" accesskey="r">New changes</a></li>
+                    <li id="n-randompage"><a href="wiki?title=Special:Random<%= andServiceUser %>" title="Load a random page [x]" accesskey="x">Show any entry</a></li>
+                    <li id="n-help"><a href="wiki?title=Help:Contents<%= andServiceUser %>" title="The place to find out">Help</a></li>
                 </ul>
             </div>
 </div>
@@ -285,7 +310,7 @@ ${ pageBean.page }
     <h5 tabindex="2">Toolbox</h5>
     <div style="display: block;" class="body">
         <ul>
-                    <li id="t-specialpages"><a href="wiki?title=Special:SpecialPages" title="List of all special pages [q]" accesskey="q">Special pages</a></li>
+                    <li id="t-specialpages"><a href="wiki?title=Special:SpecialPages<%= andServiceUser %>" title="List of all special pages [q]" accesskey="q">Special pages</a></li>
         </ul>
     </div>
 </div>
@@ -299,19 +324,35 @@ ${ pageBean.page }
         <!-- footer -->
         <div id="footer">
                 <ul id="footer-places">
-                    <li id="footer-places-privacy"><a href="wiki?title=<%= pageBean.getWikiNamespace().getMeta() %>:Privacy policy" title="<%= pageBean.getWikiNamespace().getMeta() %>:Privacy policy">Privacy policy</a></li>
-                    <li id="footer-places-about"><a href="wiki?title=<%= pageBean.getWikiNamespace().getMeta() %>:About" title="<%= pageBean.getWikiNamespace().getMeta() %>:About">About <%= pageBean.getWikiNamespace().getMeta() %></a></li>
-                    <li id="footer-places-disclaimer"><a href="wiki?title=<%= pageBean.getWikiNamespace().getMeta() %>:General disclaimer" title="<%= pageBean.getWikiNamespace().getMeta() %>:General disclaimer">Disclaimers</a></li>
+                    <li id="footer-places-privacy"><a href="wiki?title=<%= pageBean.getWikiNamespace().getMeta() %>:Privacy policy<%= andServiceUser %>" title="<%= pageBean.getWikiNamespace().getMeta() %>:Privacy policy">Privacy policy</a></li>
+                    <li id="footer-places-about"><a href="wiki?title=<%= pageBean.getWikiNamespace().getMeta() %>:About<%= andServiceUser %>" title="<%= pageBean.getWikiNamespace().getMeta() %>:About">About <%= pageBean.getWikiNamespace().getMeta() %></a></li>
+                    <li id="footer-places-disclaimer"><a href="wiki?title=<%= pageBean.getWikiNamespace().getMeta() %>:General disclaimer<%= andServiceUser %>" title="<%= pageBean.getWikiNamespace().getMeta() %>:General disclaimer">Disclaimers</a></li>
                 </ul>
                 <ul id="footer-icons" class="noprint">
                 </ul>
                 <div style="clear:both"></div>
-                <pre id="db_timings" style="padding:0;line-height:0.7em;font-size:0.7em">
+                <div style="font-size:0.7em">DB Timings:
+                <pre id="db_timings" style="padding:0;line-height:0.7em">
 <% for (Map.Entry<String,List<Long>> stats : pageBean.getStats().entrySet()) { %>
 <%= stats.getKey() %>: <%= stats.getValue().toString() %>
 <% } %>
-                </pre>
+                </pre></div>
+                <div style="font-size:0.7em">Involved DB keys:
+                <pre id="involved_keys" style="padding:0;line-height:0.7em">
+<% for (InvolvedKey involvedKey : pageBean.getInvolvedKeys()) { %>
+<%= involvedKey.toString() %>
+<% } %>
+                </pre></div>
+<% long renderTime = (System.currentTimeMillis() - pageBean.getStartTime()); %>
+                <div style="clear:both"></div>
+                <div style="font-size:0.7em">More timings:
+                <pre id="other_timings" style="padding:0;line-height:0.7em">
+
+server: <%= renderTime %>
+
+                </pre></div>
         </div>
         <!-- /footer -->
+<% servlet.storeUserReq(pageBean, renderTime); %>
 </body>
 </html>

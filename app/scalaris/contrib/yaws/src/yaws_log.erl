@@ -8,6 +8,7 @@
 -module(yaws_log).
 -author('klacke@hyber.org').
 -include_lib("kernel/include/file.hrl").
+-include_lib("kernel/include/inet.hrl").
 
 
 -behaviour(gen_server).
@@ -22,9 +23,6 @@
 %% API
 -export([accesslog/6,
          setup/2,
-         open_trace/1,
-         trace_traffic/2,
-         trace_tty/1,
          authlog/4,
          rotate/1,
          add_sconf/1,
@@ -47,14 +45,12 @@
 -define(WRAP_LOG_SIZE, 1000000).
 
 
--record(state, {
-          running,
-          dir,
-          now,
-          tracefd,
-          log_wrap_size = ?WRAP_LOG_SIZE,
-          tty_trace = false,
-          copy_errlog}).
+-record(state, {running,
+                dir,
+                now,
+                log_wrap_size = ?WRAP_LOG_SIZE,
+                copy_errlog,
+                resolve_hostnames = false}).
 
 
 %%%----------------------------------------------------------------------
@@ -73,22 +69,13 @@ del_sconf(SConf) ->
     gen_server:call(yaws_log, {soft_del_sc, SConf}, infinity).
 
 accesslog(SConf, Ip, Req, InH, OutH, Time) ->
-    try yaws_logger:accesslog(SConf, Ip, Req, InH, OutH, Time) catch throw:CaughtT1 -> CaughtT1; error:CaughtR1:CaughtS1 -> {'EXIT', {CaughtR1, CaughtS1}}; exit:CaughtR1 -> {'EXIT', CaughtR1} end.
+    catch yaws_logger:accesslog(SConf, Ip, Req, InH, OutH, Time).
 
 authlog(SConf, IP, Path, Item) ->
-    try yaws_logger:authlog(SConf, IP, Path, Item) catch throw:CaughtT2 -> CaughtT2; error:CaughtR2:CaughtS2 -> {'EXIT', {CaughtR2, CaughtS2}}; exit:CaughtR2 -> {'EXIT', CaughtR2} end.
+    catch yaws_logger:authlog(SConf, IP, Path, Item).
 
 rotate(Res) ->
     gen_server:cast(?MODULE, {yaws_hupped, Res}).
-
-open_trace(What) ->
-    gen_server:call(?MODULE, {open_trace, What}, infinity).
-
-trace_traffic(ServerOrClient , Data) ->
-    gen_server:cast(?MODULE, {trace, ServerOrClient, Data}).
-
-trace_tty(Bool) ->
-    gen_server:call(?MODULE, {trace_tty, Bool}, infinity).
 
 %% Useful for embeddded yaws when we don't want yaws to
 %% automatically wrap the logs.
@@ -191,7 +178,8 @@ handle_call({setup, GC, Sconfs}, _From, State)
                      dir  = Dir,
                      now = fmtnow(),
                      log_wrap_size = GC#gconf.log_wrap_size,
-                     copy_errlog = Copy},
+                     copy_errlog = Copy,
+                     resolve_hostnames = ?gc_log_has_resolve_hostname(GC)},
 
     yaws:ticker(3000, secs3),
 
@@ -240,8 +228,17 @@ handle_call({setup, GC, Sconfs}, _From, State)
     S2 = State#state{running = true,
                      dir  = Dir,
                      now = fmtnow(),
-                     copy_errlog = Copy},
+                     log_wrap_size = GC#gconf.log_wrap_size,
+                     copy_errlog = Copy,
+                     resolve_hostnames = ?gc_log_has_resolve_hostname(GC)},
 
+    if
+        not is_integer(State#state.log_wrap_size),
+        is_integer(GC#gconf.log_wrap_size) ->
+            yaws:ticker(10 * 60 * 1000, minute10);
+       true ->
+            ok
+    end,
     {reply, ok, S2};
 
 
@@ -258,24 +255,6 @@ handle_call({soft_del_sc, SC}, _From, State) ->
     {reply, ok, State};
 
 
-handle_call({open_trace, What}, _From, State) ->
-    case State#state.tracefd of
-        undefined ->
-            ok;
-        Fd0 ->
-            file:close(Fd0)
-    end,
-    F = lists:concat(["trace.", What]),
-    case file:open(filename:join([State#state.dir, F]),[write, raw]) of
-        {ok, Fd} ->
-            {reply, ok, State#state{tracefd = Fd}};
-        Err ->
-            {reply,  Err, State}
-    end;
-
-
-handle_call({trace_tty, What}, _From, State) ->
-    {reply, ok, State#state{tty_trace = What}};
 handle_call(state, _From, State) ->
     {reply, State, State};
 
@@ -322,10 +301,11 @@ handle_cast({_ServerName, access, Fd, {Ip, Req, InH, OutH, _}}, State) ->
             Ver = case Req#http_request.version of
                       {1,0} -> "HTTP/1.0";
                       {1,1} -> "HTTP/1.1";
-                      {0,9} -> "HTTP/0.9"
+                      {0,9} -> "HTTP/0.9";
+                      _     -> "HTTP/X.X"
                   end,
 
-            Path      = safe_decode_path(Req#http_request.path),
+            Path      = yaws_server:safe_path(Req#http_request.path),
             Meth      = yaws:to_list(Req#http_request.method),
             Referer   = optional_header(InH#headers.referer),
             UserAgent = optional_header(InH#headers.user_agent),
@@ -334,10 +314,10 @@ handle_cast({_ServerName, access, Fd, {Ip, Req, InH, OutH, _}}, State) ->
                             _              -> "-"
                         end,
 
-            Msg = fmt_access_log(State#state.now, Ip, User,
+            Msg = fmt_access_log(State#state.now, fmt_ip(Ip, State), User,
                                  [Meth, $\s, Path, $\s, Ver],
                                  Status,  Len, Referer, UserAgent),
-            file:write(Fd, Msg),
+            file:write(Fd, safe_log_data(Msg)),
             {noreply, State};
         false ->
             {noreply, State}
@@ -346,47 +326,24 @@ handle_cast({_ServerName, access, Fd, {Ip, Req, InH, OutH, _}}, State) ->
 handle_cast({ServerName, auth, Fd, {Ip, Path, Item}}, State) ->
     case State#state.running of
         true ->
-            IpStr = case try inet_parse:ntoa(Ip) catch throw:CaughtT3 -> CaughtT3; error:CaughtR3:CaughtS3 -> {'EXIT', {CaughtR3, CaughtS3}}; exit:CaughtR3 -> {'EXIT', CaughtR3} end of
-                        {'EXIT', _} -> "unknownip";
-                        Val -> Val
-                    end,
-            Msg = [IpStr, " ", State#state.now, " ", ServerName, " " ,
-                   "\"", Path,"\"",
+            Host = fmt_ip(Ip, State),
+            Msg  = [Host, " ", State#state.now, " ", ServerName, " " ,
+                    "\"", Path,"\"",
                    case Item of
                        {ok, User}       -> [" OK user=", User];
                        403              -> [" 403"];
                        {401, Realm}     -> [" 401 realm=", Realm];
-                       {401, User, PWD} -> [" 401 user=", User, " badpwd=", PWD]
+                       {401, User, PWD} -> [" 401 user=", User, " badpwd=",PWD];
+                       _                -> ""
                    end, "\n"],
-            file:write(Fd, Msg),
+            file:write(Fd, safe_log_data(Msg)),
             {noreply, State};
         false ->
             {noreply,State}
     end;
 
-handle_cast({trace, from_server, Data}, State) ->
-    Str = ["*** SRV -> CLI *** ", Data],
-    file:write(State#state.tracefd, Str),
-    tty_trace(Str, State),
-    {noreply,  State};
-handle_cast({trace, from_client, Data}, State) ->
-    Str = ["*** CLI -> SRV *** ", Data],
-    file:write(State#state.tracefd, Str),
-    tty_trace(Str, State),
-    {noreply, State};
-
 handle_cast({yaws_hupped, _}, State) ->
     handle_info(minute10, State).
-
-
-tty_trace(Str, State) ->
-    case State#state.tty_trace of
-        false ->
-            ok;
-        true ->
-            io:format("~s", [binary_to_list(list_to_binary([Str]))])
-    end.
-
 
 
 %%----------------------------------------------------------------------
@@ -402,14 +359,11 @@ handle_info(secs3, State) ->
 handle_info(minute10, State) ->
     yaws_logger:rotate(State#state.log_wrap_size),
 
-    Dir = State#state.dir,
-    E = filename:join([Dir, "report.log"]),
-    case file:read_file_info(E) of
-        {ok, FI} when  State#state.log_wrap_size > 0,
-                       FI#file_info.size > State#state.log_wrap_size,
-                       State#state.copy_errlog == true ->
+    case gen_event:call(error_logger, yaws_log_file_h, size, infinity) of
+        {ok, Size} when  State#state.log_wrap_size > 0,
+                       Size > State#state.log_wrap_size ->
             gen_event:call(error_logger, yaws_log_file_h, wrap, infinity);
-        {error,enoent} ->
+        {error, enoent} ->
             gen_event:call(error_logger, yaws_log_file_h, reopen, infinity);
         _ ->
             ok
@@ -456,23 +410,14 @@ code_change(_OldVsn, Data, _Extra) ->
 %%%----------------------------------------------------------------------
 %%% Internal functions
 %%%----------------------------------------------------------------------
-safe_decode_path({abs_path, Path}) ->
-    case try yaws_api:url_decode(Path) catch throw:CaughtT4 -> CaughtT4; error:CaughtR4:CaughtS4 -> {'EXIT', {CaughtR4, CaughtS4}}; exit:CaughtR4 -> {'EXIT', CaughtR4} end of
-        {'EXIT', _} -> "/undecodable_path";
-        Val         -> Val
-    end;
-safe_decode_path(_) ->
-    "/undecodable_path".
-
-
 optional_header(Item) ->
     case Item of
         undefined -> "-";
         Item -> Item
     end.
 
-fmt_access_log(Time, Ip, User, Req, Status,  Length, Referrer, UserAgent) ->
-    [fmt_ip(Ip), " - ", User, [$\s], Time, [$\s, $"], no_ctl(Req), [$",$\s],
+fmt_access_log(Time, Host, User, Req, Status,  Length, Referrer, UserAgent) ->
+    [Host, " - ", User, [$\s], Time, [$\s, $\"], no_ctl(Req), [$\",$\s],
      Status, [$\s], Length, [$\s,$"], Referrer, [$",$\s,$"], UserAgent,
      [$",$\n]].
 
@@ -488,17 +433,35 @@ no_ctl([]) ->
     [].
 
 
-fmt_ip(IP) when is_tuple(IP) ->
-    inet_parse:ntoa(IP);
-fmt_ip(undefined) ->
+fmt_ip(IP, State) when is_tuple(IP) ->
+    case State#state.resolve_hostnames of
+        true ->
+            case catch inet:gethostbyaddr(IP) of
+                {ok, HE} ->
+                    HE#hostent.h_name;
+                _ ->
+                    case catch inet_parse:ntoa(IP) of
+                        {'EXIT', _} -> "unknownip";
+                        Addr        -> Addr
+                    end
+            end;
+        false ->
+            case catch inet_parse:ntoa(IP) of
+                {'EXIT', _} -> "unknownip";
+                Addr        -> Addr
+            end
+    end;
+fmt_ip(unknown, _) ->
+    "unknownip";
+fmt_ip(undefined, _) ->
     "0.0.0.0";
-fmt_ip(HostName) ->
+fmt_ip(HostName, _) ->
     HostName.
 
 
 fmtnow() ->
     {{Year, Month, Day}, {Hour, Min, Sec}} =
-        calendar:now_to_local_time(erlang:timestamp()),
+        calendar:now_to_local_time(yaws:get_time_tuple()),
     ["[",fill_zero(Day,2),"/",yaws:month(Month),"/",integer_to_list(Year),":",
      fill_zero(Hour,2),":",fill_zero(Min,2),":",
      fill_zero(Sec,2)," ",zone(),"]"].
@@ -527,6 +490,9 @@ left_fill(N, Width, _Fill) when length(N) >= Width ->
     N;
 left_fill(N, Width, Fill) ->
     left_fill([Fill|N], Width, Fill).
+
+safe_log_data(Elements) ->
+    [ yaws:to_string(E) || E <- Elements ].
 
 
 

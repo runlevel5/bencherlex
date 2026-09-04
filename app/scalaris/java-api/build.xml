@@ -24,13 +24,11 @@
   <!-- directory where the classes are compiled to -->
   <property name="scalaris.classes.dirname" value="classes" />
   <!-- version of the OtpErlang jar file to bundle and compile against (OtpErlang-<version>.jar) -->
-  <property name="opterlang.version" value="1.5.4-custom" />
+  <property name="opterlang.version" value="1.6.1" />
   <!-- version of the jakarta-commons-cli jar file to bundle and compile against (jakarta-commons-cli-<version>.jar) -->
   <property name="jakarta.commons.cli.version" value="1.2" />
-  <!-- version of the junit jar file to bundle and compile the tests against (junit-<version>.jar) -->
-  <property name="junit.version" value="4.8.2" />
   <!-- debug level to use during compilation -->
-  <property name="debuglevel" value="source,lines" />
+  <property name="debuglevel" value="source,lines,vars" />
   <!-- ########## Build configuration (end) ########## -->
 
   <!-- ########## Run configuration (begin) ########## -->
@@ -154,10 +152,8 @@
   <path id="scalaris.test.classpath">
     <path refid="scalaris.classpath" />
     <pathelement path="${scalaris.classes.dirname}" />
-    <pathelement path="test-lib/junit-${junit.version}.jar" />
     <path>
-      <fileset dir="test-lib" includes="jetty-*.jar"/>
-      <fileset dir="test-lib" includes="servlet-api-*.jar"/>
+      <fileset dir="test-lib" includes="*.jar"/>
     </path>
   </path>
 
@@ -257,7 +253,7 @@
   <!-- ########## Scalaris targets (begin) ########## -->
   <target name='scalaris.compile' depends="tools.compile">
     <mkdir dir='${scalaris.classes.dirname}' />
-    <javac encoding="UTF-8" srcdir='src' destdir='${scalaris.classes.dirname}' classpathref="scalaris.classpath" includes="de/zib/scalaris/*.java" debug="true" debuglevel="${debuglevel}" includeAntRuntime="false" />
+    <javac encoding="UTF-8" srcdir='src' destdir='${scalaris.classes.dirname}' classpathref="scalaris.classpath" includes="de/zib/scalaris/*.java de/zib/scalaris/executor/*.java de/zib/scalaris/jmx/*.java de/zib/scalaris/operations/*.java" debug="true" debuglevel="${debuglevel}" includeAntRuntime="false" />
   </target>
   <target name='scalaris.examples.compile' depends="scalaris.compile">
     <javac encoding="UTF-8" srcdir='src' destdir='${scalaris.classes.dirname}' classpathref="scalaris.classpath" includes="de/zib/scalaris/examples/*.java" debug="true" debuglevel="${debuglevel}" includeAntRuntime="false" />
@@ -270,7 +266,7 @@
             resist so that the main program can access it
         -->
     <copy file="src/scalaris.properties" todir="." />
-    <jar destfile="${scalaris.dist.filename}.jar" basedir="${scalaris.classes.dirname}" includes="de/zib/scalaris/*.class de/zib/tools/*.class" excludes="**/examples** **/*Test.class **/*Test$*.class">
+    <jar destfile="${scalaris.dist.filename}.jar" basedir="${scalaris.classes.dirname}" includes="de/zib/scalaris/*.class de/zib/scalaris/executor/*.class de/zib/scalaris/operations/*.class de/zib/scalaris/jmx/*.class de/zib/tools/*.class" excludes="**/examples** **/*Test.class **/*Test$*.class">
       <manifest>
         <attribute name="Built-By" value="${user.name}" />
         <attribute name="Bundle-Vendor" value="Zuse Institute Berlin" />

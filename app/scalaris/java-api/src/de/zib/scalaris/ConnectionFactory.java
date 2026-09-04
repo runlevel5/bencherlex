@@ -72,7 +72,7 @@ import de.zib.tools.PropertyLoader;
  * default, {@link DefaultConnectionPolicy} is used.
  *
  * @author Nico Kruber, kruber@zib.de
- * @version 3.10
+ * @version 3.20
  * @since 2.0
  */
 public class ConnectionFactory {
@@ -80,6 +80,8 @@ public class ConnectionFactory {
      * Default name of the configuration file.
      */
     private static final String defaultConfigFile = "scalaris.properties";
+
+    private static final String hostname = findLocalhostName();
 
     /**
      * The name of the node to connect to.
@@ -212,8 +214,8 @@ public class ConnectionFactory {
         final String[] nodesTemp = properties.getProperty("scalaris.node", "node1@localhost").split("[\\s,;]");
         nodes.clear();
 
-        for (int i = 0; i < nodesTemp.length; ++i) {
-            addNode(fixLocalhostName(nodesTemp[i]));
+        for (final String element : nodesTemp) {
+            addNode(fixLocalhostName(element));
         }
         cookie = properties.getProperty("scalaris.cookie", "chocolate chip cookie");
         clientName = properties.getProperty("scalaris.client.name", "java_client");
@@ -258,7 +260,7 @@ public class ConnectionFactory {
             clientName = clientName + "_" + clientNameUUID.getAndIncrement();
         }
         try {
-            final OtpSelf self = new OtpSelf(clientName, cookie);
+            final OtpSelf self = new OtpSelf(clientName + "@" + getLocalhostName(), cookie);
             return new Connection(self, connectionPolicy);
         } catch (final Exception e) {
 //                 e.printStackTrace();
@@ -365,8 +367,21 @@ public class ConnectionFactory {
     public static String fixLocalhostName(final String node) {
         if (node.endsWith("@localhost")) {
             return node.replaceAll("@localhost$", "@" + getLocalhostName());
+        } else if (node.indexOf('@') == -1) {
+            return node + "@" + getLocalhostName();
         }
         return node;
+    }
+
+    /**
+     * Returns the name of the local host as determined by
+     * {@link #findLocalhostName()}.
+     *
+     * @return the local host' name or <tt>localhost</tt> if no IP address was
+     *         found
+     */
+    public static final String getLocalhostName() {
+        return hostname;
     }
 
     /**
@@ -378,18 +393,13 @@ public class ConnectionFactory {
      * @return the local host' name or <tt>localhost</tt> if no IP address was
      *         found
      */
-    public static final String getLocalhostName() {
+    private static final String findLocalhostName() {
         String hostname = "localhost";
 
         final String erlangNodeName = System.getProperty("scalaris.erlang.nodename");
         if ((erlangNodeName == null) || (erlangNodeName.length() == 0)) {
             try {
-                // (more) reliable hostname look-up reported by
-                // http://bugs.sun.com/bugdatabase/view_bug.do?bug_id=4341822
-                hostname = InetAddress.getLocalHost().getHostName();
-                final String host = InetAddress.getByName(hostname).getHostAddress();
-                hostname = InetAddress.getByName(host).getHostName();
-
+                hostname = InetAddress.getLocalHost().getCanonicalHostName();
             } catch (final UnknownHostException e) {
             }
         } else {
@@ -475,6 +485,26 @@ public class ConnectionFactory {
     }
 
     /**
+     * Sets the name of the node to connect to.
+     *
+     * The list of nodes available for connection will be cleared at first, the
+     * node will then be added.
+     *
+     * @param node
+     *            the node to set (will not be mangled by
+     *            {@link #fixLocalhostName(String)}!)
+     *
+     * @see ConnectionFactory#addNode(PeerNode)
+     *
+     * @since 3.16
+     */
+    public void setNode(final PeerNode node) {
+        this.nodes.clear();
+        connectionPolicy.availableNodesReset();
+        addNode(node);
+    }
+
+    /**
      * Adds a node to the set of nodes available for connections.
      *
      * @param node
@@ -487,8 +517,22 @@ public class ConnectionFactory {
      */
     public void addNode(final String node) {
         final PeerNode p = new PeerNode(node);
-        this.nodes.add(p);
-        connectionPolicy.availableNodeAdded(p);
+        addNode(p);
+    }
+
+    /**
+     * Adds a node to the set of nodes available for connections.
+     *
+     * @param node
+     *            the node to add
+     *
+     * @see ConnectionFactory#setNode(String)
+     *
+     * @since 3.16
+     */
+    public void addNode(final PeerNode node) {
+        this.nodes.add(node);
+        connectionPolicy.availableNodeAdded(node);
     }
 
     /**
@@ -504,6 +548,26 @@ public class ConnectionFactory {
     public void removeNode(final PeerNode node) {
         this.nodes.remove(node);
         connectionPolicy.availableNodeRemoved(node);
+    }
+
+    /**
+     * (Re-)evaluates all currently set nodes by trying to establish a
+     * connection to each of them.
+     *
+     * Note: This resets all {@link PeerNode} statistics collected before.
+     *
+     * @since 3.20
+     */
+    public void testAllNodes() {
+        connectionPolicy.availableNodesReset();
+        for (final PeerNode node: nodes) {
+            node.resetFailureCount();
+            try {
+                createConnection(new FixedNodeConnectionPolicy(node)).close();
+            } catch (final ConnectionException e) {
+            }
+            connectionPolicy.availableNodeAdded(node);
+        }
     }
 
     /**

@@ -2,14 +2,13 @@
 // Eclipse Public License 1.0
 package de.zib.scalaris.examples.wikipedia.bliki;
 
+import info.bliki.api.Connector;
+import info.bliki.wiki.model.IWikiModel;
+import info.bliki.wiki.template.Localurl;
+
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.util.List;
-
-import info.bliki.api.Connector;
-import info.bliki.wiki.model.IWikiModel;
-import info.bliki.wiki.template.ITemplateFunction;
-import info.bliki.wiki.template.Localurl;
 
 /**
  * A template parser function for <code>{{localurl: ... }}</code> syntax
@@ -22,7 +21,7 @@ public class MyLocalurl extends Localurl {
     /**
      * Single static instance of a {@link MyFullurl} object.
      */
-    public final static ITemplateFunction CONST = new MyLocalurl();
+    public final static MyLocalurl CONST = new MyLocalurl();
 
     /**
      * Constructor
@@ -32,30 +31,32 @@ public class MyLocalurl extends Localurl {
     }
     
     @Override
-    public String parseFunction(List<String> list, IWikiModel model, char[] src, int beginIndex, int endIndex)
+    public String parseFunction(List<String> list, IWikiModel model,
+            char[] src, int beginIndex, int endIndex, boolean isSubst)
             throws UnsupportedEncodingException {
         if (model instanceof MyWikiModel) {
             MyWikiModel myModel = (MyWikiModel) model;
             if (list.size() > 0) {
-                String arg0 = parse(list.get(0), myModel);
+                String arg0 = isSubst ? list.get(0) : parseTrim(list.get(0), model);
+                final String title = URLEncoder.encode(Character.toUpperCase(arg0.charAt(0)) + "", Connector.UTF8_CHARSET)
+                        + URLEncoder.encode(arg0.substring(1), Connector.UTF8_CHARSET);
                 if (arg0.length() > 0 && list.size() == 1) {
-                    String result = myModel.getLinkBaseURL().replace(
-                            "${title}",
-                            URLEncoder.encode(arg0, Connector.UTF8_CHARSET));
+                    String result = myModel.getWikiBaseURL().replace(
+                            "${title}", title);
                     return result;
                 }
                 StringBuilder builder = new StringBuilder(arg0.length() + 32);
-                builder.append(myModel.getLinkBaseURL().replace("${title}",
-                        URLEncoder.encode(arg0, Connector.UTF8_CHARSET)));
+                builder.append(myModel.getWikiBaseURL().replace("${title}",
+                        title));
                 for (int i = 1; i < list.size(); i++) {
                     builder.append("&");
-                    builder.append(parse(list.get(i), myModel));
+                    builder.append(isSubst ? list.get(i) : parseTrim(list.get(i), model));
                 }
                 return builder.toString();
             }
             return null;
         } else {
-            return super.parseFunction(list, model, src, beginIndex, endIndex);
+            return super.parseFunction(list, model, src, beginIndex, endIndex, isSubst);
         }
     }
 

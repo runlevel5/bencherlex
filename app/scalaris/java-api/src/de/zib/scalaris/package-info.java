@@ -32,8 +32,6 @@
  *     String value = sc.read("key").stringValue();
  *   } catch (ConnectionException e) {
  *     System.err.println("read failed: " + e.getMessage());
- *   } catch (TimeoutException e) {
- *     System.err.println("read failed with timeout: " + e.getMessage());
  *   } catch (NotFoundException e) {
  *     System.err.println("read failed with not found: " + e.getMessage());
  *   } catch (ClassCastException e) {
@@ -66,8 +64,6 @@
  *     transaction.commit();
  *   } catch (ConnectionException e) {
  *     System.err.println("read failed: " + e.getMessage());
- *   } catch (TimeoutException e) {
- *     System.err.println("read failed with timeout: " + e.getMessage());
  *   } catch (NotFoundException e) {
  *     System.err.println("read failed with not found: " + e.getMessage());
  *   } catch (UnknownException e) {
@@ -77,35 +73,6 @@
  * </pre>
  *
  * <p>See the {@link de.zib.scalaris.Transaction} class documentation for more
- * details.</p>
- *
- * <h3>The PubSub class</h3>
- * <p>
- * The {@link de.zib.scalaris.PubSub} class provides methods for publishing
- * topics, subscribing to urls and getting a list of subscribers with both,
- * erlang strings ({@link com.ericsson.otp.erlang.OtpErlangString}) and
- * Java strings ({@link java.lang.String}).
- * </p>
- *
- * <h4>Example:</h4>
- * <pre>
- * <code style="white-space:pre;">
- *   try {
- *     PubSub sc = new PubSub();
- *     PubSub value = sc.subscribe("topic", "http://localhost:8000");
- *   } catch (ConnectionException e) {
- *     System.err.println("read failed: " + e.getMessage());
- *   } catch (TimeoutException e) {
- *     System.err.println("read failed with timeout: " + e.getMessage());
- *   } catch (AbortException e) {
- *     System.err.println("read failed with timeout: " + e.getMessage());
- *   } catch (UnknownException e) {
- *     System.err.println("read failed with unknown: " + e.getMessage());
- *   }
- * </code>
- * </pre>
- *
- * <p>See the {@link de.zib.scalaris.PubSub} class documentation for more
  * details.</p>
  *
  * <h3>The ReplicatedDHT class</h3>
@@ -125,13 +92,13 @@
  *     long deleted = sc.delete("key");
  *     DeleteResult delRes = sc.getLastDeleteResult();
  *   } catch (ConnectionException e) {
- *     System.err.println("read failed: " + e.getMessage());
+ *     System.err.println("delete failed: " + e.getMessage());
  *   } catch (TimeoutException e) {
- *     System.err.println("read failed with timeout: " + e.getMessage());
+ *     System.err.println("delete failed with timeout: " + e.getMessage());
  *   } catch (NodeNotFoundException e) {
- *     System.err.println("read failed with node not found: " + e.getMessage());
+ *     System.err.println("delete failed with node not found: " + e.getMessage());
  *   } catch (UnknownException e) {
- *     System.err.println("read failed with unknown: " + e.getMessage());
+ *     System.err.println("delete failed with unknown: " + e.getMessage());
  *   }
  * </code>
  * </pre>

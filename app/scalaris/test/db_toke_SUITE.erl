@@ -12,79 +12,44 @@
 %   See the License for the specific language governing permissions and
 %   limitations under the License.
 
-%%% @author Nico Kruber <kruber@zib.de>
-%%% @doc    Unit tests for src/db_toke.erl.
-%%% @end
-%% @version $Id: db_toke_SUITE.erl 1445 2011-02-23 11:34:29Z kruber@zib.de $
+%% @author Jan Fajerski <fajerski@zib.de>
+%% @doc    Unit tests for tokyo cabinet backend.
+%% @end
+%% @version $Id$
 -module(db_toke_SUITE).
 
--author('kruber@zib.de').
--vsn('$Id: db_toke_SUITE.erl 1445 2011-02-23 11:34:29Z kruber@zib.de $').
+-author('fajerski@zib.de').
+-vsn('$Id$').
 
--export([all/0, changed_keys/1, check_changes/3, check_changes2/4, check_db/5,
-         check_db/6, check_db2/4, check_db2/5, check_entry/6,
-         check_entry_in_changed_entries/5,
-         check_entry_in_changed_entries_internal/5, check_entry_in_changes/5,
-         check_key_in_deleted_internal/5, check_key_in_deleted_no_locks/5,
-         check_keys_in_deleted/4, check_stop_record_changes/3,
-         count_keys_in_range/2, create_db_entry/5, delete/1, end_per_suite/1,
-         get_load_and_middle/1, get_random_interval_from_changes/1,
-         inc_readlock/2, init_per_suite/1, max_rw_tests_per_suite/0,
-         prop_add_data/1, prop_changed_keys_add_data/2,
-         prop_changed_keys_check_db/2, prop_changed_keys_delete/3,
-         prop_changed_keys_delete_entries1/3,
-         prop_changed_keys_delete_entries2/3,
-         prop_changed_keys_delete_entry/3, prop_changed_keys_get_data/2,
-         prop_changed_keys_get_entries2/3, prop_changed_keys_get_entries4/3,
-         prop_changed_keys_get_entry/3, prop_changed_keys_get_load/2,
-         prop_changed_keys_get_load2/3, prop_changed_keys_mult_interval/5,
-         prop_changed_keys_read/3, prop_changed_keys_set_entry/3,
-         prop_changed_keys_split_data1/3, prop_changed_keys_split_data2/3,
-         prop_changed_keys_update_entries/4, prop_changed_keys_update_entry/3,
-         prop_changed_keys_write/5, prop_delete/6, prop_delete_chunk3/3,
-         prop_delete_entries1/2, prop_delete_entries2/2, prop_delete_entry1/1,
-         prop_delete_entry2/2, prop_get_chunk3/3, prop_get_entries2/2,
-         prop_get_entries3_1/2, prop_get_entries3_2/2, prop_get_load2/2,
-         prop_new/1, prop_reopen/1, prop_set_entry/1, prop_split_data/2,
-         prop_stop_record_changes/5, prop_update_entries/2,
-         prop_update_entries_helper/3, prop_update_entry/5, prop_write/4,
-         read/1, rw_suite_runs/1, split_data/1, suite/0, tester_add_data/1,
-         tester_changed_keys_add_data/1, tester_changed_keys_check_db/1,
-         tester_changed_keys_delete/1, tester_changed_keys_delete_entries1/1,
-         tester_changed_keys_delete_entries2/1,
-         tester_changed_keys_delete_entry/1, tester_changed_keys_get_data/1,
-         tester_changed_keys_get_entries2/1,
-         tester_changed_keys_get_entries4/1, tester_changed_keys_get_entry/1,
-         tester_changed_keys_get_load/1, tester_changed_keys_get_load2/1,
-         tester_changed_keys_mult_interval/1, tester_changed_keys_read/1,
-         tester_changed_keys_set_entry/1, tester_changed_keys_split_data1/1,
-         tester_changed_keys_split_data2/1,
-         tester_changed_keys_update_entries/1,
-         tester_changed_keys_update_entry/1, tester_changed_keys_write/1,
-         tester_delete/1, tester_delete_chunk3/1, tester_delete_entries1/1,
-         tester_delete_entries2/1, tester_delete_entry1/1,
-         tester_delete_entry2/1, tester_get_chunk3/1, tester_get_entries2/1,
-         tester_get_entries3_1/1, tester_get_entries3_2/1, tester_get_load2/1,
-         tester_new/1, tester_reopen/1, tester_set_entry/1,
-         tester_split_data/1, tester_stop_record_changes/1,
-         tester_update_entries/1, tester_update_entry/1, tester_write/1,
-         tests_avail/0, update_entries/1, various_tests/1, write/1]).
+-compile(export_all).
 
 -define(TEST_DB, db_toke).
+-define(CLOSE, close_and_delete).
+-define(EQ, =:=).
 
--include("db_SUITE.hrl").
+-include("db_backend_SUITE.hrl").
 
--ifdef(have_toke).
-all() -> lists:append(tests_avail(), [tester_reopen]).
--else.
-all() -> [].
--endif.
+all() ->
+    case code:which(toke_drv) of
+        non_existing -> [];
+        _            -> lists:append(tests_avail(), [tester_reopen])
+    end.
 
-%% @doc Specify how often a read/write suite can be executed in order not to
-%%      hit a timeout (depending on the speed of the DB implementation).
--spec max_rw_tests_per_suite() -> pos_integer().
-max_rw_tests_per_suite() ->
-    50.
+suite() -> [ {timetrap, {seconds, 30}} ].
+
+init_per_suite(Config) ->
+    tester:register_type_checker({typedef, db_backend_beh, key, []}, db_backend_beh, tester_is_valid_db_key),
+    tester:register_value_creator({typedef, db_backend_beh, key, []}, db_backend_beh, tester_create_db_key, 1),
+    unittest_helper:start_minimal_procs(Config, [], false).
+
+end_per_suite(Config) ->
+    tester:unregister_type_checker({typedef, db_backend_beh, key, []}),
+    tester:unregister_value_creator({typedef, db_backend_beh, key, []}),
+    _ = unittest_helper:stop_minimal_procs(Config),
+    ok.
+
+rw_suite_runs(N) ->
+    erlang:min(N, 200).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
@@ -93,17 +58,16 @@ max_rw_tests_per_suite() ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -spec prop_reopen(Key::?RT:key()) -> true.
 prop_reopen(Key) ->
-    DB = db_toke:new(),
+    DB = db_toke:new(randoms:getRandomString()),
     FileName = db_toke:get_name(DB),
-    check_db(DB, {true, []}, 0, [], "check_db_reopen_1"),
-    ?equals(db_toke:read(DB, Key), {ok, empty_val, -1}),
-    check_entry(DB, Key, db_entry:new(Key), {ok, empty_val, -1}, false, "check_entry_reopen_1"),
-    db_toke:close(DB, false),
+    check_db(DB, [], "check_db_reopen_1"),
+    ?equals(db_toke:get(DB, Key), {}),
+    DB1 = db_toke:put(DB, {Key}),
+    db_toke:close(DB1),
     DB2 = db_toke:open(FileName),
-    check_db(DB2, {true, []}, 0, [], "check_db_reopen_1"),
-    ?equals(db_toke:read(DB2, Key), {ok, empty_val, -1}),
-    check_entry(DB2, Key, db_entry:new(Key), {ok, empty_val, -1}, false, "check_entry_reopen_1"),
-    db_toke:close(DB2),
+    check_db(DB2, [{Key}], "check_db_reopen_2"),
+    ?equals(db_toke:get(DB2, Key), {Key}),
+    db_toke:close_and_delete(DB2),
     true.
 
 tester_reopen(_Config) ->

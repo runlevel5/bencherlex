@@ -33,6 +33,11 @@ import com.ericsson.otp.erlang.OtpErlangBinary;
 import com.ericsson.otp.erlang.OtpErlangObject;
 import com.ericsson.otp.erlang.OtpErlangString;
 
+import de.zib.scalaris.operations.AddDelOnListOp;
+import de.zib.scalaris.operations.AddOnNrOp;
+import de.zib.scalaris.operations.ReadOp;
+import de.zib.scalaris.operations.WriteOp;
+
 /**
  * Provides methods to run benchmarks and print the results.
  *
@@ -61,6 +66,13 @@ public class Benchmark {
      * Number of test runs (accumulates results over all test runs).
      */
     protected static final int testRuns = 1;
+
+    /**
+     * UTF-8 charset object.
+     *
+     * StandardCharsets.UTF_8 is only available for Java >= 7
+     */
+    private static final Charset UTF_8 = Charset.forName("UTF-8");
 
     /**
      * Default minimal benchmark.
@@ -151,7 +163,7 @@ public class Benchmark {
         testTypes = new Class[] {null};
         testTypesStr = new String[] {"null"};
         columns = new String[] {
-                "Transaction.read(String).intValue() + Transaction.write(String, Integer)" };
+                "Transaction.addOnNr(String, Integer)" };
         testBench = new Class[] {TransIncrementBench1.class, TransIncrementBench2.class, TransIncrementBench3.class};
         rows = new String[] {
                 "separate connection",
@@ -187,7 +199,7 @@ public class Benchmark {
         testTypes = new Class[] {String.class};
         testTypesStr = new String[] {"S"};
         columns = new String[] {
-                "Transaction.read(String).intValue() + Transaction.write(String, Integer)" };
+                "Transaction.addDelOnList(String, StringList, [])" };
         testBench = new Class[] {TransAppendToListBench1.class, TransAppendToListBench2.class, TransAppendToListBench3.class};
         rows = new String[] {
                 "separate connection",
@@ -385,16 +397,15 @@ public class Benchmark {
         }
 
         @Override
-        protected void pre_init() throws Exception {
-            final Transaction tx_init = new Transaction();
+        protected void pre_init(final Connection conn) throws Exception {
+            final Transaction tx_init = new Transaction(conn);
             tx_init.write(key, 0);
             tx_init.commit();
-            tx_init.closeConnection();
         }
 
         protected void operation(final Transaction tx, final int j) throws Exception {
             final Transaction.RequestList reqs = new Transaction.RequestList();
-            reqs.addAddOnNr(key, 1).addCommit();
+            reqs.addOp(new AddOnNrOp(key, 1)).addCommit();
 //            final int value_old = tx.read(key).intValue();
 //            reqs.addWrite(key, value_old + 1).addCommit();
             final Transaction.ResultList results = tx.req_list(reqs);
@@ -511,22 +522,21 @@ public class Benchmark {
 
         @SuppressWarnings("unchecked")
         @Override
-        protected void pre_init() throws Exception {
+        protected void pre_init(final Connection conn) throws Exception {
             final T[] valueInit = (T[]) Array.newInstance(value.getClass(), keys.length);
             for (int i = 0; i < keys.length; ++i) {
                 valueInit[i] = (T) getRandom(BENCH_DATA_SIZE, value.getClass());
             }
-            final Transaction tx_init = new Transaction();
+            final Transaction tx_init = new Transaction(conn);
             final Transaction.RequestList reqs = new Transaction.RequestList();
             for (int i = 0; i < keys.length; ++i) {
-                reqs.addWrite(keys[i], valueInit[i]);
+                reqs.addOp(new WriteOp(keys[i], valueInit[i]));
             }
             reqs.addCommit();
             final Transaction.ResultList results = tx_init.req_list(reqs);
             for (int i = 0; i < keys.length; ++i) {
                 results.processWriteAt(i);
             }
-            tx_init.closeConnection();
         }
 
         protected void operation(final Transaction tx, final int j) throws Exception {
@@ -534,18 +544,19 @@ public class Benchmark {
             Transaction.ResultList results;
             reqs = new Transaction.RequestList();
             // read old values into the transaction
-            for (int i = 0; i < keys.length; ++i) {
+            for (final String key : keys) {
                 if (value instanceof OtpErlangObject) {
-                    reqs.addRead(new OtpErlangString(keys[i]));
+                    reqs.addOp(new ReadOp(new OtpErlangString(key)));
                 } else {
-                    reqs.addRead(keys[i]);
+                    reqs.addOp(new ReadOp(key));
                 }
             }
             reqs.addCommit();
             results = tx.req_list(reqs);
+            // check results:
             for (int i = 0; i < keys.length; ++i) {
                 if (value instanceof OtpErlangObject) {
-                    results.processReadAt(i).value();
+                    results.processReadAt(i); // no need to extract the value itself
                 } else {
                     results.processReadAt(i).stringValue();
                 }
@@ -553,12 +564,12 @@ public class Benchmark {
 
             // write new values...
             reqs = new Transaction.RequestList();
-            for (int i = 0; i < keys.length; ++i) {
+            for (final String key : keys) {
                 final T value = valueWrite[j % valueWrite.length];
                 if (value instanceof OtpErlangObject) {
-                    reqs.addWrite(new OtpErlangString(keys[i]), (OtpErlangObject) value);
+                    reqs.addOp(new WriteOp(new OtpErlangString(key), (OtpErlangObject) value));
                 } else {
-                    reqs.addWrite(keys[i], value);
+                    reqs.addOp(new WriteOp(key, value));
                 }
             }
             reqs.addCommit();
@@ -686,18 +697,17 @@ public class Benchmark {
         }
 
         @Override
-        protected void pre_init(final int j) throws Exception {
-            final Transaction tx_init = new Transaction();
+        protected void pre_init(final Connection conn, final int j) throws Exception {
+            final Transaction tx_init = new Transaction(conn);
             final Transaction.RequestList reqs = new Transaction.RequestList();
-            reqs.addWrite(key + '_' + j, valueInit).addCommit();
+            reqs.addOp(new WriteOp(key + '_' + j, valueInit)).addCommit();
             final Transaction.ResultList results = tx_init.req_list(reqs);
             results.processWriteAt(0);
-            tx_init.closeConnection();
         }
 
         protected void operation(final Transaction tx, final int j) throws Exception {
             final Transaction.RequestList reqs = new Transaction.RequestList();
-            reqs.addAddDelOnList(key + '_' + j, Arrays.asList(value), new ArrayList<String>(0));
+            reqs.addOp(new AddDelOnListOp(key + '_' + j, Arrays.asList(value), new ArrayList<String>(0)));
             reqs.addCommit();
 //            // read old list into the transaction
 //            final List<String> list = tx.read(key + '_' + j).stringListValue();
@@ -875,18 +885,26 @@ public class Benchmark {
         /**
          * Will be called before the benchmark starts.
          *
+         * @param conn
+         *            connection to use
+         *
          * @throws Exception
          */
-        protected void pre_init() throws Exception {
+        protected void pre_init(final Connection conn) throws Exception {
         }
 
         /**
          * Will be called before the benchmark starts with all possible
          * variations of "j" in the {@link #operation(int)} call.
          *
+         * @param conn
+         *            connection to use
+         * @param j
+         *            the index {@link #operation(int)} will be called with
+         *
          * @throws Exception
          */
-        protected void pre_init(final int j) throws Exception {
+        protected void pre_init(final Connection conn, final int j) throws Exception {
         }
 
         /**
@@ -916,24 +934,34 @@ public class Benchmark {
         abstract protected void operation(int j) throws Exception;
 
         @Override
-        public void run() {
+        final public void run() {
             Thread.currentThread().setName("BenchRunnable-" + key);
-            for (int retry = 0; (retry < 3) && !stop; ++retry) {
-                try {
-                    pre_init();
-                    for (int j = 0; j < operations; ++j) {
-                        pre_init(j);
+            Connection conn = null;
+            try {
+                conn = ConnectionFactory.getInstance().createConnection();
+                for (int retry = 0; (retry < 3) && !stop; ++retry) {
+                    try {
+                        pre_init(conn);
+                        for (int j = 0; j < operations; ++j) {
+                            pre_init(conn, j);
+                        }
+                        testBegin();
+                        init();
+                        for (int j = 0; j < operations; ++j) {
+                            operation(j);
+                        }
+                        cleanup();
+                        this.speed = testEnd(operations);
+                        break;
+                    } catch (final Exception e) {
+                        // e.printStackTrace();
                     }
-                    testBegin();
-                    init();
-                    for (int j = 0; j < operations; ++j) {
-                        operation(j);
-                    }
-                    cleanup();
-                    this.speed = testEnd(operations);
-                    break;
-                } catch (final Exception e) {
-                    // e.printStackTrace();
+                }
+            } catch (final Exception e) {
+                // e.printStackTrace();
+            } finally {
+                if (conn != null) {
+                    conn.close();
                 }
             }
         }
@@ -986,7 +1014,8 @@ public class Benchmark {
 
     /**
      * Creates an object T from <tt>size</tt> random bytes. Uses either a
-     * constructor that expects a <tt>byte[]</tt> or a {@link String} parameter.
+     * constructor that expects a <tt>byte[]</tt> or a {@link String} parameter
+     * (in which case the UTF-8 encoding is used for the bytes).
      *
      * @param <T>
      *            the type of the object to create
@@ -1029,10 +1058,60 @@ public class Benchmark {
             throws IllegalArgumentException, SecurityException,
             InstantiationException, IllegalAccessException,
             InvocationTargetException, NoSuchMethodException {
+        return getRandom(size, c, new Random());
+    }
+
+    /**
+     * Creates an object T from <tt>size</tt> random bytes. Uses either a
+     * constructor that expects a <tt>byte[]</tt> or a {@link String} parameter
+     * (in which case the UTF-8 encoding is used for the bytes).
+     *
+     * @param <T>
+     *            the type of the object to create
+     * @param size
+     *            the number of (random) bytes to create
+     * @param c
+     *            the class of the object to create (needed due to type erasure)
+     * @param r
+     *            the random number generator to use
+     *
+     * @return the created object
+     *
+     * @throws IllegalAccessException
+     *             - if this Constructor object enforces Java language access
+     *             control and the underlying constructor is inaccessible.
+     * @throws IllegalArgumentException
+     *             - if the number of actual and formal parameters differ; if an
+     *             unwrapping conversion for primitive arguments fails; or if,
+     *             after possible unwrapping, a parameter value cannot be
+     *             converted to the corresponding formal parameter type by a
+     *             method invocation conversion; if this constructor pertains to
+     *             an enum type.
+     * @throws InstantiationException
+     *             - if the class that declares the underlying constructor
+     *             represents an abstract class.
+     * @throws InvocationTargetException
+     *             - if the underlying constructor throws an exception.
+     * @throws ExceptionInInitializerError
+     *             - if the initialization provoked by this method fails.
+     * @throws NoSuchMethodException
+     *             - if a matching method is not found.
+     * @throws SecurityException
+     *             - If a security manager, s, is present and any of the
+     *             following conditions is met: invocation of
+     *             s.checkMemberAccess(this, Member.PUBLIC) denies access to the
+     *             constructor the caller's class loader is not the same as or
+     *             an ancestor of the class loader for the current class and
+     *             invocation of s.checkPackageAccess() denies access to the
+     *             package of this class
+     */
+    public static <T> T getRandom(final int size, final Class<T> c, final Random r)
+            throws IllegalArgumentException, SecurityException,
+            InstantiationException, IllegalAccessException,
+            InvocationTargetException, NoSuchMethodException {
         if (c == null) {
             return null;
         }
-        final Random r = new Random();
         if (Integer.class.isAssignableFrom(c)) {
             final int par = r.nextInt();
             return c.getConstructor(int.class).newInstance(par);
@@ -1040,24 +1119,24 @@ public class Benchmark {
 
         final byte[] data = new byte[size];
         r.nextBytes(data);
-        if (String.class.isAssignableFrom(c)) {
-            final Charset charset = Charset.forName("UTF-8");
-            final CharsetDecoder decoder = charset.newDecoder();
-            decoder.onMalformedInput(CodingErrorAction.REPLACE);
-            decoder.onUnmappableCharacter(CodingErrorAction.REPLACE);
-            String par;
-            try {
-                par = decoder.decode(ByteBuffer.wrap(data)).toString();
-                return c.getConstructor(String.class).newInstance(par);
-            } catch (final CharacterCodingException e) {
-                throw new IllegalArgumentException(e);
-            }
-        }
 
         try {
-            return c.getConstructor(byte[].class).newInstance(data);
+            if (!String.class.isAssignableFrom(c)) {
+                return c.getConstructor(byte[].class).newInstance(data);
+            }
         } catch (final NoSuchMethodException e) {
-            return c.getConstructor(String.class).newInstance(new String(data));
+            // use String constructor below
+        }
+
+        final CharsetDecoder decoder = UTF_8.newDecoder();
+        decoder.onMalformedInput(CodingErrorAction.REPLACE);
+        decoder.onUnmappableCharacter(CodingErrorAction.REPLACE);
+        String par;
+        try {
+            par = decoder.decode(ByteBuffer.wrap(data)).toString();
+            return c.getConstructor(String.class).newInstance(par);
+        } catch (final CharacterCodingException e) {
+            throw new IllegalArgumentException(e);
         }
     }
 
@@ -1137,14 +1216,16 @@ public class Benchmark {
             final int operations, final int parallelRuns) {
         for (int test = 0; test < (results.length * results[0].length); ++test) {
             try {
+                final int i = test % results.length;
+                final int j = test / results.length;
                 if (benchmarks.contains(test + firstBenchId)) {
-                    final int i = test % results.length;
-                    final int j = test / results.length;
                     results[i][j] = runBench(operations,
                             getRandom(BENCH_DATA_SIZE, testTypes[j]),
                             testGroup + "_" + testTypesStr[j] + "_" + (i + 1),
                             testBench[i], parallelRuns);
                     TimeUnit.SECONDS.sleep(1);
+                } else {
+                    results[i][j] = -2;
                 }
             } catch (final Exception e) {
                  e.printStackTrace();
@@ -1189,6 +1270,7 @@ public class Benchmark {
             InvocationTargetException, NoSuchMethodException {
         final String key = benchTime + name;
         final long[] results = new long[testRuns];
+        Arrays.fill(results, -1);
 
         for (int i = 0; i < testRuns; ++i) {
             final BenchRunnable<T> worker[] = new BenchRunnable[parallelRuns];
@@ -1247,8 +1329,10 @@ public class Benchmark {
                     + firstColumn.substring(0,
                             firstColumn.length() - rows[i].length() - 1));
             for (int j = 0; j < columns.length; j++) {
-                if (results[i][j] == -1) {
+                if (results[i][j] == -2) {
                     System.out.print("\tn/a");
+                } else if (results[i][j] == -1) {
+                    System.out.print("\tfailed");
                 } else {
                     System.out.print("\t" + results[i][j]);
                 }

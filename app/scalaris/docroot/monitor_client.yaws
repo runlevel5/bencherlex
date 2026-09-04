@@ -6,6 +6,11 @@
     <meta http-equiv="pragma" content="no-cache">
     <meta http-equiv="cache-control" content="no-cache">
     <meta http-equiv="expires" content="-1">
+    <link rel='shortcut icon' type='image/x-icon' href='/favicon.ico' />
+<erl>
+out(Arg) ->
+    {header, {cache_control, "no-cache"}}.
+</erl>
     <title>Scalaris Management Interface</title>
     <link rel="stylesheet" type="text/css" href="main.css">
   <!--[if lte IE 5.5999]>
@@ -45,6 +50,17 @@ out(Arg) ->
       </div>
       <div class=\"nothighlighted\">
         <a class=\"menua\" href=\"vivaldi.yaws\">Vivaldi Map</a>
+      </div>" ++ 
+    case config:read(dc_clustering_enable) of
+        true -> "
+      <div class=\"nothighlighted\">
+        <a class=\"menua\" href=\"dc.yaws\">Datacenter Clusters Map</a>
+      </div>
+";
+        _ -> ""
+    end ++ "
+      <div class=\"nothighlighted\">
+        <a class=\"menua\" href=\"bench.yaws\">Benchmarks</a>
       </div>
 "}
     end.
@@ -91,8 +107,17 @@ function showTooltip(x, y, contents) {
  }).appendTo("body").fadeIn(200);
 }
 $(function() {
+ function noneFormatter(v, axis) {
+  return "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;" + v.toFixed(axis.tickDecimals);
+ }
  function msFormatter(v, axis) {
-  return v.toFixed(axis.tickDecimals) +"ms";
+  return v.toFixed(axis.tickDecimals) + " ms";
+ }
+ function MbFormatter(v, axis) {
+  return v.toFixed(axis.tickDecimals) + " MiB";
+ }
+ function bFormatter(v, axis) {
+  return v.toFixed(axis.tickDecimals) + " B";
  }
  var series = {
   lines: { show: true, lineWidth: 0.5 },
@@ -106,21 +131,23 @@ $(function() {
   margin: [0, -50]
  };
  var grid = { hoverable: true };
- $.plot($("#reqlist_cnt"), [ {data: count_per_s_data, label: "Count / s"} ], {
-  series: series,
-  xaxes: xaxes,
-  yaxes: [ { min: 0 } ],
-  legend: legend,
-  grid: grid
- });
- $("#reqlist_cnt").bind("plothover", plotHover);
  var asym_yerrbars = { 
   errorbars: "y", 
   yerr: {show: false, asymmetric: true, upperCap: "-", lowerCap: "-"}
  };
+
+ $.plot($("#reqlist_cnt"), [ {data: count_per_s_data, label: "Count / s"} ], {
+  series: series,
+  xaxes: xaxes,
+  yaxes: [ { min: 0, tickFormatter: noneFormatter } ],
+  legend: legend,
+  grid: grid
+ });
+ $("#reqlist_cnt").bind("plothover", plotHoverMinMax);
+
  $.plot($("#reqlist_lat"),
-        [ {data: avg_min_max_ms_data, label: "Avg (ms)", points: asym_yerrbars},
-          {data: stddev_ms_data, label: "Stddev (ms)"}
+        [ {data: avg_min_max_ms_data, label: "Avg", points: asym_yerrbars},
+          {data: stddev_ms_data, label: "Stddev"}
         ], {
   series: series,
   xaxes: xaxes,
@@ -128,9 +155,60 @@ $(function() {
   legend: legend,
   grid: grid
  });
- $("#reqlist_lat").bind("plothover", plotHover);
+ $("#reqlist_lat").bind("plothover", plotHoverMinMax);
+
+ $.plot($("#memory"),
+		[ {data: mem_total_data, label: "mem_total"},
+		  {data: mem_processes_data, label: "mem_processes"},
+          {data: mem_system_data, label: "mem_system"},
+          {data: mem_atom_data, label: "mem_atoms"},
+          {data: mem_binary_data, label: "mem_binaries"},
+          {data: mem_ets_ms_data, label: "mem_ets_tables"}
+		], {
+  series: series,
+  xaxes: xaxes,
+  yaxes: [ { min: 0, tickFormatter: MbFormatter } ],
+  legend: legend,
+  grid: grid
+ });
+ $("#memory").bind("plothover", plotHover);
+
+ $.plot($("#io"),
+        [ //{data: io_rcv_count_data, label: "Received packets", yaxis: 1},
+          {data: io_rcv_bytes_data, label: "Received bytes", yaxis: 2},
+          //{data: io_send_count_data, label: "Sent packets", yaxis: 1},
+          {data: io_send_bytes_data, label: "Sent bytes", yaxis: 2}
+        ], {
+  series: series,
+  xaxes: xaxes,
+  yaxes: [
+    { min: 0, tickFormatter: noneFormatter, position: "left", alignTicksWithAxis: 1 },
+    { min: 0, tickFormatter: bFormatter, position: "left", alignTicksWithAxis: 1 }
+   ],
+  legend: legend,
+  grid: grid
+ });
+ $("#io").bind("plothover", plotHover);
+
  var previousPoint = null;
  function plotHover(event, pos, obj) {
+  if (!obj) {
+   $("#tooltip").remove();
+   previousPoint = null;
+   return;
+  }
+  if (previousPoint != obj.datapoint) {
+   previousPoint = obj.datapoint;
+   $("#tooltip").remove();
+   var x = obj.datapoint[0].toFixed(2),
+       y = obj.datapoint[1].toFixed(2);
+   var xDate = new Date();
+   xDate.setTime(x)
+   showTooltip(obj.pageX, obj.pageY,
+               xDate.toUTCString() + ": <br />" + obj.series.label + " = " + y);
+  }
+ }
+ function plotHoverMinMax(event, pos, obj) {
   if (!obj) {
    $("#tooltip").remove();
    previousPoint = null;
@@ -155,15 +233,19 @@ $(function() {
 <div id="reqlist_cnt" style="width: 800px; height: 300px; margin-bottom:50px"></div>
 <p>Latency (api_tx:req_list/2)</p>
 <div id="reqlist_lat" style="width: 800px; height: 300px; margin-bottom:50px"></div>
+<hr />
+<p>Memory</p>
+<div id="memory" style="width: 800px; height: 300px; margin-bottom:50px"></div>
+<p>I/O - Traffic (10s aggregates)</p>
+<div id="io" style="width: 800px; height: 300px; margin-bottom:50px"></div>
 
-Last update:
+<hr />
+<p>Last update:
 <erl>
- 
  out(Arg) ->
-	{Date, {Hour, Minute, Second}} = calendar:local_time(),
+    {Date, {Hour, Minute, Second}} = calendar:local_time(),
     {html, io_lib:format("~2..0B:~2..0B:~2..0B", [Hour, Minute, Second])}.
-</erl>
-</p>
+</erl></p>
 </div>
 <br class="br_class">&nbsp;
 </div>

@@ -1,5 +1,10 @@
 package de.zib.scalaris.examples.wikipedia;
 
+import java.util.ArrayList;
+import java.util.List;
+
+import de.zib.tools.LinkedMultiHashMap;
+
 
 /**
  * Common result class with a public member containing the result and a
@@ -25,12 +30,20 @@ public class Result {
      * DB).
      */
     public LinkedMultiHashMap<String, Long> stats = new LinkedMultiHashMap<String, Long>();
+    /**
+     * All keys that have been read or written during the operation.
+     */
+    public List<InvolvedKey> involvedKeys = new ArrayList<InvolvedKey>();
     
     /**
      * Creates a successful result with an empty message.
+     * 
+     * @param involvedKeys
+     *            all keys that have been read or written during the operation
      */
-    public Result() {
+    public Result(List<InvolvedKey> involvedKeys) {
         this.success = true;
+        this.involvedKeys = involvedKeys;
         this.message = "";
         this.connect_failed = false;
     }
@@ -40,15 +53,19 @@ public class Result {
      * 
      * @param success
      *            the success status
+     * @param involvedKeys
+     *            all keys that have been read or written during the operation
      * @param message
      *            the message to use
      * @param connectFailed
      *            whether the connection to the DB failed or not
      */
-    public Result(boolean success, String message, boolean connectFailed) {
+    public Result(boolean success, List<InvolvedKey> involvedKeys, String message, boolean connectFailed) {
         this.success = success;
+        this.involvedKeys = involvedKeys;
         this.message = message;
         this.connect_failed = connectFailed;
+        assert(!connect_failed || !success);
     }
 
     /**
@@ -61,6 +78,6 @@ public class Result {
      *            time in milliseconds for this operation
      */
     public void addStat(String name, long time) {
-        stats.put(name, time);
+        stats.put1(name, time);
     }
 }

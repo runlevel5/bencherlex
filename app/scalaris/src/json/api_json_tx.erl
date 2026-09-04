@@ -30,10 +30,8 @@
          read/1, write/2, add_del_on_list/3, add_on_nr/2, test_and_set/3,
          req_list_commit_each/1]).
 
--ifdef(with_export_type_support).
 -export_type([value/0, request/0,
               read_result/0, write_result/0, commit_result/0, result/0]).
--endif.
 
 -include("scalaris.hrl").
 -include("client_types.hrl").
@@ -64,7 +62,17 @@ handler(AnyOp, AnyParams) ->
                           ]}.
 
 -type request() :: {string(), client_key()} % {"read", ...}
-                 | {string(), {struct, [{client_key(), value()}]}} % {"write", {struct, [..., ...]}}
+                 | {string(), {struct, [{client_key(), value()}]}} % {"write", {struct, [Key, Value]}}
+                   % {"add_del_on_list", {struct, [...]}}
+                 | {string(), {struct, [{string(), client_key()} | % {"key", Key}
+                                        {string(), {array, [client_value()]}} % {"add", {array, ToAdd}}, {"del", {array, ToRemove}}
+                                       ]}}
+                 | {string(), {struct, [{client_key(), client_value()}]}} % {"add_on_nr", {struct, [Key, ToAdd]}}
+
+                   % {"test_and_set", {struct, [...]}}
+                 | {string(), {struct, [{string(), client_key()} | % {"key", Key}
+                                        {string(), value()} % {"new", New}, {"old", Old}
+                                       ]}}
                  | {string(), any()}. % {"commit", _}
 
 -type read_result() ::
@@ -76,7 +84,8 @@ handler(AnyOp, AnyParams) ->
                   | {reason, string()} ]}. %% "timeout"
 -type commit_result() ::
         {struct, [{status, string()}       %% "ok", "fail"
-                  | {reason, string()} ]}. %% "abort", "timeout"
+                  | {reason, string()}     %% "timeout"
+                  | {keys, {array, [string()]}} ]}. %% "abort"
 
 -type result() :: read_result() | write_result() | commit_result().
 
@@ -161,7 +170,10 @@ result_to_json(Result) ->
                                         {reason, "key_changed"},
                                         value_to_json(Val)];
          {fail, Reason}             -> [{status, "fail"},
-                                        {reason, atom_to_list(Reason)}]
+                                        {reason, atom_to_list(Reason)}];
+         {fail, abort, Keys}        -> [{status, "fail"},
+                                        {reason, "abort"},
+                                        {keys,   {array, Keys}}]
      end
     }.
 
@@ -172,15 +184,29 @@ json_to_reqlist({array, TmpReqList}, AllowCommit) ->
               {read, Key};
           {"write", {struct, [{Key, Val}]}} ->
               {write, Key, json_to_value(Val)};
-          % note: struct properties sorted alphabetically
-          {"add_del_on_list", {struct, [{"add", {array, ToAdd}}, {"del", {array, ToRemove}}, {"key", Key}]}} ->
-              {add_del_on_list, Key, ToAdd, ToRemove};
-          {"add_del_on_list", {struct, [{"add", ToAdd}, {"del", ToRemove}, {"key", Key}]}} ->
+          % note: struct properties may be arbitrarily sorted (common sorting: alphabetically)
+          {"add_del_on_list", {struct, PropList}} ->
+              case PropList of
+                  [{"add", {array, ToAdd}}, {"del", {array, ToRemove}}, {"key", Key}] -> ok;
+                  [{"add", {array, ToAdd}}, {"key", Key}, {"del", {array, ToRemove}}] -> ok;
+                  [{"del", {array, ToRemove}}, {"add", {array, ToAdd}}, {"key", Key}] -> ok;
+                  [{"del", {array, ToRemove}}, {"key", Key}, {"add", {array, ToAdd}}] -> ok;
+                  [{"key", Key}, {"add", {array, ToAdd}}, {"del", {array, ToRemove}}] -> ok;
+                  [{"key", Key}, {"del", {array, ToRemove}}, {"add", {array, ToAdd}}] -> ok
+              end,
               {add_del_on_list, Key, ToAdd, ToRemove};
           {"add_on_nr", {struct, [{Key, ToAdd}]}} ->
               {add_on_nr, Key, ToAdd};
-          {"test_and_set", {struct, [{"key", Key}, {"new", New}, {"old", Old}]}} ->
-              {test_and_set, Key, Old, New};
+          {"test_and_set", {struct, PropList}} ->
+              case PropList of
+                  [{"key", Key}, {"new", New}, {"old", Old}] -> ok;
+                  [{"key", Key}, {"old", Old}, {"new", New}] -> ok;
+                  [{"new", New}, {"key", Key}, {"old", Old}] -> ok;
+                  [{"new", New}, {"old", Old}, {"key", Key}] -> ok;
+                  [{"old", Old}, {"new", New}, {"key", Key}] -> ok;
+                  [{"old", Old}, {"key", Key}, {"new", New}] -> ok
+              end,
+              {test_and_set, Key, json_to_value(Old), json_to_value(New)};
           {"commit", _} when AllowCommit ->
               {commit}
       end || {struct, [Elem]} <- TmpReqList ].
@@ -200,15 +226,20 @@ value_to_json(Value) ->
     {value, {struct, [{type, "as_is"}, {value, Value}]}}.
 
 -spec json_to_value(value()) -> client_value().
-json_to_value({struct, [{"type", "as_bin"}, {"value", Value}]}) ->
-    base64:decode(Value);
-json_to_value({struct, [{"value", Value}, {"type", "as_bin"}]}) ->
-    base64:decode(Value);
-json_to_value({struct, [{"type", "as_is"}, {"value", {array, List}}]}) ->
-    List;
-json_to_value({struct, [{"value", {array, List}}, {"type", "as_is"}]}) ->
-    List;
-json_to_value({struct, [{"type", "as_is"}, {"value", Value}]}) ->
-    Value;
-json_to_value({struct, [{"value", Value}, {"type", "as_is"}]}) ->
+json_to_value({struct, PropList}) ->
+    case PropList of
+        [{"type", Type}, {"value", Value}] -> ok;
+        [{"value", Value}, {"type", Type}] -> ok
+    end,
+    case Type of
+        "as_bin" -> base64:decode(Value);
+        "as_is"  -> json_array_to_value(Value)
+    end.
+
+%% @doc Converts {array, List} to List recursively. If the given value is not a
+%%      JSON list the value is returned unchanged.
+-spec json_array_to_value(value()) -> client_value().
+json_array_to_value({array, List}) when is_list(List) ->
+    [json_array_to_value(X) || X <- List];
+json_array_to_value(Value) ->
     Value.

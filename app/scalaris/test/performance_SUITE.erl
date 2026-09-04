@@ -1,5 +1,5 @@
-%  Copyright 2008-2011 Zuse Institute Berlin
-%
+%  @copyright 2008-2016 Zuse Institute Berlin
+
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
 %   You may obtain a copy of the License at
@@ -11,37 +11,27 @@
 %   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %   See the License for the specific language governing permissions and
 %   limitations under the License.
-%%%-------------------------------------------------------------------
-%%% File    : performance_SUITE.erl
-%%% Author  : Thorsten Schuett <schuett@zib.de>
-%%% Description : Performance Tests
-%%%
-%%% Created :  15 Dec 2009 by Thorsten Schuett <schuett@zib.de>
-%%%-------------------------------------------------------------------
+
+%% @author  : Thorsten Schuett <schuett@zib.de>
+%% @doc Performance Tests
+%% @end
+%% @version $Id$
 -module(performance_SUITE).
 
 -author('schuett@zib.de').
--vsn('$Id: performance_SUITE.erl 2553 2011-12-13 17:06:37Z kruber@zib.de $').
+-vsn('$Id$').
 
--export([all/0, comm_local/1, count/0, empty/1, end_per_group/2,
-         end_per_suite/1, erlang_get/1, erlang_put/1, erlang_send/1,
-         erlang_send_after/1, erlang_spawn/1, erlang_timestamp/1,
-         ets_ordset_insert1/1, ets_ordset_insert1N/1, ets_ordset_insert2/1,
-         ets_ordset_insert2N/1, ets_ordset_lookup1/1, ets_ordset_lookup2/1,
-         ets_set_insert1N/1, ets_set_insert2N/1, gb_sets_add_element/1,
-         get_keys_for_replica_string/1, groups/0, helper_rec/2,
-         init_per_group/2, init_per_suite/1, iter/3, iter2/3, iter2_foldl/4,
-         iter2_foldl_helper/3, iter2_inner/2, iter_inner/2, md5/1,
-         next_hop_no_neighbors/1, next_hop_setup/0, next_hop_with_neighbors/1,
-         ordsets_add_element/1, os_timestamp/1, pdb_get/1, pdb_set/1,
-         pid_groups_lookup/1, pid_groups_lookup_by_pid/1, sets_add_element/1,
-         suite/0, term_to_binary1/1, unicode_chars_to_binary1/1]).
+-compile(export_all).
 
+-include("scalaris.hrl").
 -include("unittest.hrl").
+
+-dialyzer([{[no_return, no_opaque], [next_hop_with_neighbors/1]}]).
 
 all() ->
     [empty,
-     get_keys_for_replica_string,
+     intervals_in,
+%%     get_keys_for_replica_string,
      md5,
      {group, with_config},
      pid_groups_lookup,
@@ -50,6 +40,15 @@ all() ->
      ets_ordset_insert2,
      ets_ordset_lookup1,
      ets_ordset_lookup2,
+     ets_ordset_foldl,
+     ets_ordset_next_iteration,
+     ets_ordset_lists_foldl,
+     ets_ordset_match,
+     ets_ordset_match_with_limit,
+     ets_ordset_select,
+     ets_ordset_select_with_limit,
+     ets_ordset_select_with_guards,
+     ets_ordset_select_with_guards_with_limit,
      erlang_put,
      erlang_get,
      pdb_set,
@@ -65,7 +64,6 @@ all() ->
      comm_local,
      erlang_send_after,
      erlang_spawn,
-     erlang_timestamp,
      os_timestamp,
      term_to_binary1,
      unicode_chars_to_binary1
@@ -73,16 +71,22 @@ all() ->
 
 suite() ->
     [
-     {timetrap, {seconds, 30}}
+     {timetrap, {seconds, 60}}
     ].
 
 groups() ->
-    [{with_config, [sequence], [next_hop_no_neighbors, next_hop_with_neighbors]}].
+    [{with_config, [sequence], [get_keys_for_replica_string, next_hop_with_neighbors]}].
+
+init_per_suite(Config) ->
+    Config.
+
+end_per_suite(_Config) ->
+    ok.
 
 init_per_group(GroupName, Config) ->
     case GroupName of
         with_config ->
-            unittest_helper:start_minimal_procs(Config, [], false);
+            unittest_helper:start_minimal_procs(Config, [], true);
         _ -> Config
     end.
 
@@ -92,14 +96,10 @@ end_per_group(GroupName, Config) ->
         _ -> ok
     end.
 
-init_per_suite(Config) ->
-    unittest_helper:init_per_suite(Config).
-
-end_per_suite(Config) ->
-    _ = unittest_helper:end_per_suite(Config),
-    ok.
-
 count() ->
+    1000000.
+
+data_count() ->
     1000000.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -108,6 +108,13 @@ empty(_Config) ->
     iter(count(), fun () ->
                        ok
                   end, "empty"),
+    ok.
+
+intervals_in(_Config) ->
+    I = intervals:new('(', ?RT:hash_key("0"), ?RT:hash_key("1"), ']'),
+    iter2(count()*10, fun (X) ->
+                       intervals:in(X, I)
+                  end, "intervals:in/2"),
     ok.
 
 ets_ordset_lookup1(_Config) ->
@@ -144,6 +151,134 @@ ets_ordset_insert2(_Config) ->
     ets:delete(Table),
     ok.
 
+ets_ordset_foldl(_Config) ->
+    Table = ets:new(db_ets_perf_comp1, [ordered_set, private, named_table]),
+    Data = [{X, crypto:strong_rand_bytes(50), false, 1, -1} || X <- lists:seq(1,
+                                                                      data_count())],
+    ets:insert(Table, Data),
+    iter(10, fun() ->
+                      ets:foldl(fun(_E, _Acc) -> ok end, ok, Table)
+              end, "ets:foldl"),
+    ets:delete(Table),
+    ok.
+
+ets_ordset_next_iteration(_Config) ->
+    Table = ets:new(db_ets_perf_comp1, [ordered_set, private, named_table]),
+    Data = [{X, crypto:strong_rand_bytes(50), false, 1, -1} || X <- lists:seq(1,
+                                                                      data_count())],
+    ets:insert(Table, Data),
+    iter(10, fun() ->
+                      Keys = ets_next(Table, ets:first(Table), []),
+                      lists:foldl(fun(_E, _Acc) -> ok end, ok, Keys)
+              end, "ets:next_iteration"),
+    ets:delete(Table),
+    ok.
+
+ets_next(_Table, '$end_of_table', Acc) -> Acc;
+ets_next(Table, Key, Acc) ->
+    ets_next(Table, ets:next(Table, Key), [Key | Acc]).
+
+ets_ordset_lists_foldl(_Config) ->
+    Table = ets:new(db_ets_perf_comp1, [ordered_set, private, named_table]),
+    Data = [{X, crypto:strong_rand_bytes(50), false, 1, -1} || X <- lists:seq(1,
+                                                                      data_count())],
+    ets:insert(Table, Data),
+    iter(10, fun() ->
+                      List = ets:tab2list(Table),
+                      lists:foldl(fun(_E, _Acc) -> ok end, ok, List)
+              end, "lists:foldl"),
+    ets:delete(Table),
+    ok.
+
+ets_ordset_match(_Config) ->
+    Table = ets:new(db_ets_perf_comp1, [ordered_set, private, named_table]),
+    Data = [{X, crypto:strong_rand_bytes(50), false, 1, -1} || X <- lists:seq(1,
+                                                                      data_count())],
+    ets:insert(Table, Data),
+    iter(10, fun() ->
+                      List = ets:match(Table, {'$1', '_', '_', '_', '_'}),
+                      lists:foldl(fun(_E, _Acc) -> ok end, ok, List)
+              end, "ets:match"),
+    ets:delete(Table),
+    ok.
+
+ets_ordset_match_with_limit(_Config) ->
+    Table = ets:new(db_ets_perf_comp1, [ordered_set, private, named_table]),
+    Data = [{X, crypto:strong_rand_bytes(50), false, 1, -1} || X <- lists:seq(1,
+                                                                      data_count()
+                                                                      * 2)],
+    ets:insert(Table, Data),
+    iter(10, fun() ->
+                     {List, _Cont} = ets:match(Table, {'$1', '_', '_', '_', '_'},
+                                       data_count()),
+                      lists:foldl(fun(_E, _Acc) -> ok end, ok, List)
+              end, "ets:match_with_limit"),
+    ets:delete(Table),
+    ok.
+
+ets_ordset_select(_Config) ->
+    Table = ets:new(db_ets_perf_comp1, [ordered_set, private, named_table]),
+    Data = [{X, crypto:strong_rand_bytes(50), false, 1, -1} || X <- lists:seq(1,
+                                                                      data_count())],
+    ets:insert(Table, Data),
+    iter(10, fun() ->
+                      List = ets:select(Table, [{{'$1', '_', '_', '_', '_'},
+                                                [],
+                                                [{{'$1'}}]}]),
+                      lists:foldl(fun(_E, _Acc) -> ok end, ok, List)
+              end, "ets:select"),
+    ets:delete(Table),
+    ok.
+
+ets_ordset_select_with_limit(_Config) ->
+    Table = ets:new(db_ets_perf_comp1, [ordered_set, private, named_table]),
+    Data = [{X, crypto:strong_rand_bytes(50), false, 1, -1} || X <- lists:seq(1,
+                                                                      data_count()
+                                                                      * 2)],
+    ets:insert(Table, Data),
+    iter(10, fun() ->
+                     {List, _Cont} = ets:select(Table, [{{'$1', '_', '_', '_', '_'},
+                                                [],
+                                                [{{'$1'}}]}],
+                                       data_count()),
+                      lists:foldl(fun(_E, _Acc) -> ok end, ok, List)
+              end, "ets:select_with_limit"),
+    ets:delete(Table),
+    ok.
+
+ets_ordset_select_with_guards(_Config) ->
+    Table = ets:new(db_ets_perf_comp1, [ordered_set, private, named_table]),
+    Data = [{X, crypto:strong_rand_bytes(50), false, 1, -1} || X <- lists:seq(1,
+                                                                      data_count())],
+    ets:insert(Table, Data),
+    iter(10, fun() ->
+                     End = data_count() -1,
+                     List = ets:select(Table, [{{'$1', '_', '_', '_', '_'},
+                                                [{'>=', '$1', 2}, {'=<', '$1',
+                                                                   End}],
+                                                ['$_']}]),
+                      lists:foldl(fun(_E, _Acc) -> ok end, ok, List)
+              end, "ets:select_with_guards"),
+    ets:delete(Table),
+    ok.
+
+ets_ordset_select_with_guards_with_limit(_Config) ->
+    Table = ets:new(db_ets_perf_comp1, [ordered_set, private, named_table]),
+    Data = [{X, crypto:strong_rand_bytes(50), false, 1, -1} || X <- lists:seq(1,
+                                                                      data_count()
+                                                                      * 2)],
+    ets:insert(Table, Data),
+    iter(10, fun() ->
+                     End = data_count() -1,
+                     {List, _Cont} = ets:select(Table, [{{'$1', '_', '_', '_', '_'},
+                                                [{'>=', '$1', 2}, {'=<', '$1',
+                                                                   End}],
+                                                ['$_']}], data_count()),
+                      lists:foldl(fun(_E, _Acc) -> ok end, ok, List)
+              end, "ets:select_with_guards_with_limit"),
+    ets:delete(Table),
+    ok.
+
 erlang_get(_Config) ->
     erlang:put("performance", "abc"),
     iter(count(), fun() ->
@@ -158,7 +293,7 @@ erlang_put(_Config) ->
     ok.
 
 pdb_get(_Config) ->
-    pdb:new(pdb_get, [ordered_set, private, named_table]),
+    _ = pdb:new(pdb_get, [ordered_set, private, named_table]),
     pdb:set({"performance", "abc"}, pdb_get),
     iter(count(), fun() ->
                           pdb:get("performance", pdb_get)
@@ -166,7 +301,7 @@ pdb_get(_Config) ->
     ok.
 
 pdb_set(_Config) ->
-    pdb:new(pdb_set, [ordered_set, private, named_table]),
+    _ = pdb:new(pdb_set, [ordered_set, private, named_table]),
     iter(count(), fun() ->
                           pdb:set({"performance", "abc"}, pdb_set)
                   end, "pdb:set"),
@@ -264,10 +399,6 @@ erlang_spawn(_Config) ->
     iter(count(), fun() -> spawn(fun() -> ok end) end, "erlang:spawn"),
     ok.
 
-erlang_timestamp(_Config) ->
-    iter(count(), fun() -> erlang:timestamp() end, "erlang:timestamp"),
-    ok.
-
 os_timestamp(_Config) ->
     iter(count(), fun() -> os:timestamp() end, "os:timestamp"),
     ok.
@@ -280,76 +411,61 @@ get_keys_for_replica_string(_Config) ->
     ok.
 
 md5(_Config) ->
-    iter(count(), fun () ->
-                          crypto:md5("42")
-               end, "crypto:md5"),
-    iter(count(), fun () ->
-                          erlang:md5("42")
-               end, "erlang:md5"),
+    iter(count(), fun () -> ?CRYPTO_MD5("42") end, "crypto:md5"),
+    iter(count(), fun () -> erlang:md5("42") end, "erlang:md5"),
     ok.
+
+-define(PID(Nr), comm:make_global(list_to_pid("<0.0." ++ erlang:integer_to_list(Nr) ++ ">"))).
 
 next_hop_setup() ->
-    pid_groups:join_as("performance_SUITE", dht_node),
-    Pred = node:new(pred, 1, 0),
-    Me = node:new(me, 2, 0),
-    Succ = node:new(succ, 3, 0),
-    RT = gb_trees:enter(1, Pred,
-          gb_trees:enter(4, node:new(succ2, 4, 0),
-           gb_trees:enter(5, node:new(succ3, 5, 0),
-            gb_trees:enter(6, node:new(succ4, 6, 0),
-             gb_trees:enter(100, node:new(rt5, 100, 0),
-              gb_trees:enter(101, node:new(rt6, 101, 0),
-               gb_trees:enter(102, node:new(rt7, 102, 0),
-                gb_trees:enter(103, node:new(rt8, 103, 0),
-                 rt_chord:empty_ext(Succ))))))))),
-    RMState = rm_loop:unittest_create_state(
-               nodelist:add_nodes(
+    pid_groups:join_as(?MODULE, dht_node),
+    Pred = node:new(?PID(1021), 1, 0),
+    Me = node:new(?PID(2), 2, 0),
+    Succ = node:new(?PID(3), 3, 0),
+    RT = gb_trees:enter(1, node:pidX(Pred),
+          gb_trees:enter(4, ?PID(4),
+           gb_trees:enter(5, ?PID(5),
+            gb_trees:enter(6, ?PID(6),
+             gb_trees:enter(100, ?PID(100),
+              gb_trees:enter(101, ?PID(101),
+               gb_trees:enter(102, ?PID(102),
+                gb_trees:enter(103, ?PID(103),
+                 rt_chord:empty_ext(nodelist:new_neighborhood(Me, Succ)))))))))),
+    %% RMState = rm_loop:unittest_create_state(
+    Neighborhood= nodelist:add_nodes(
                 nodelist:new_neighborhood(Pred, Me, Succ),
-                 [node:new(list_to_atom("succ" ++ integer_to_list(Id)), Id + 2, 0)
+                 [node:new(?PID(Id + 2), Id + 2, 0)
                   || Id <- lists:seq(2, config:read(succ_list_length))] ++
-                     [node:new(list_to_atom("pred" ++ integer_to_list(Id)), 1022 - Id, 0)
+                     [node:new(?PID(1022 - Id), 1022 - Id, 0)
                       || Id <- lists:seq(2, config:read(pred_list_length))],
                  config:read(succ_list_length), config:read(pred_list_length)),
-                false),
-    _State = dht_node_state:new(RT, RMState, db).
-
-next_hop_no_neighbors(_Config) ->
-    State = next_hop_setup(),
-    config:write(rt_size_use_neighbors, 0),
-    iter(count(), fun() -> rt_chord:next_hop(State, 42) end, "next_hop(42) no neighbors"),
-    iter(count(), fun() -> rt_chord:next_hop(State, 5) end, "next_hop(5) no neighbors"),
-    ok.
+                %% false),
+    %% _State = dht_node_state:new(RT, RMState, db).
+    {Neighborhood, RT}.
 
 next_hop_with_neighbors(_Config) ->
-    State = next_hop_setup(),
-    config:write(rt_size_use_neighbors, 10),
-    iter(count(), fun() -> rt_chord:next_hop(State, 42) end, "next_hop(42) with neighbors"),
-    iter(count(), fun() -> rt_chord:next_hop(State, 5) end, "next_hop(5) with neighbors"),
+    {Neighbors, RT}  = next_hop_setup(),
+    iter(count(), fun() -> rt_chord:next_hop(Neighbors, RT, 42) end, "next_hop(42) with neighbors"),
+    iter(count(), fun() -> rt_chord:next_hop(Neighbors, RT, 5) end, "next_hop(5) with neighbors"),
     ok.
 
 pid_groups_lookup(_Config) ->
     {ok, _Pid} = pid_groups:start_link(),
-    pid_groups:join_as(atom_to_list(?MODULE), pid_groups),
+    pid_groups:join_as(?MODULE, pid_groups),
     iter(count(), fun () ->
-                          pid_groups:pid_of(atom_to_list(?MODULE),
+                          pid_groups:pid_of(?MODULE,
                                             pid_groups)
                   end, "pid_of by group and process name"),
-    error_logger:tty(false),
-    log:set_log_level(none),
     unittest_helper:stop_pid_groups(),
-    error_logger:tty(true),
     ok.
 
 pid_groups_lookup_by_pid(_Config) ->
     {ok, _Pid} = pid_groups:start_link(),
-    pid_groups:join_as(atom_to_list(?MODULE), pid_groups),
+    pid_groups:join_as(?MODULE, pid_groups),
     iter(count(), fun () ->
                           pid_groups:group_and_name_of(self())
                   end, "group_and_name_of pid"),
-    error_logger:tty(false),
-    log:set_log_level(none),
     unittest_helper:stop_pid_groups(),
-    error_logger:tty(true),
     ok.
 
 term_to_binary1(_Config) ->
@@ -370,10 +486,10 @@ unicode_chars_to_binary1(_Config) ->
 -spec iter(Count::pos_integer(), F::fun(() -> any()), Tag::string()) -> ok.
 iter(Count, F, Tag) ->
     F(),
-    Start = erlang:timestamp(),
+    Start = os:timestamp(),
     iter_inner(Count, F),
-    Stop = erlang:timestamp(),
-    ElapsedTime = timer:now_diff(Stop, Start) / 1000000.0,
+    Stop = os:timestamp(),
+    ElapsedTime = erlang:max(1, timer:now_diff(Stop, Start)) / 1000000.0,
     Frequency = Count / ElapsedTime,
     ct:pal("~p iterations of ~p took ~ps: ~p1/s~n",
            [Count, Tag, ElapsedTime, Frequency]),
@@ -389,10 +505,10 @@ iter_inner(N, F) ->
 -spec iter2(Count::pos_integer(), F::fun((Count::non_neg_integer()) -> any()), Tag::string()) -> ok.
 iter2(Count, F, Tag) ->
     _ = F(0),
-    Start = erlang:timestamp(),
+    Start = os:timestamp(),
     iter2_inner(Count, F),
-    Stop = erlang:timestamp(),
-    ElapsedTime = timer:now_diff(Stop, Start) / 1000000.0,
+    Stop = os:timestamp(),
+    ElapsedTime = erlang:max(1, timer:now_diff(Stop, Start)) / 1000000.0,
     Frequency = Count / ElapsedTime,
     ct:pal("~p iterations of ~s took ~ps: ~p1/s~n",
            [Count, Tag, ElapsedTime, Frequency]),
@@ -408,10 +524,10 @@ iter2_inner(N, F) ->
 -spec iter2_foldl(Count::pos_integer(), F::fun((Count::non_neg_integer(), Acc) -> Acc), Acc, Tag::string()) -> Acc.
 iter2_foldl(Count, F, Acc0, Tag) ->
     _ = F(0, Acc0),
-    Start = erlang:timestamp(),
+    Start = os:timestamp(),
     FinalAcc = iter2_foldl_helper(Count, F, Acc0),
-    Stop = erlang:timestamp(),
-    ElapsedTime = timer:now_diff(Stop, Start) / 1000000.0,
+    Stop = os:timestamp(),
+    ElapsedTime = erlang:max(1, timer:now_diff(Stop, Start)) / 1000000.0,
     Frequency = Count / ElapsedTime,
     ct:pal("~p foldl iterations of ~s took ~ps: ~p1/s~n",
            [Count, Tag, ElapsedTime, Frequency]),

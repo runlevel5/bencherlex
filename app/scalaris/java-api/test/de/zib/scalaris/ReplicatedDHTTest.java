@@ -53,8 +53,11 @@ public class ReplicatedDHTTest {
         "phoong1E", "ianieL2h", "An7ohs4T", "Eiwoeku3", "sheiS3ao", "nei5Thiw", "uL5iewai", "ohFoh9Ae"};
 
     static {
+        // determine good/bad nodes:
+        final ConnectionFactory cf = ConnectionFactory.getInstance();
+        cf.testAllNodes();
         // set not to automatically try reconnects (auto-retries prevent ConnectionException tests from working):
-        ((DefaultConnectionPolicy) ConnectionFactory.getInstance().getConnectionPolicy()).setMaxRetries(0);
+        ((DefaultConnectionPolicy) cf.getConnectionPolicy()).setMaxRetries(0);
     }
 
     /**
@@ -129,22 +132,26 @@ public class ReplicatedDHTTest {
     public void testDelete_notExistingKey() throws ConnectionException,
             TimeoutException, UnknownException {
         final String key = "_Delete_NotExistingKey";
-        final ReplicatedDHT rdht = new ReplicatedDHT();
+        final Connection c = ConnectionFactory.getInstance().createConnection("test");
+        final ReplicatedDHT rdht = new ReplicatedDHT(c);
+        final RoutingTable rt = new RoutingTable(c);
+        final int r = rt.getReplicationFactor();
 
         try {
             for (int i = 0; i < testData.length; ++i) {
-                final int deleted = rdht.delete(testTime + key + i);
+                final DeleteResult result0 = rdht.delete(testTime + key + i);
                 final DeleteResult result = rdht.getLastDeleteResult();
-                assertEquals(0, deleted);
+                assertEquals(result0, result);
+                assertEquals(true, result.hasDeletedAll(c));
                 assertEquals(0, result.ok);
                 assertEquals(0, result.locks_set);
-                assertEquals(4, result.undef);
+                assertEquals(r, result.undef);
 
                 // make sure the key does not exist afterwards:
                 checkKeyDoesNotExist(testTime + key + i);
             }
         } finally {
-            rdht.closeConnection();
+            c.close();
         }
     }
 
@@ -166,6 +173,8 @@ public class ReplicatedDHTTest {
         final Connection c = ConnectionFactory.getInstance().createConnection("test");
         final ReplicatedDHT rdht = new ReplicatedDHT(c);
         final TransactionSingleOp sc = new TransactionSingleOp(c);
+        final RoutingTable rt = new RoutingTable(c);
+        final int r = rt.getReplicationFactor();
 
         try {
             for (int i = 0; i < testData.length; ++i) {
@@ -174,10 +183,11 @@ public class ReplicatedDHTTest {
 
             // now try to delete the data:
             for (int i = 0; i < testData.length; ++i) {
-                int deleted = rdht.delete(testTime + key + i);
+                DeleteResult result0 = rdht.delete(testTime + key + i);
                 DeleteResult result = rdht.getLastDeleteResult();
-                assertEquals(4, deleted);
-                assertEquals(4, result.ok);
+                assertEquals(result0, result);
+                assertEquals(true, result.hasDeletedAll(c));
+                assertEquals(r, result.ok);
                 assertEquals(0, result.locks_set);
                 assertEquals(0, result.undef);
 
@@ -185,12 +195,13 @@ public class ReplicatedDHTTest {
                 checkKeyDoesNotExist(testTime + key + i);
 
                 // try again (should be successful with 0 deletes)
-                deleted = rdht.delete(testTime + key + i);
+                result0 = rdht.delete(testTime + key + i);
                 result = rdht.getLastDeleteResult();
-                assertEquals(0, deleted);
+                assertEquals(result0, result);
+                assertEquals(true, result.hasDeletedAll(c));
                 assertEquals(0, result.ok);
                 assertEquals(0, result.locks_set);
-                assertEquals(4, result.undef);
+                assertEquals(r, result.undef);
 
                 // make sure the key does not exist afterwards:
                 checkKeyDoesNotExist(testTime + key + i);
@@ -218,6 +229,8 @@ public class ReplicatedDHTTest {
         final Connection c = ConnectionFactory.getInstance().createConnection("test");
         final ReplicatedDHT rdht = new ReplicatedDHT(c);
         final TransactionSingleOp sc = new TransactionSingleOp(c);
+        final RoutingTable rt = new RoutingTable(c);
+        final int r = rt.getReplicationFactor();
 
         try {
             for (int i = 0; i < testData.length; ++i) {
@@ -226,10 +239,11 @@ public class ReplicatedDHTTest {
 
             // now try to delete the data:
             for (int i = 0; i < testData.length; ++i) {
-                final int deleted = rdht.delete(testTime + key + i);
+                final DeleteResult result0 = rdht.delete(testTime + key + i);
                 final DeleteResult result = rdht.getLastDeleteResult();
-                assertEquals(4, deleted);
-                assertEquals(4, result.ok);
+                assertEquals(result0, result);
+                assertEquals(true, result.hasDeletedAll(c));
+                assertEquals(r, result.ok);
                 assertEquals(0, result.locks_set);
                 assertEquals(0, result.undef);
 
@@ -243,10 +257,11 @@ public class ReplicatedDHTTest {
 
             // now try to delete the data:
             for (int i = 0; i < testData.length; ++i) {
-                int deleted = rdht.delete(testTime + key + i);
+                DeleteResult result0 = rdht.delete(testTime + key + i);
                 DeleteResult result = rdht.getLastDeleteResult();
-                assertEquals(4, deleted);
-                assertEquals(4, result.ok);
+                assertEquals(result0, result);
+                assertEquals(true, result.hasDeletedAll(c));
+                assertEquals(r, result.ok);
                 assertEquals(0, result.locks_set);
                 assertEquals(0, result.undef);
 
@@ -254,12 +269,13 @@ public class ReplicatedDHTTest {
                 checkKeyDoesNotExist(testTime + key + i);
 
                 // try again (should be successful with 0 deletes)
-                deleted = rdht.delete(testTime + key + i);
+                result0 = rdht.delete(testTime + key + i);
                 result = rdht.getLastDeleteResult();
-                assertEquals(0, deleted);
+                assertEquals(result0, result);
+                assertEquals(true, result.hasDeletedAll(c));
                 assertEquals(0, result.ok);
                 assertEquals(0, result.locks_set);
-                assertEquals(4, result.undef);
+                assertEquals(r, result.undef);
 
                 // make sure the key does not exist afterwards:
                 checkKeyDoesNotExist(testTime + key + i);

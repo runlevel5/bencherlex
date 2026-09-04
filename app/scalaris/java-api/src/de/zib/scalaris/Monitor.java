@@ -17,6 +17,8 @@ package de.zib.scalaris;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
 
 import com.ericsson.otp.erlang.OtpErlangAtom;
 import com.ericsson.otp.erlang.OtpErlangList;
@@ -26,7 +28,7 @@ import com.ericsson.otp.erlang.OtpErlangTuple;
 import de.zib.scalaris.ErlangValue.ListElementConverter;
 
 /**
- * Provides methods to interact with a specific Scalaris (Erlang) VM.
+ * Provides methods to monitor a specific Scalaris (Erlang) VM.
  *
  * @author Nico Kruber, kruber@zib.de
  * @version 3.11
@@ -50,7 +52,8 @@ public class Monitor {
      */
     public Monitor(final String node) throws ConnectionException {
         final ConnectionFactory cf = ConnectionFactory.getInstance();
-        connection = cf.createConnection(new FixedNodeConnectionPolicy(node));
+        final String fixedNode = ConnectionFactory.fixLocalhostName(node);
+        connection = cf.createConnection(new FixedNodeConnectionPolicy(fixedNode));
     }
 
     /**
@@ -392,8 +395,7 @@ public class Monitor {
      * @throws ClassCastException
      *             if the conversion fails
      *
-     * @see #tupleListToMap(OtpErlangObject, ListElementConverter,
-     *      ListElementConverter)
+     * @see #tupleListToMap(OtpErlangObject, ListElementConverter, ListElementConverter)
      */
     private static Map<Long, Double> tupleListToLDMap(
             final OtpErlangObject object) throws ClassCastException {
@@ -416,5 +418,24 @@ public class Monitor {
      */
     public void closeConnection() {
         connection.close();
+    }
+
+    /**
+     * Extracts the current performance value of a timestamp-to-double map like
+     * in the members of {@link GetNodePerformanceResult} or
+     * {@link GetServicePerformanceResult}.
+     *
+     * @param map
+     *            the map to extract from
+     *
+     * @return the latest reported performance or <tt>null</tt> if there is none
+     */
+    public static Double getCurrentPerfValue(final Map<Long, Double> map) {
+        final Set<Entry<Long, Double>> entrySet = map.entrySet();
+        if (entrySet.isEmpty()) {
+            return null;
+        } else {
+            return entrySet.iterator().next().getValue();
+        }
     }
 }

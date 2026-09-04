@@ -31,7 +31,7 @@ import com.ericsson.otp.erlang.OtpSelf;
  *
  * @author Nico Kruber, kruber@zib.de
  *
- * @version 3.4
+ * @version 3.14
  * @since 2.3
  */
 public class Connection {
@@ -171,12 +171,16 @@ public class Connection {
             throws ConnectionException {
         try {
             boolean success = false;
+            final boolean isConnected = connection.isConnected();
             while(!success) {
                 try {
                     connection.sendRPC(mod, fun, args);
                     final OtpErlangObject result = connection.receiveRPC();
-                    success = true;
-                    return result;
+                    // result may be null but this should not happen and is an error anyway!
+                    if (result != null) {
+                        success = true;
+                        return result;
+                    }
                 } catch (final OtpErlangExit e) {
                     connectionPolicy.nodeFailed(remote);
                     // first re-try (connection was the first contact)
@@ -190,7 +194,10 @@ public class Connection {
                     // reconnect (and then re-try the operation) if no exception was thrown:
                     reconnect();
                 } catch (final IOException e) {
-                    connectionPolicy.nodeFailed(remote);
+                    // don't count RPC requests on closed connections as a failing node:
+                    if (isConnected) {
+                        connectionPolicy.nodeFailed(remote);
+                    }
                     // first re-try (connection was the first contact)
                     remote = connectionPolicy.selectNode(1, remote, e);
                     // reconnect (and then re-try the operation) if no exception was thrown:

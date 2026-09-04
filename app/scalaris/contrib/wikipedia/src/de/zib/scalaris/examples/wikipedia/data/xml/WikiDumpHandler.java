@@ -1,5 +1,5 @@
 /**
- *  Copyright 2007-2011 Zuse Institute Berlin
+ *  Copyright 2007-2013 Zuse Institute Berlin
  *
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -29,6 +29,7 @@ import org.xml.sax.helpers.DefaultHandler;
 
 import de.zib.scalaris.examples.wikipedia.bliki.MyNamespace;
 import de.zib.scalaris.examples.wikipedia.bliki.MyParsingWikiModel;
+import de.zib.scalaris.examples.wikipedia.bliki.NormalisedTitle;
 import de.zib.scalaris.examples.wikipedia.data.SiteInfo;
 import de.zib.scalaris.examples.wikipedia.data.xml.XmlPage.CheckSkipRevisions;
 
@@ -45,8 +46,10 @@ public abstract class WikiDumpHandler extends DefaultHandler implements WikiDump
     private XmlSiteInfo currentSiteInfo = null;
     private XmlPage currentPage;
 
-    private Set<String> blacklist = null;
-    private Set<String> whitelist = null;
+    final private Set<String> blacklist0;
+    final private Set<String> whitelist0;
+    private Set<NormalisedTitle> blacklist = null;
+    private Set<NormalisedTitle> whitelist = null;
     
     protected MyParsingWikiModel wikiModel;
     
@@ -66,6 +69,8 @@ public abstract class WikiDumpHandler extends DefaultHandler implements WikiDump
     protected PrintStream msgOut = System.out;
     
     protected boolean stop = false;
+    
+    protected boolean errorDuringImport = false;
 
     /**
      * Sets up a SAX XmlHandler exporting all parsed pages except the ones in a
@@ -76,10 +81,11 @@ public abstract class WikiDumpHandler extends DefaultHandler implements WikiDump
      * {@link #setPageCheckSkipRevisions(CheckSkipRevisions)}.
      * 
      * @param blacklist
-     *            a number of page titles to ignore
+     *            a number of page titles to ignore (un-normalised page titles),
+     *            may be <tt>null</tt>
      * @param whitelist
-     *            only import these pages (pages in this list will be normalised
-     *            once the site info is read)
+     *            only import these pages (un-normalised page titles), if
+     *            <tt>null</tt>, import all pages
      * @param maxRevisions
      *            maximum number of revisions per page (starting with the most
      *            recent) - <tt>-1/tt> imports all revisions
@@ -94,15 +100,15 @@ public abstract class WikiDumpHandler extends DefaultHandler implements WikiDump
      *            create dumps of a wiki at a specific point in time)
      */
     public WikiDumpHandler(Set<String> blacklist, Set<String> whitelist, int maxRevisions, Calendar minTime, Calendar maxTime) {
-        this.blacklist = blacklist;
-        this.whitelist = whitelist;
+        this.blacklist0 = blacklist;
+        this.whitelist0 = whitelist;
         currentPage = new XmlPage(maxRevisions, minTime, maxTime);
         // if a whitelist is given, do not render any other page:
         if (whitelist != null) {
             currentPage.setCheckSkipRevisions(new CheckSkipRevisions() {
                 @Override
                 public boolean skipRevisions(String pageTitle) {
-                    return !inWhiteList(pageTitle);
+                    return !inWhiteList(wikiModel.normalisePageTitle(pageTitle));
                 }
             });
         }
@@ -111,17 +117,27 @@ public abstract class WikiDumpHandler extends DefaultHandler implements WikiDump
     /**
      * Checks whether the given page title is in the whitelist.
      * 
-     * Note: a title's first character may need to be capitalised in order to be
-     * found.
-     * 
      * @param pageTitle
      *            the title of a page
      * 
      * @return whether the page should be imported or not
      */
-    private boolean inWhiteList(String pageTitle) {
-        return WikiDumpHandler.this.whitelist.contains(pageTitle)
-                || WikiDumpHandler.this.whitelist.contains(wikiModel.normalisePageTitle(pageTitle));
+    private boolean inWhiteList(NormalisedTitle pageTitle) {
+        return whitelist == null
+                || pageTitle.namespace.equals(MyNamespace.MEDIAWIKI_NAMESPACE_KEY)
+                || whitelist.contains(pageTitle);
+    }
+    
+    /**
+     * Checks whether the given page title is in the blacklist.
+     * 
+     * @param pageTitle
+     *            the title of a page
+     * 
+     * @return whether the page should be skipped or not
+     */
+    private boolean inBlackList(NormalisedTitle pageTitle) {
+        return blacklist != null && blacklist.contains(pageTitle);
     }
 
     /**
@@ -230,10 +246,12 @@ public abstract class WikiDumpHandler extends DefaultHandler implements WikiDump
             if (localName.equals("page")) {
                 inPage = false;
                 currentPage.endPage(uri, localName, qName);
-                if (currentPage.getPage() != null &&
-                        !blacklist.contains(currentPage.getPage().getTitle()) &&
-                        (whitelist == null || inWhiteList(currentPage.getPage().getTitle()))) {
-                    export(currentPage);
+                if (currentPage.getPage() != null) {
+                    final NormalisedTitle normTitle = wikiModel
+                            .normalisePageTitle(currentPage.getPage().getTitle());
+                    if (!inBlackList(normTitle) && inWhiteList(normTitle)) {
+                        export(currentPage);
+                    }
                 }
                 currentPage.reset();
             } else {
@@ -247,10 +265,17 @@ public abstract class WikiDumpHandler extends DefaultHandler implements WikiDump
     private void setUpWikiModel(SiteInfo siteinfo) {
         wikiModel = new MyParsingWikiModel("", "", new MyNamespace(siteinfo));
         // we are now able to normalise the page titles in the whitelist:
-        if (whitelist != null) {
-            Set<String> oldWhitelist = whitelist;
-            whitelist = new HashSet<String>(oldWhitelist.size());
-            wikiModel.normalisePageTitles(oldWhitelist, whitelist);
+        if (whitelist0 != null) {
+            this.whitelist = new HashSet<NormalisedTitle>(whitelist0.size());
+            wikiModel.normalisePageTitles(whitelist0, whitelist);
+            // we don't need the original page titles anymore:
+            this.whitelist0.clear();
+        }
+        if (blacklist0 != null) {
+            this.blacklist = new HashSet<NormalisedTitle>(blacklist0.size());
+            wikiModel.normalisePageTitles(blacklist0, blacklist);
+            // we don't need the original page titles anymore:
+            this.blacklist0.clear();
         }
     }
 
@@ -322,6 +347,17 @@ public abstract class WikiDumpHandler extends DefaultHandler implements WikiDump
         return pageCount;
     }
 
+    @Override
+    public boolean isErrorDuringImport() {
+        return errorDuringImport;
+    }
+
+    @Override
+    public void error(String message) {
+        System.err.println(message);
+        errorDuringImport = true;
+    }
+
     /**
      * Reports the speed of the import (pages/s) and may be used as a shutdown
      * handler.
@@ -329,7 +365,15 @@ public abstract class WikiDumpHandler extends DefaultHandler implements WikiDump
      * @author Nico Kruber, kruber@zib.de
      */
     public class ReportAtShutDown extends Thread {
+        @Override
         public void run() {
+            reportAtEnd();
+        }
+
+        /**
+         * Sets the import end time and reports the overall speed.
+         */
+        public void reportAtEnd() {
             // import may have been interrupted - get an end time in this case
             if (timeAtEnd == 0) {
                 importEnd();
@@ -409,6 +453,16 @@ public abstract class WikiDumpHandler extends DefaultHandler implements WikiDump
      */
     protected void setPageCheckSkipRevisions(CheckSkipRevisions checkSkipRevisions) {
         this.currentPage.setCheckSkipRevisions(checkSkipRevisions);
+    }
+
+    /**
+     * Whether {@link #stopParsing()} is supported or not.
+     * 
+     * @return stop parsing support
+     */
+    @Override
+    public boolean hasStopSupport() {
+        return true;
     }
 
     /**

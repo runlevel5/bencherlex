@@ -18,7 +18,8 @@
 
 -export([start/2, actl_trace/1]).
 -export([ls/1,hup/1,stop/1,status/1,load/1,
-         check/1,trace/1, debug_dump/1, stats/1, running_config/1]).
+         check/1,trace/1, debug_dump/1, stats/1, running_config/1,
+         configtest/1, auth/1]).
 %% internal
 -export([run/1, aloop/3, handle_a/3]).
 
@@ -53,13 +54,22 @@ run(GC) ->
     end.
 
 rand() ->
-    try
-        <<N:64>> = crypto:strong_rand_bytes(8),
-        N
-    catch
-        _:_ ->
-            error_logger:warning_msg("Running without crypto app\n"),
-            rand:uniform(1 bsl 64) - 1
+    case os:type() of
+        {win32, _} ->
+            {A1, A2, A3}=yaws:get_time_tuple(),
+            yaws_dynopts:random_seed(A1, A2, A3),
+            yaws_dynopts:random_uniform(1 bsl 64);
+        _ ->
+            try
+                crypto:start(),
+                crypto:rand_uniform(0, 1 bsl 64)
+            catch
+                _:_ ->
+                    error_logger:warning_msg("Running without crypto app\n"),
+                    {A1, A2, A3}=yaws:get_time_tuple(),
+                    yaws_dynopts:random_seed(A1, A2, A3),
+                    yaws_dynopts:random_uniform(1 bsl 64)
+            end
     end.
 
 
@@ -109,13 +119,14 @@ e(Fmt, Args) ->
 %% That way we're making sure different users
 %% cannot manipulate each others webservers
 w_ctl_file(Sid, Port, Key) ->
-    case try begin
+    case catch
+             begin
                  F = yaws:ctl_file(Sid),
                  error_logger:info_msg("Ctlfile : ~s~n", [F]),
                  file:write_file(F, io_lib:format("~w.", [{Port,Key}])),
                  {ok, FI} = file:read_file_info(F),
                  ok = file:write_file_info(F, FI#file_info{mode = 8#00600})
-             end catch throw:CaughtT1 -> CaughtT1; error:CaughtR1:CaughtS1 -> {'EXIT', {CaughtR1, CaughtS1}}; exit:CaughtR1 -> {'EXIT', CaughtR1} end of
+             end of
              {'EXIT', _} ->
                  error;
              _ ->
@@ -139,7 +150,7 @@ aloop(L, GC, Key) ->
 handle_a(A, GC, Key) ->
     case gen_tcp:recv(A, 0) of
         {ok, Data} ->
-            case try binary_to_term(Data) catch throw:CaughtT2 -> CaughtT2; error:CaughtR2:CaughtS2 -> {'EXIT', {CaughtR2, CaughtS2}}; exit:CaughtR2 -> {'EXIT', CaughtR2} end of
+            case catch binary_to_term(Data) of
                 {hup, Key} ->
                     Res = yaws:dohup(A),
                     Res;
@@ -190,31 +201,31 @@ actl_trace(What) ->
         true ->
             {ok, GC, SCs} = yaws_api:getconf(),
             case GC#gconf.trace of
-                false when What /= off->
+                false when What /= off ->
                     yaws_api:setconf(GC#gconf{trace = {true, What}},SCs),
                     io_lib:format(
-                      "Turning on trace of ~p to file ~s~n",
+                      "Turning on trace of ~p to directory ~s~n",
                       [What,
                        filename:join([GC#gconf.logdir,
-                                      "trace." ++ atom_to_list(What)])]);
+                                      yaws_trace:get_tracedir()])]);
                 false when What == off ->
                     io_lib:format("Tracing is already turned off ~n",[]);
                 {true, _} when What == off ->
                     yaws_api:setconf(GC#gconf{trace = false},SCs),
                     "Turning trace off \n";
                 {true, What} ->
-                    io_lib:format("Trace of ~p is already turned on, ose 'off' "
+                    io_lib:format("Trace of ~p is already turned on, use 'off' "
                                   "to turn off~n", [What]);
                 {true, _Other} ->
                     yaws_api:setconf(GC#gconf{trace = {true, What}},SCs),
                     io_lib:format(
-                      "Turning on trace of ~p to file ~s~n",
+                      "Turning on trace of ~p to directory ~s~n",
                       [What,
                        filename:join([GC#gconf.logdir,
-                                      "trace." ++ atom_to_list(What)])])
+                                      yaws_trace:get_tracedir()])])
             end;
         false ->
-            "Need either http | traffic | off  as argument\n"
+            "error: need one of http | traffic | off as argument\n"
     end.
 
 
@@ -255,22 +266,13 @@ a_debug_dump(Sock) ->
     yaws_debug:do_debug_dump(Sock).
 
 
--define(IPV4_FMT, "~p.~p.~p.~p").
--define(IPV6_FMT, "~2.16.0b~2.16.0b:~2.16.0b~2.16.0b:~2.16.0b~2.16.0b:~2.16.0b~2.16.0b").
+vsn(IP) when size(IP) =:= 4 ->
+    "(ipv4)";
+vsn(IP) when size(IP) =:= 8 ->
+    "(ipv6)".
 
 format_ip(IP) ->
-    case size(IP) of
-	4 ->
-	    {A, B, C, D} = IP,
-	    io_lib:format(?IPV4_FMT,
-			  [A, B, C, D]);
-
-	8 ->
-	    {A, B, C, D, E, F, G, H} = IP,
-	    io_lib:format(?IPV6_FMT,
-			  [A, B, C, D, E, F, G, H])
-    end.
-
+    inet_parse:ntoa(IP).
 
 a_running_config(Sock) ->
     gen_tcp:send(Sock, a_running_config()).
@@ -297,21 +299,22 @@ a_stats() ->
     Servers2 = parse(Servers1),
 
     case Servers2 of
-	[] ->
-	    f("No statistics available~n", []);
+        [] ->
+            f("No statistics available~n", []);
 
-	Servers2 ->
-	    Stats = fstats(Servers2),
-	    Header = f("Host IP Port Hits Sent~n", []),
+        Servers2 ->
+            Stats = fstats(Servers2),
+            Header = f("Host IP Port Hits Sent~n", []),
 
-	    Lines = lists:map(fun({Host, IP0, Port, {Hits, Sent}}) ->
-				      %% we don't use inet_parse:ntoa/1
-				      %% since it's not documented
-				      IP = format_ip(IP0),
-				      f("~s ~s ~p ~p ~p~n",
-					[Host, IP, Port, Hits, Sent])
-			      end, Stats),
-	    [Header, Lines]
+            Lines = lists:map(fun({Host, IP0, Port, {Hits, Sent}}) ->
+                                      %% we don't use inet_parse:ntoa/1
+                                      %% since it's not documented
+                                      IP = format_ip(IP0),
+                                      IPVsn = vsn(IP0),
+                                      f("~s~s ~s ~p ~p ~p~n",
+                                        [Host, IPVsn, IP, Port, Hits, Sent])
+                              end, Stats),
+            [Header, Lines]
     end.
 
 parse(V) ->
@@ -320,7 +323,8 @@ parse([], Acc) ->
     Acc;
 parse([#sconf{stats=undefined}|Tail], Acc) ->
     parse(Tail, Acc);
-parse([#sconf{listen=IP, port=Port, servername=Servername, stats=Stats}|Tail], Acc) ->
+parse([#sconf{listen=IP, port=Port, servername=Servername,
+              stats=Stats}|Tail], Acc) ->
     Host = {Servername, IP, Port, Stats},
     parse(Tail, [Host|Acc]).
 
@@ -387,6 +391,8 @@ connect_file(CtlFile) ->
                 Err ->
                     Err
             end;
+        {ok, Terms} ->
+            {error, {content, Terms}};
         Err ->
             Err
     end.
@@ -405,6 +411,13 @@ actl(SID, Term) ->
             erlang:halt(1);
         {error, econnrefused} ->
             io:format("No yaws system responds~n",[]),
+            timer:sleep(10),
+            erlang:halt(2);
+        {error, {content,Terms}} ->
+            io:format("The ctlfile ~s is readable but its content~n"
+                      "~p~n"
+                      "isn't in YAWS control file format~n",
+                      [yaws:ctl_file(SID),Terms]),
             timer:sleep(10),
             erlang:halt(2);
         {error, Reason} ->
@@ -519,17 +532,13 @@ load(X) ->
     actl(SID, {load, Modules}).
 
 check([Id, File| IncludeDirs]) ->
-    GC = yaws_config:make_default_gconf(false, undefined),
+    GC = yaws_config:make_default_gconf(false, atom_to_list(Id)),
     GC2 = GC#gconf{include_dir = lists:map(fun(X) -> atom_to_list(X) end,
-                                           IncludeDirs),
-                   id = atom_to_list(Id)
-                  },
-    yaws_server:setup_dirs(GC2),
-    put(sc, #sconf{}),
+                                           IncludeDirs)},
     put(gc, GC2),
-    put(use_yfile_name, true),
+    put(check_yaws_script, true),
     case yaws_compile:compile_file(atom_to_list(File)) of
-        {ok, [{errors, 0}| _Spec]} ->
+        {ok, 0, _Spec} ->
             timer:sleep(100),erlang:halt(0);
         _Other ->
             timer:sleep(100),erlang:halt(1)
@@ -547,3 +556,40 @@ stats([SID]) ->
 running_config([SID]) ->
     actl(SID, running_config).
 
+configtest([File]) ->
+    Env = #env{debug = false, conf  = {file, File}},
+    case catch yaws_config:load(Env) of
+        {ok, _GC, _SCs} ->
+            io:format("Syntax OK~n"),
+            timer:sleep(100),erlang:halt(0);
+        {error, Error} ->
+            io:format("Syntax error in file ~p:~n~s~n", [File, Error]),
+            timer:sleep(100),erlang:halt(1);
+        Other ->
+            io:format("Syntax error in file ~p:~n~p~n", [File, Other]),
+            timer:sleep(100),erlang:halt(1)
+    end.
+
+auth([User, Algo, Passwd]) ->
+    if
+        Algo == md5    orelse Algo == sha    orelse
+        Algo == sha224 orelse Algo == sha256 orelse
+        Algo == sha384 orelse Algo == sha512 orelse
+        Algo == ripemd160 ->
+            Salt    = yaws_dynopts:rand_bytes(32),
+            B64Salt = base64:encode(Salt),
+            Hash    = crypto:hash(Algo, [Salt, atom_to_list(Passwd)]),
+            B64Hash = base64:encode(Hash),
+            io:format("~nUser's credential successfully generated:~n", []),
+            io:format("\tPut this line in your Yaws config (in <auth> section):"
+                      " user = \"~s:{~s}$~s$~s\"~n~n",
+                      [atom_to_list(User),atom_to_list(Algo),B64Salt,B64Hash]),
+            io:format("\tOr in a .yaws_auth file:"
+                      " {\"~s\", \"~s\", \"~s\", \"~s\"}.~n",
+                      [atom_to_list(User),atom_to_list(Algo),B64Salt,B64Hash]),
+            timer:sleep(100),erlang:halt(0);
+        true ->
+            io:format("Unsupported Hash algorithm ~p~n"
+                      "\tUse: md5 | ripemd160 | sha | sha224 | sha256 | sha384 | sha512 ~n", [Algo]),
+            timer:sleep(100),erlang:halt(1)
+    end.

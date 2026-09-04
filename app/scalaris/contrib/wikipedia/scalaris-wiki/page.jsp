@@ -1,22 +1,28 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<%@ page language="java" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8"
- import="java.util.Calendar,java.util.Locale,java.text.DateFormat,java.text.SimpleDateFormat,java.util.TimeZone,java.util.Iterator,java.util.Map,java.util.List"%>
+<%@page import="de.zib.scalaris.examples.wikipedia.bliki.WikiServlet"%>
+<%@page import="de.zib.scalaris.examples.wikipedia.InvolvedKey"%>
+<%@page import="java.net.URL"%>
+<%@page language="java" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8"
+ import="java.util.Calendar,java.util.Locale,java.text.DateFormat,java.text.SimpleDateFormat,java.util.TimeZone,java.util.Iterator,java.util.Map,java.util.List,org.apache.commons.lang.StringUtils,org.apache.commons.lang.StringEscapeUtils,java.net.URLEncoder"%>
 <% String req_render = request.getParameter("render"); %>
 <jsp:useBean id="pageBean" type="de.zib.scalaris.examples.wikipedia.bliki.WikiPageBean" scope="request" />
+<jsp:useBean id="servlet" type="de.zib.scalaris.examples.wikipedia.WikiServletContext" scope="request" />
 <% /* created page based on https://secure.wikimedia.org/wiktionary/simple/wiki/relief */ %>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html lang="${ pageBean.wikiLang }" dir="${ pageBean.wikiLangDir }" xmlns="http://www.w3.org/1999/xhtml">
 <head>
+<% final String safePageTitle = StringEscapeUtils.escapeHtml(URLEncoder.encode(pageBean.getTitle(), "UTF-8")); %>
+<% final String andServiceUser = pageBean.getServiceUser().isEmpty() ? "" : "&amp;service_user=" + pageBean.getServiceUser(); %>
 <title>${ pageBean.title } - ${ pageBean.wikiTitle }</title>
 <!--<% if (!pageBean.getError().isEmpty()) { %>
 <error>${ pageBean.error }</error>
 <% } %>-->
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
 <meta http-equiv="Content-Style-Type" content="text/css" />
+<link rel="alternate" type="application/x-wiki" title="change this page" href="wiki?title=<%= safePageTitle %>&amp;action=edit<%= andServiceUser %>">
+<link rel="edit" title="change this page" href="wiki?title=<%= safePageTitle %>&amp;action=edit<%= andServiceUser %>">
 <% /* 
 <meta name="generator" content="MediaWiki 1.17wmf1" />
-<link rel="alternate" type="application/x-wiki" title="change this page" href="https://secure.wikimedia.org/wiktionary/simple/w/index.php?title=${ pageBean.title }&amp;action=edit">
-<link rel="edit" title="change this page" href="https://secure.wikimedia.org/wiktionary/simple/w/index.php?title=${ pageBean.title }&amp;action=edit">
 <link rel="apple-touch-icon" href="http://simple.wiktionary.org/apple-touch-icon.png">
 */ %>
 <link rel="shortcut icon" href="favicon-wikipedia.ico" />
@@ -55,9 +61,7 @@
                 <!-- /tagline -->
                 <!-- subtitle -->
                 <div id="contentSub">
-<% if (!pageBean.getRedirectedTo().isEmpty()) { %>
-                (Redirected to <a href="wiki?title=<%=pageBean.getRedirectedTo()%>" title="<%=pageBean.getRedirectedTo()%>"><%=pageBean.getRedirectedTo()%></a> - showing contents of redirected page)
-<% } %>
+                ${ pageBean.contentSub }
                 </div>
                 <!-- /subtitle -->
                 <!-- jumpto -->
@@ -99,7 +103,8 @@ Iterator<String> iter = pageBean.getSubCategories().iterator();
 <h3> </h3>
 <ul>
 <% for (int j = 0; j < columnCount[i]; ++j) {
-    String subCat = iter.next();
+    final String subCat = iter.next();
+    final String safeFullSubCat = StringEscapeUtils.escapeHtml(pageBean.getWikiNamespace().getCategory() + ":" + subCat);
 %>
 <li>
   <div class="CategoryTreeSection">
@@ -107,7 +112,7 @@ Iterator<String> iter = pageBean.getSubCategories().iterator();
 <% /*
 	  <span class="CategoryTreeEmptyBullet">[<b>×</b>] </span>
 */ %>
-	  <a class="CategoryTreeLabel  CategoryTreeLabelNs14 CategoryTreeLabelCategory" href="wiki?title=<%= pageBean.getWikiNamespace().getCategory() %>:<%=subCat%>"><%=subCat%></a>
+	  <a class="CategoryTreeLabel  CategoryTreeLabelNs14 CategoryTreeLabelCategory" href="wiki?title=<%=safeFullSubCat%><%= andServiceUser %>"><%=subCat%></a>
 <% /* 
 	  <span title="contains 0 subcategories, 1745 pages, and 0 files">(0)</span>
 */ %>
@@ -151,9 +156,10 @@ Iterator<String> iter = pageBean.getCategoryPages().iterator();
 <h3> </h3>
 <ul>
 <% for (int j = 0; j < columnCount[i]; ++j) {
-    String catPage = iter.next();
+    final String catPage = iter.next();
+    final String safeCatPage = StringEscapeUtils.escapeHtml(catPage);
 %>
-<li><a href="wiki?title=<%=catPage%>" title="<%=catPage%>"><%=catPage%></a></li>
+<li><a href="wiki?title=<%=safeCatPage%><%= andServiceUser %>" title="<%=safeCatPage%>"><%=catPage%></a></li>
 <% } %>
 </ul></td>
 <% } %>
@@ -168,17 +174,18 @@ Iterator<String> iter = pageBean.getCategoryPages().iterator();
 <% if (!pageBean.getCategories().isEmpty()) { %>
                 <div id="catlinks" class="catlinks">
                 <div id="mw-normal-catlinks">
-                <a href="wiki?title=Special:Categories" title="Special:Categories">Categories</a>:
+                <a href="wiki?title=Special:Categories<%= andServiceUser %>" title="Special:Categories">Categories</a>:
 <%
-	for (Iterator<String> iterator = pageBean.getCategories().iterator(); iterator.hasNext();) {
-	    final String category = iterator.next();
-	    final String fullCatName = pageBean.getWikiNamespace().getCategory() + ":" + category;
-	    out.print("<span dir=\"" + pageBean.getWikiLangDir() + "\"><a href=\"wiki?title=" + fullCatName + "\" title=\"" + fullCatName + "\">" + category + "</a></span>");
-	    
-	    if (iterator.hasNext()) {
-	        out.print(" | ");
-	    }
-	}
+    for (Iterator<String> iterator = pageBean.getCategories().iterator(); iterator.hasNext();) {
+        final String category = iterator.next();
+        final String safeCategory = StringEscapeUtils.escapeHtml(category);
+        final String safeFullCatName = pageBean.getWikiNamespace().getCategory() + ":" + safeCategory;
+        out.print("<span dir=\"" + pageBean.getWikiLangDir() + "\"><a href=\"wiki?title=" + safeFullCatName + andServiceUser + "\" title=\"" + safeFullCatName + "\">" + category + "</a></span>");
+
+        if (iterator.hasNext()) {
+            out.print(" | ");
+        }
+    }
 %>
                 </div>
                 </div>
@@ -197,7 +204,7 @@ Iterator<String> iter = pageBean.getCategoryPages().iterator();
 <div id="p-personal" class="">
     <h5>Personal tools</h5>
     <ul>
-                    <li id="pt-login"><a href="wiki?title=Spezial:Special:UserLogin&amp;returnto=${ pageBean.title }" title="You are encouraged to log in; however, it is not mandatory [o]" accesskey="o">Log in / create account</a></li>
+                    <li id="pt-login"><a href="wiki?title=Special:UserLogin&amp;returnto=<%= safePageTitle %><%= andServiceUser %>" title="You are encouraged to log in; however, it is not mandatory [o]" accesskey="o">Log in / create account</a></li>
     </ul>
 </div>
 
@@ -209,11 +216,11 @@ Iterator<String> iter = pageBean.getCategoryPages().iterator();
     <h5>Namespaces</h5>
     <ul>
     <%
-    String mainSelected = pageBean.getWikiNamespace().isTalkPage(pageBean.getTitle()) ? "" : " class=\"selected\"";
-    String talkSelected = !pageBean.getWikiNamespace().isTalkPage(pageBean.getTitle()) ? "" : " class=\"selected\"";
+    final String mainSelected = pageBean.getWikiNamespace().isTalkPage(pageBean.getTitle()) ? "" : " class=\"selected\"";
+    final String talkSelected = !pageBean.getWikiNamespace().isTalkPage(pageBean.getTitle()) ? "" : " class=\"selected\"";
     %>
-                    <li id="ca-nstab-main"<%= mainSelected %>><span><a href="wiki?title=<%= pageBean.getWikiNamespace().getPageNameFromTalkPage(pageBean.getTitle()) %>" title="View the content page [c]" accesskey="c">Page</a></span></li>
-                    <li id="ca-talk"<%= talkSelected %>><span><a href="wiki?title=<%= pageBean.getWikiNamespace().getTalkPageFromPageName(pageBean.getTitle()) %>" title="Discussion about the content page [t]" accesskey="t">Talk</a></span></li>
+                    <li id="ca-nstab-main"<%= mainSelected %>><span><a href="wiki?title=<%= StringEscapeUtils.escapeHtml(pageBean.getWikiNamespace().getPageNameFromTalkPage(pageBean.getTitle())) %><%= andServiceUser %>" title="View the content page [c]" accesskey="c">Page</a></span></li>
+                    <li id="ca-talk"<%= talkSelected %>><span><a href="wiki?title=<%= StringEscapeUtils.escapeHtml(pageBean.getWikiNamespace().getTalkPageFromPageName(pageBean.getTitle())) %><%= andServiceUser %>" title="Discussion about the content page [t]" accesskey="t">Talk</a></span></li>
     </ul>
 </div>
 
@@ -237,15 +244,17 @@ Iterator<String> iter = pageBean.getCategoryPages().iterator();
     <h5>Views</h5>
     <ul>
           <% if (!pageBean.isNotAvailable()) { %>
-                    <li id="ca-view" class="selected"><span><a href="wiki?title=${ pageBean.title }">Read</a></span></li>
+                    <li id="ca-view" class="selected"><span><a href="wiki?title=<%= safePageTitle %><%= andServiceUser %>">Read</a></span></li>
           <% if (!pageBean.isEditRestricted()) { %>
-                    <li id="ca-edit"><span><a href="wiki?title=${ pageBean.title }&amp;action=edit&amp;oldid=${ pageBean.version }" title="You can edit this page. Please use the preview button before saving [e]" accesskey="e">Change</a></span></li>
+                    <li id="ca-edit"><span><a href="wiki?title=<%= safePageTitle %>&amp;action=edit&amp;oldid=${ pageBean.version }<%= andServiceUser %>" title="You can edit this page. Please use the preview button before saving [e]" accesskey="e">Change</a></span></li>
           <% } else {%>
-                    <li id="ca-viewsource"><span><a href="wiki?title=${ pageBean.title }&amp;action=edit&amp;oldid=${ pageBean.version }" title="This page is protected. You can view its source [e]" accesskey="e">View source</a></span></li>
+                    <li id="ca-viewsource"><span><a href="wiki?title=<%= safePageTitle %>&amp;action=edit&amp;oldid=${ pageBean.version }<%= andServiceUser %>" title="This page is protected. You can view its source [e]" accesskey="e">View source</a></span></li>
           <% } %>
-                    <li id="ca-history" class="collapsible "><span><a href="wiki?title=${ pageBean.title }&amp;action=history" title="Past revisions of this page [h]" accesskey="h">View history</a></span></li>
+                    <li id="ca-history" class="collapsible "><span><a href="wiki?title=<%= safePageTitle %>&amp;action=history<%= andServiceUser %>" title="Past revisions of this page [h]" accesskey="h">View history</a></span></li>
           <% } else {%>
-                    <li id="ca-edit"><span><a href="wiki?title=${ pageBean.title }&amp;action=edit&amp;oldid=${ pageBean.version }" title="You can edit this page. Please use the preview button before saving [e]" accesskey="e">Start</a></span></li>
+          <% if (!pageBean.isEditRestricted()) { %>
+                    <li id="ca-edit"><span><a href="wiki?title=<%= safePageTitle %>&amp;action=edit&amp;oldid=${ pageBean.version }<%= andServiceUser %>" title="You can edit this page. Please use the preview button before saving [e]" accesskey="e">Start</a></span></li>
+          <% }%>
           <% } %>
     </ul>
 </div>
@@ -269,8 +278,9 @@ Iterator<String> iter = pageBean.getCategoryPages().iterator();
     <form action="wiki?" id="searchform">
         <input name="title" value="Special:Search" type="hidden" />
         <div id="simpleSearch">
-                        <input autocomplete="off" placeholder="Search" tabindex="1" id="searchInput" name="search" title="Search <%= pageBean.getWikiNamespace().getMeta() %> [f]" accesskey="f" type="text" />
-                        <button id="searchButton" type="submit" name="button" title="Search the pages for this text"><img src="skins/search-ltr.png" alt="Search" /></button>
+            <input type="hidden" value="${ pageBean.serviceUser }" name="service_user"/>
+            <input autocomplete="off" placeholder="Search" tabindex="1" id="searchInput" name="search" title="Search <%= pageBean.getWikiNamespace().getMeta() %> [f]" accesskey="f" type="text" />
+            <button id="searchButton" type="submit" name="button" title="Search the pages for this text"><img src="skins/search-ltr.png" alt="Search" /></button>
         </div>
     </form>
 </div>
@@ -282,7 +292,7 @@ Iterator<String> iter = pageBean.getCategoryPages().iterator();
         <!-- panel -->
             <div id="mw-panel" class="noprint collapsible-nav">
                 <!-- logo -->
-                    <div id="p-logo"><a style="background-image: url(&quot;images/Wikipedia.png&quot;);" href="wiki?title=Main Page" title="Visit the main page"></a></div>
+                    <div id="p-logo"><a style="background-image: url(&quot;images/Wikipedia.png&quot;);" href="wiki?title=Main Page<%= andServiceUser %>" title="Visit the main page"></a></div>
                 <!-- /logo -->
                 
 <!-- navigation -->
@@ -290,10 +300,10 @@ Iterator<String> iter = pageBean.getCategoryPages().iterator();
     <h5>Links</h5>
     <div class="body">
                 <ul>
-                    <li id="n-mainpage"><a href="wiki?title=Main Page" title="Visit the main page [z]" accesskey="z">Main Page</a></li>
-                    <li id="n-recentchanges"><a href="wiki?title=Special:RecentChanges" title="The list of recent changes in the wiki [r]" accesskey="r">New changes</a></li>
-                    <li id="n-randompage"><a href="wiki?title=Special:Random" title="Load a random page [x]" accesskey="x">Show any entry</a></li>
-                    <li id="n-help"><a href="wiki?title=Help:Contents" title="The place to find out">Help</a></li>
+                    <li id="n-mainpage"><a href="wiki?title=Main Page<%= andServiceUser %>" title="Visit the main page [z]" accesskey="z">Main Page</a></li>
+                    <li id="n-recentchanges"><a href="wiki?title=Special:RecentChanges<%= andServiceUser %>" title="The list of recent changes in the wiki [r]" accesskey="r">New changes</a></li>
+                    <li id="n-randompage"><a href="wiki?title=Special:Random<%= andServiceUser %>" title="Load a random page [x]" accesskey="x">Show any entry</a></li>
+                    <li id="n-help"><a href="wiki?title=Help:Contents<%= andServiceUser %>" title="The place to find out">Help</a></li>
                 </ul>
             </div>
 </div>
@@ -309,18 +319,20 @@ Iterator<String> iter = pageBean.getCategoryPages().iterator();
     <h5 tabindex="2">Toolbox</h5>
     <div style="display: block;" class="body">
         <ul>
-          <% if (de.zib.scalaris.examples.wikipedia.Options.WIKI_USE_BACKLINKS) { %>
-                    <li id="t-whatlinkshere"><a href="wiki?title=Special:WhatLinksHere&target=${ pageBean.title }" title="List of all wiki pages that link here [j]" accesskey="j">What links here</a></li>
+          <% if (de.zib.scalaris.examples.wikipedia.Options.getInstance().WIKI_USE_BACKLINKS) { %>
+                    <li id="t-whatlinkshere"><a href="wiki?title=Special:WhatLinksHere&target=<%= safePageTitle %><%= andServiceUser %>" title="List of all wiki pages that link here [j]" accesskey="j">What links here</a></li>
           <% } %>
           <% if (!pageBean.isNotAvailable()) { %>
-<% /*               <li id="t-recentchangeslinked"><a href="wiki?title=Special:RecentChangesLinked&target=${ pageBean.title }" title="Recent changes in pages linked from this page [k]" accesskey="k">Related changes</a></li>*/ %>
-          <% } %>
-                    <li id="t-specialpages"><a href="wiki?title=Special:SpecialPages" title="List of all special pages [q]" accesskey="q">Special pages</a></li>
 <% /*
-                    <li id="t-print"><a href="https://secure.wikimedia.org/wiktionary/simple/w/index.php?title=${ pageBean.title }&amp;printable=yes" rel="alternate" title="Printable version of this page [p]" accesskey="p">Page for printing</a></li>
+                    <li id="t-recentchangeslinked"><a href="wiki?title=Special:RecentChangesLinked&target=safePageTitle<%= andServiceUser >" title="Recent changes in pages linked from this page [k]" accesskey="k">Related changes</a></li>
+*/ %>
+          <% } %>
+                    <li id="t-specialpages"><a href="wiki?title=Special:SpecialPages<%= andServiceUser %>" title="List of all special pages [q]" accesskey="q">Special pages</a></li>
+<% /*
+                    <li id="t-print"><a href="wiki?title=safePageTitle&amp;printable=yes<%= andServiceUser >" rel="alternate" title="Printable version of this page [p]" accesskey="p">Page for printing</a></li>
 */ %>
           <% if (!pageBean.isNotAvailable()) { %>
-                    <li id="t-permalink"><a href="wiki?title=${ pageBean.title }&amp;oldid=${ pageBean.version }" title="Permanent link to this revision of the page">Permanent link</a></li>
+                    <li id="t-permalink"><a href="wiki?title=<%= safePageTitle %>&amp;oldid=${ pageBean.version }<%= andServiceUser %>" title="Permanent link to this revision of the page">Permanent link</a></li>
           <% } %>
 <% /*
                     <li><span><a href="javascript:adddefinition()">Add definition</a></span></li>
@@ -343,14 +355,14 @@ Iterator<String> iter = pageBean.getCategoryPages().iterator();
             <% if (req_render == null || req_render.equals("1")) { %>
                         Default
             <% } else { %>
-                        <a href="wiki?title=${ pageBean.title }&render=1" title="Default renderer (gwtwiki)">Default</a></li>
+                        <a href="wiki?title=<%= safePageTitle %>&render=1<%= andServiceUser %>" title="Default renderer (gwtwiki)">Default</a></li>
             <% } %>
                     </li>
                     <li id="t-renderer-none">
             <% if (req_render != null && req_render.equals("0")) { %>
                         Plain
             <% } else { %>
-                        <a href="wiki?title=${ pageBean.title }&render=0" title="No renderer (plain wiki text)">Plain</a></li>
+                        <a href="wiki?title=<%= safePageTitle %>&render=0<%= andServiceUser %>" title="No renderer (plain wiki text)">Plain</a></li>
             <% } %>
                     </li>
         </ul>
@@ -364,30 +376,53 @@ Iterator<String> iter = pageBean.getCategoryPages().iterator();
         <div id="footer">
                 <ul id="footer-info">
         <% if (!pageBean.isNotAvailable()) {
-          DateFormat dfm = new SimpleDateFormat("d MMMMM yyyy', at 'HH:mm");
+          final DateFormat dfm = new SimpleDateFormat("d MMMMM yyyy', at 'HH:mm");
           dfm.setTimeZone(TimeZone.getTimeZone("GMT")); // time presented by Wikipedia is UTC/GMT, not the local time of the user viewing the page
           %>
                     <li id="footer-info-lastmod"> This page was last modified on <%= dfm.format(pageBean.getDate().getTime()) %>.</li>
                     <li id="footer-info-copyright">
                         Text is available under the <a href="http://creativecommons.org/licenses/by-sa/3.0/">Creative Commons Attribution/Share-Alike License</a>;
                         additional terms may apply.
-                        See <a href="wiki?title=Terms of Use">Terms of Use</a> for details.</li>
+                        See <a href="wiki?title=Terms of Use<%= andServiceUser %>">Terms of Use</a> for details.</li>
         <% } %>
                 </ul>
                 <ul id="footer-places">
-                    <li id="footer-places-privacy"><a href="wiki?title=<%= pageBean.getWikiNamespace().getMeta() %>:Privacy policy" title="<%= pageBean.getWikiNamespace().getMeta() %>:Privacy policy">Privacy policy</a></li>
-                    <li id="footer-places-about"><a href="wiki?title=<%= pageBean.getWikiNamespace().getMeta() %>:About" title="<%= pageBean.getWikiNamespace().getMeta() %>:About">About <%= pageBean.getWikiNamespace().getMeta() %></a></li>
-                    <li id="footer-places-disclaimer"><a href="wiki?title=<%= pageBean.getWikiNamespace().getMeta() %>:General disclaimer" title="<%= pageBean.getWikiNamespace().getMeta() %>:General disclaimer">Disclaimers</a></li>
+                    <li id="footer-places-privacy"><a href="wiki?title=<%= pageBean.getWikiNamespace().getMeta() %>:Privacy policy<%= andServiceUser %>" title="<%= pageBean.getWikiNamespace().getMeta() %>:Privacy policy">Privacy policy</a></li>
+                    <li id="footer-places-about"><a href="wiki?title=<%= pageBean.getWikiNamespace().getMeta() %>:About<%= andServiceUser %>" title="<%= pageBean.getWikiNamespace().getMeta() %>:About">About <%= pageBean.getWikiNamespace().getMeta() %></a></li>
+                    <li id="footer-places-disclaimer"><a href="wiki?title=<%= pageBean.getWikiNamespace().getMeta() %>:General disclaimer<%= andServiceUser %>" title="<%= pageBean.getWikiNamespace().getMeta() %>:General disclaimer">Disclaimers</a></li>
                 </ul>
                 <ul id="footer-icons" class="noprint">
                 </ul>
                 <div style="clear:both"></div>
-                <pre id="db_timings" style="padding:0;line-height:0.7em;font-size:0.7em">
+                <div style="font-size:0.7em">DB Timings:
+                <pre id="db_timings" style="padding:0;line-height:0.7em">
 <% for (Map.Entry<String,List<Long>> stats : pageBean.getStats().entrySet()) { %>
 <%= stats.getKey() %>: <%= stats.getValue().toString() %>
 <% } %>
-                </pre>
+                </pre></div>
+                <div style="font-size:0.7em">Involved DB keys:
+                <pre id="involved_keys" style="padding:0;line-height:0.7em">
+<% for (InvolvedKey involvedKey : pageBean.getInvolvedKeys()) { %>
+<%= involvedKey.toString() %>
+<% } %>
+                </pre></div>
+                <div style="font-size:0.7em">Page save attempts: <span id="save_attempts">${ pageBean.saveAttempts }</span></div>
+                <div style="font-size:0.7em">Failed keys when saving page:
+                <pre id="save_failed_keys" style="padding:0;line-height:0.7em">
+<% for (Map.Entry<Integer,List<String>> failedKeys : pageBean.getFailedKeys().entrySet()) { %>
+<%= failedKeys.getKey() %>: <%= StringUtils.join(failedKeys.getValue(), " # ") %>
+<% } %>
+                </pre></div>
+<% long renderTime = (System.currentTimeMillis() - pageBean.getStartTime()); %>
+                <div style="clear:both"></div>
+                <div style="font-size:0.7em">More timings:
+                <pre id="other_timings" style="padding:0;line-height:0.7em">
+
+server: <%= renderTime %>
+
+                </pre></div>
         </div>
         <!-- /footer -->
+<% servlet.storeUserReq(pageBean, renderTime); %>
 </body>
 </html>

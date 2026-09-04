@@ -1,5 +1,5 @@
 /**
- *  Copyright 2007-2011 Zuse Institute Berlin
+ *  Copyright 2007-2013 Zuse Institute Berlin
  *
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -49,11 +49,25 @@ public class WikiPageBean extends WikiPageBeanBase {
     private Collection<String> subCategories = new LinkedList<String>();
     private Collection<String> categoryPages = new LinkedList<String>();
     
+    private String contentSub = "";
+
     /**
      * Creates an empty page bean.
      */
     public WikiPageBean() {
         super();
+    }
+
+    /**
+     * Creates a new (empty) bean with the given start time.
+     * 
+     * @param serviceUser
+     *            service user
+     * @param startTime
+     *            the time when the request reached the servlet (in ms)
+     */
+    public WikiPageBean(String serviceUser, long startTime) {
+        super(serviceUser, startTime);
     }
     
     /**
@@ -157,18 +171,18 @@ public class WikiPageBean extends WikiPageBeanBase {
     public void setCategoryPages(Collection<String> categoryPages) {
         this.categoryPages = categoryPages;
     }
-
+    
     /**
-     * @return the redirectedFrom
+     * @return the contentSub
      */
-    public String getRedirectedTo() {
-        return redirectedTo;
+    public String getContentSub() {
+        return contentSub;
     }
 
     /**
-     * @param redirectedTo the redirectedFrom to set
+     * @param contentSub the contentSub to set
      */
-    public void setRedirectedTo(String redirectedTo) {
-        this.redirectedTo = redirectedTo;
+    public void setContentSub(String contentSub) {
+        this.contentSub = contentSub;
     }
 }

@@ -15,10 +15,10 @@
 %% @author Thorsten Schuett <schuett@zib.de>
 %% @doc Ring maintenance behaviour
 %% @end
-%% @version $Id: rm_beh.erl 2639 2012-01-03 15:00:45Z kruber@zib.de $
+%% @version $Id$
 -module(rm_beh).
 -author('schuett@zib.de').
--vsn('$Id: rm_beh.erl 2639 2012-01-03 15:00:45Z kruber@zib.de $').
+-vsn('$Id$').
 
 -ifndef(have_callback_support).
 -export([behaviour_info/1]).
@@ -30,18 +30,25 @@
 -type custom_message() :: comm:message().
 
 -callback get_neighbors(state()) -> nodelist:neighborhood().
--callback init(Me::node:node_type(), Pred::node:node_type(), Succ::node:node_type()) -> state().
--callback on(custom_message(), state()) -> state() | unknown_event.
--callback zombie_node(State::state(), Node::node:node_type()) -> state().
--callback crashed_node(State::state(), DeadPid::comm:mypid()) -> state().
--callback new_pred(State::state(), NewPred::node:node_type()) -> state().
--callback new_succ(State::state(), NewSucc::node:node_type()) -> state().
--callback leave(State::state()) -> ok.
--callback remove_pred(State::state(), OldPred::node:node_type(),
-                      PredsPred::node:node_type()) -> state().
--callback remove_succ(State::state(), OldSucc::node:node_type(),
-                      SuccsSucc::node:node_type()) -> state().
--callback update_node(State::state(), NewMe::node:node_type()) -> state().
+-callback init_first() -> ok.
+-callback init(Me::node:node_type(), Pred::node:node_type(), Succ::node:node_type())
+        -> state().
+-callback trigger_action(State::state())
+        -> {ChangeReason::rm_loop:reason(), state()}.
+-callback handle_custom_message(custom_message(), state())
+        -> {ChangeReason::rm_loop:reason(), state()} | unknown_event.
+-callback zombie_node(State::state(), Node::node:node_type())
+        -> {ChangeReason::rm_loop:reason(), state()}.
+-callback fd_notify(State::state(), Event::fd:event(), DeadPid::comm:mypid(), Data::term())
+        -> {ChangeReason::rm_loop:reason(), state()}.
+-callback new_pred(State::state(), NewPred::node:node_type())
+        -> {ChangeReason::rm_loop:reason(), state()}.
+-callback new_succ(State::state(), NewSucc::node:node_type())
+        -> {ChangeReason::rm_loop:reason(), state()}.
+-callback update_node(State::state(), NewMe::node:node_type())
+        -> {ChangeReason::rm_loop:reason(), state()}.
+-callback contact_new_nodes(NewNodes::[node:node_type()]) -> ok.
+-callback trigger_interval() -> pos_integer().
 
 -callback get_web_debug_info(State::state()) -> [{string(), string()}].
 -callback check_config() -> boolean().
@@ -52,11 +59,12 @@
 behaviour_info(callbacks) ->
     [
      {get_neighbors, 1},
-     {init, 3}, {on, 2},
-     {zombie_node, 2}, {crashed_node, 2},
+     {init_first, 0}, {init, 3}, {trigger_action, 1}, {handle_custom_message, 2},
+     {trigger_interval, 0},
+     {zombie_node, 2}, {fd_notify, 4},
      {new_pred, 2}, {new_succ, 2},
-     {leave, 1},
-     {remove_pred, 3}, {remove_succ, 3}, {update_node, 2},
+     {update_node, 2},
+     {contact_new_nodes, 1},
      {get_web_debug_info, 1},
      {check_config, 0},
      {unittest_create_state, 1}

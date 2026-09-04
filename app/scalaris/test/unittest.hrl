@@ -1,5 +1,5 @@
-%  Copyright 2008-2011 Zuse Institute Berlin
-%
+%  @copyright 2008-2014 Zuse Institute Berlin
+
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
 %   You may obtain a copy of the License at
@@ -11,15 +11,10 @@
 %   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %   See the License for the specific language governing permissions and
 %   limitations under the License.
-%%%-------------------------------------------------------------------
-%%% File    : unittest.hrl
-%%% Author  : Thorsten Schuett <schuett@zib.de>
-%%% Description : contains unittest helpers
-%%%
-%%% Created :  14 Mar 2008 by Thorsten Schuett <schuett@zib.de>
-%%%-------------------------------------------------------------------
+
 %% @author Thorsten Schuett <schuett@zib.de>
-%% @copyright 2007 Thorsten Schuett
+%% @doc    contains unittest helpers
+%% @end
 %% @version $Id$
 
 -ifdef(have_ctline_support).
@@ -27,35 +22,21 @@
 -endif.
 
 %% @doc Fails the currently run unit test with a reason that is made of the
-%%      given Date formatted using the Format string (see io_lib:format/2).
+%%      given Data formatted using the Format string (see io_lib:format/2).
 %% -spec ct_fail(Format::atom() | string() | binary(), Data::[term()]) -> no_return().
 -define(ct_fail(Format, Data),
         % if possible, do not use a function to silence dialyzer warnings about
         % functions with no return
-        case erlang:whereis(ct_test_ring) of
-            undefined -> ok;
-            _         ->
-                case config:read(no_print_ring_data) of
-                    true -> ok;
-                    failed ->
-                        unittest_helper:print_ring_data()
-                end
-        end,
         ct:fail(lists:flatten(io_lib:format(Format, Data)))).
 
 -define(assert(Boolean),
-        % wrap in function so that the internal variables are out of the calling function's scope
-        fun() ->
-                case Boolean of
-                    true  -> true;
-                    UnittestAny ->
-                        unittest_helper:macro_equals_failed(
-                          UnittestAny, true, ??Boolean, true)
-                end
-        end()).
+        unittest_helper:macro_equals(Boolean, true, ??Boolean, "true", null)).
+
+-define(assert_w_note(Boolean, Note),
+        unittest_helper:macro_equals(Boolean, true, ??Boolean, "true", Note)).
 
 -define(equals(Actual, Expected),
-        unittest_helper:macro_equals(Actual, Expected, ??Actual, ??Expected)).
+        unittest_helper:macro_equals(Actual, Expected, ??Actual, ??Expected, null)).
 
 -define(equals_w_note(Actual, Expected, Note),
         unittest_helper:macro_equals(Actual, Expected, ??Actual, ??Expected, Note)).
@@ -67,7 +48,7 @@
                     ExpectedPattern -> true;
                     UnittestAny ->
                         unittest_helper:macro_equals_failed(
-                          UnittestAny, ??ExpectedPattern, ??Actual, ??ExpectedPattern)
+                          UnittestAny, ??ExpectedPattern, "=:=", ??Actual, ??ExpectedPattern, null)
                 end
         end()).
 
@@ -78,29 +59,33 @@
                     ExpectedPattern -> true;
                     UnittestAny ->
                         unittest_helper:macro_equals_failed(
-                          UnittestAny, ??ExpectedPattern, ??Actual, ??ExpectedPattern, Note)
+                          UnittestAny, ??ExpectedPattern, "=:=", ??Actual, ??ExpectedPattern, Note)
                 end
         end()).
+
+-define(compare(CompFun, Actual, Expected),
+        unittest_helper:macro_compare(CompFun, Actual, Expected, ??CompFun, ??Actual, ??Expected, null)).
+
+-define(compare_w_note(CompFun, Actual, Expected, Note),
+        unittest_helper:macro_compare(CompFun, Actual, Expected, ??CompFun, ??Actual, ??Expected, Note)).
 
 -define(expect_exception(Cmd, ExceptionType, ExceptionPattern),
         % wrap in function so that the internal variables are out of the calling function's scope
         fun() ->
                 try Cmd of
                     UnittestAny ->
-                        UnittestExpExceptionStr = "exception " ++ ??ExceptionType ++ ":" ++ ??ExceptionPattern,
+                        UnittestExpExceptionStr = "exception: " ??ExceptionType ++ ":" ++ ??ExceptionPattern,
                         unittest_helper:macro_equals_failed(
-                          UnittestAny, UnittestExpExceptionStr, ??Cmd, UnittestExpExceptionStr)
+                          UnittestAny, UnittestExpExceptionStr, "=:=", ??Cmd, UnittestExpExceptionStr, null)
                 catch
                     ExceptionType:ExceptionPattern -> true;
                     UnittestOtherType:UnittestOtherException ->
-                        UnittestExpExceptionStr = "exception " ++ ??ExceptionType ++ ":" ++ ??ExceptionPattern,
-                        UnittestActExceptionStr = lists:flatten(io_lib:format("exception ~.0p:~.0p", [UnittestOtherType, UnittestOtherException])),
+                        UnittestExpExceptionStr = "exception: " ++ ??ExceptionType ++ ":" ++ ??ExceptionPattern,
+                        UnittestActExceptionStr = lists:flatten(io_lib:format("exception: ~.0p:~.0p", [UnittestOtherType, UnittestOtherException])),
                         unittest_helper:macro_equals_failed(
-                          UnittestActExceptionStr, UnittestExpExceptionStr, ??Cmd, UnittestExpExceptionStr)
+                          UnittestActExceptionStr, UnittestExpExceptionStr, "=:=", ??Cmd, UnittestExpExceptionStr, null)
                 end
         end()).
-
--define(implies(A, B), (not (A)) orelse (B)).
 
 -define(expect_message_timeout(MsgPattern, Timeout),
         % wrap in function so that the internal variables are out of the calling function's scope
@@ -136,7 +121,7 @@
         fun() ->
                 Fun = fun(F) ->
                               case ?consume_message(Message, 0) of
-                                  ok -> F(F);
+                                  true -> F(F);
                                   timeout -> true
                               end
                       end,

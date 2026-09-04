@@ -1,5 +1,5 @@
-%  Copyright 2008-2011 Zuse Institute Berlin
-%
+%  @copyright 2008-2011 Zuse Institute Berlin
+
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
 %   You may obtain a copy of the License at
@@ -11,13 +11,15 @@
 %   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %   See the License for the specific language governing permissions and
 %   limitations under the License.
-%%% Author  : Thorsten Schuett <schuett@zib.de>
+
+%% @author Thorsten Schuett <schuett@zib.de>
+%% @doc Unit tests for the JSON-API
+%% @end
+%% @version $Id$
 -module(api_json_SUITE).
 -author('schuett@zib.de').
 -vsn('$Id$').
--export([all/0, end_per_suite/1, get_node_info/1, get_node_performance/1,
-         get_service_info/1, get_service_performance/1, init_per_suite/1,
-         suite/0]).
+-compile(export_all).
 
 -include("unittest.hrl").
 
@@ -25,13 +27,11 @@ all()   -> [get_node_info, get_node_performance, get_service_info, get_service_p
 suite() -> [ {timetrap, {seconds, 120}} ].
 
 init_per_suite(Config) ->
-    Config2 = unittest_helper:init_per_suite(Config),
     {priv_dir, PrivDir} = lists:keyfind(priv_dir, 1, Config),
     unittest_helper:make_ring(4, [{config, [{log_path, PrivDir}]}]),
-    Config2.
+    Config.
 
-end_per_suite(Config) ->
-    _ = unittest_helper:end_per_suite(Config),
+end_per_suite(_Config) ->
     ok.
 
 get_node_info(_Config) ->

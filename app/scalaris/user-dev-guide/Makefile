@@ -3,8 +3,9 @@ FILE=main.tex
 all:
 	../bin/scalarisctl -h > scalarisctl-h.out
 	../java-api/scalaris --noconfig --help > scalaris-client-java.out
-	../python-api/scalaris_client.py --help > scalaris-client-python.out
-	../ruby-api/scalaris_client.rb --help > scalaris-client-ruby.out
+	../python-api/scalaris --help > scalaris-client-python.out
+	../ruby-api/scalaris --help > scalaris-client-ruby.out
+	$(MAKE) -C rrepair
 	$(LATEX) $(FILE) | awk -f ./latex-col.awk
 	makeindex main
 	$(LATEX) $(FILE) | awk -f ./latex-col.awk

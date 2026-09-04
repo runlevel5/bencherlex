@@ -1,5 +1,5 @@
 /**
- *  Copyright 2011 Zuse Institute Berlin
+ *  Copyright 2011-2013 Zuse Institute Berlin
  *
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -15,33 +15,35 @@
  */
 package de.zib.scalaris.examples.wikipedia.data.xml;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collection;
-import java.util.HashMap;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
-import java.util.zip.GZIPInputStream;
-import java.util.zip.GZIPOutputStream;
 
 import com.almworks.sqlite4java.SQLiteConnection;
 import com.almworks.sqlite4java.SQLiteException;
 import com.almworks.sqlite4java.SQLiteStatement;
+import com.ericsson.otp.erlang.OtpErlangDecodeException;
+import com.ericsson.otp.erlang.OtpErlangObject;
 
+import de.zib.scalaris.CommonErlangObjects;
+import de.zib.scalaris.ErlangValue;
+import de.zib.scalaris.examples.wikipedia.SQLiteDataHandler;
 import de.zib.scalaris.examples.wikipedia.ScalarisDataHandler;
+import de.zib.scalaris.examples.wikipedia.ScalarisDataHandlerNormalised;
+import de.zib.scalaris.examples.wikipedia.bliki.MyNamespace.NamespaceEnum;
+import de.zib.scalaris.examples.wikipedia.bliki.NormalisedTitle;
 import de.zib.scalaris.examples.wikipedia.data.Page;
 import de.zib.scalaris.examples.wikipedia.data.Revision;
 import de.zib.scalaris.examples.wikipedia.data.ShortRevision;
 import de.zib.scalaris.examples.wikipedia.data.SiteInfo;
+import de.zib.tools.MultiHashMap;
 
 /**
  * Provides abilities to read an xml wiki dump file and prepare its contents
@@ -60,7 +62,7 @@ public class WikiDumpPrepareSQLiteForScalarisHandler extends WikiDumpPageHandler
     protected SQLiteStatement stWrite = null;
     protected long nextPageId = 0l;
     protected String dbFileName;
-    protected ArrayBlockingQueue<SQLiteJob> sqliteJobs = new ArrayBlockingQueue<SQLiteJob>(UPDATE_PAGELIST_EVERY);
+    protected ArrayBlockingQueue<Runnable> sqliteJobs = new ArrayBlockingQueue<Runnable>(UPDATE_PAGELIST_EVERY);
     SQLiteWorker sqliteWorker = new SQLiteWorker();
     
     /**
@@ -96,43 +98,6 @@ public class WikiDumpPrepareSQLiteForScalarisHandler extends WikiDumpPageHandler
         this.dbFileName = dbFileName;
     }
 
-    /**
-     * Opens a connection to a database and sets some default PRAGMAs for better
-     * performance in our case.
-     * 
-     * @param fileName
-     *            the name of the DB file
-     * @param readOnly
-     *            whether to open the DB read-only or not
-     * 
-     * @return the DB connection
-     * 
-     * @throws SQLiteException
-     *             if the connection fails or a pragma could not be set
-     */
-    static SQLiteConnection openDB(String fileName, boolean readOnly) throws SQLiteException {
-        SQLiteConnection db = new SQLiteConnection(new File(fileName));
-        if (readOnly) {
-            db.openReadonly();
-        } else {
-            db.open(true);
-        }
-        // set 1GB cache_size:
-        final SQLiteStatement stmt = db.prepare("PRAGMA page_size;");
-        if (stmt.step()) {
-            long cacheSize = stmt.columnLong(0);
-            db.exec("PRAGMA cache_size = " + (1024l*1024l*1024l / cacheSize) + ";");
-        }
-        stmt.dispose();
-        db.exec("PRAGMA synchronous = OFF;");
-        db.exec("PRAGMA journal_mode = OFF;");
-//        db.exec("PRAGMA locking_mode = EXCLUSIVE;");
-        db.exec("PRAGMA case_sensitive_like = true;"); 
-        db.exec("PRAGMA encoding = 'UTF-8';"); 
-        db.exec("PRAGMA temp_store = MEMORY;"); 
-        return db;
-    }
-
     static SQLiteStatement createReadStmt(SQLiteConnection db) throws SQLiteException {
         return db.prepare("SELECT scalaris_value FROM objects WHERE scalaris_key == ?");
     }
@@ -150,70 +115,113 @@ public class WikiDumpPrepareSQLiteForScalarisHandler extends WikiDumpPageHandler
      */
     static <T> void writeObject(SQLiteStatement stWrite, String key, T value)
             throws RuntimeException {
-        try {
-            ByteArrayOutputStream bos = new ByteArrayOutputStream();
-            ObjectOutputStream oos = new ObjectOutputStream(new GZIPOutputStream(bos));
-            oos.writeObject(value);
-            oos.flush();
-            oos.close();
-            try {
-                stWrite.bind(1, key).bind(2, bos.toByteArray()).stepThrough();
-            } finally {
-                stWrite.reset();
-            }
-        } catch (SQLiteException e) {
-            System.err.println("write of " + key + " failed (sqlite error: " + e.toString() + ")");
-        } catch (IOException e) {
-            System.err.println("write of " + key + " failed");
-        }
+        WikiDumpXml2SQLite.writeObject(stWrite, key,
+                CommonErlangObjects.encode(ErlangValue.convertToErlang(value)));
     }
 
     /**
-     * Note: may need to qualify static function call due to
-     *  http://bugs.sun.com/bugdatabase/view_bug.do?bug_id=6302954
-     * <tt>WikiDumpPrepareSQLiteForScalarisHandler.<T>readObject(stRead, key)</tt>
+     * Encodes the given object to the erlang value used by Scalaris and
+     * converts this value to bytes for use by SQLite.
      * 
-     * @param <T>
-     * @param siteinfo
+     * @param value
+     *            the object to convert
+     * 
+     * @return the byte array
+     * 
+     * @throws IOException
+     * 
+     * @see {@link #objectFromBytes(byte[])}
+     */
+    static <T> byte[] objectToBytes(T value) throws IOException {
+        return WikiDumpXml2SQLite.objectToBytes(CommonErlangObjects
+                .encode(ErlangValue.convertToErlang(value)));
+    }
+
+    /**
+     * Reads an encoded Scalaris value from a (compressed) byte array.
+     * 
+     * @param value  the byte array to get the object from
+     * 
+     * @return the encoded object
+     * 
+     * @throws IOException
+     * @throws ClassNotFoundException
+     * 
+     * @see #objectToBytes(Object)
+     */
+    static OtpErlangObject objectFromBytes(byte[] value) throws IOException,
+            ClassNotFoundException {
+        return WikiDumpXml2SQLite.<OtpErlangObject>objectFromBytes(value);
+    }
+
+    /**
+     * Reads a compressed and encoded Scalaris value from a (compressed) byte array.
+     * 
+     * @param value  the byte array to get the object from
+     * 
+     * @return the decoded object
+     * 
+     * @throws IOException
+     * @throws ClassNotFoundException
+     * 
+     * @see #objectToBytes(Object)
+     */
+    static ErlangValue objectFromBytes2(byte[] value) throws IOException,
+            ClassNotFoundException {
+        OtpErlangObject value2;
+        try {
+            value2 = CommonErlangObjects.decode(objectFromBytes(value));
+        } catch (OtpErlangDecodeException e) {
+            throw new RuntimeException(e);
+        }
+        return new ErlangValue(value2);
+    }
+
+    /**
+     * Reads an Erlang-encoded, byte-encoded object from a SQLite DB.
+     * 
+     * @param stRead
+     *            read statement
      * @param key
+     *            key to read from
+     * 
+     * @return the Erlang-encoded object
+     * 
      * @throws IOException
      * @throws FileNotFoundException
      */
-    static <T> T readObject(SQLiteStatement stRead, String key)
+    static OtpErlangObject readObject(SQLiteStatement stRead, String key)
+            throws RuntimeException, FileNotFoundException {
+        return WikiDumpXml2SQLite.<OtpErlangObject>readObject(stRead, key);
+    }
+
+    /**
+     * Reads an Erlang-encoded, byte-encoded object from a SQLite DB.
+     * 
+     * @param stRead
+     *            read statement
+     * @param key
+     *            key to read from
+     * 
+     * @return the decoded object
+     * 
+     * @throws IOException
+     * @throws FileNotFoundException
+     */
+    static ErlangValue readObject2(SQLiteStatement stRead, String key)
             throws RuntimeException, FileNotFoundException {
         try {
-            try {
-                stRead.bind(1, key);
-                if (stRead.step()) {
-                    // there should only be one result
-                    byte[] value = stRead.columnBlob(0);
-                    ObjectInputStream ois = new ObjectInputStream(
-                            new GZIPInputStream(new ByteArrayInputStream(value)));
-                    @SuppressWarnings("unchecked")
-                    T result = (T) ois.readObject();
-                    ois.close();
-                    return result;
-                } else {
-                    throw new FileNotFoundException();
-                }
-            } finally {
-                stRead.reset();
-            }
+            OtpErlangObject value = CommonErlangObjects.decode(readObject(
+                    stRead, key));
+            return new ErlangValue(value);
         } catch (FileNotFoundException e) {
             throw e;
-        } catch (SQLiteException e) {
-            System.err.println("read of " + key + " failed (sqlite error: " + e.toString() + ")");
-            throw new RuntimeException(e);
-        } catch (ClassNotFoundException e) {
-            System.err.println("read of " + key + " failed (class not found)");
-            throw new RuntimeException(e);
-        } catch (IOException e) {
-            System.err.println("read of " + key + " failed");
+        } catch (OtpErlangDecodeException e) {
             throw new RuntimeException(e);
         }
     }
     
-    protected void addSQLiteJob(SQLiteJob job) throws RuntimeException {
+    protected void addSQLiteJob(Runnable job) throws RuntimeException {
         try {
             sqliteJobs.put(job);
         } catch (InterruptedException e) {
@@ -245,8 +253,8 @@ public class WikiDumpPrepareSQLiteForScalarisHandler extends WikiDumpPageHandler
     @Override
     public void tearDown() {
         super.tearDown();
-        updatePageLists1();
-        updatePageLists2();
+        updatePageList();
+        updateLinkLists();
         addSQLiteJob(new SQLiteConvertTmpPageLists2Job());
         sqliteWorker.stopWhenQueueEmpty = true;
         addSQLiteJob(new SQLiteNoOpJob());
@@ -268,66 +276,49 @@ public class WikiDumpPrepareSQLiteForScalarisHandler extends WikiDumpPageHandler
         db.dispose();
     }
 
-    /**
-     * @param siteinfo
-     * @throws RuntimeException
-     */
     @Override
     protected void doExport(SiteInfo siteinfo) throws RuntimeException {
         addSQLiteJob(new SQLiteWriteSiteInfoJob(siteinfo, stWrite));
     }
 
-    /**
-     * @param page
-     * @param revisions
-     * @param revisions_short
-     * @throws UnsupportedOperationException
-     */
     @Override
-    protected void doExport(Page page, List<Revision> revisions, List<ShortRevision> revisions_short)
+    protected void doExport(Page page, List<Revision> revisions,
+            List<ShortRevision> revisions_short, NormalisedTitle title)
             throws UnsupportedOperationException {
         for (Revision rev : revisions) {
-            addSQLiteJob(new SQLiteWriteObjectJob<Revision>(
-                    ScalarisDataHandler.getRevKey(page.getTitle(), rev.getId(), wikiModel.getNamespace()),
-                    rev, stWrite));
+            if (rev.getId() != page.getCurRev().getId()) {
+                addSQLiteJob(new SQLiteWriteObjectJob<Revision>(
+                        ScalarisDataHandlerNormalised.getRevKey(title,
+                                rev.getId()), rev, stWrite));
+            }
         }
         addSQLiteJob(new SQLiteWriteObjectJob<List<ShortRevision>>(
-                ScalarisDataHandler.getRevListKey(page.getTitle(), wikiModel.getNamespace()),
+                ScalarisDataHandlerNormalised.getRevListKey(title),
                 revisions_short, stWrite));
         addSQLiteJob(new SQLiteWriteObjectJob<Page>(
-                ScalarisDataHandler.getPageKey(page.getTitle(), wikiModel.getNamespace()),
-                page, stWrite));
+                ScalarisDataHandlerNormalised.getPageKey(title), page, stWrite));
 
         // note: do not normalise page titles (this will be done later)
-        newPages.add(page.getTitle());
-        // simple article filter: only pages in main namespace:
-        if (wikiModel.getNamespace(page.getTitle()).isEmpty()) {
-            newArticles.add(page.getTitle());
-        }
-        // export page/article list whenever the number of new pages is more
-        // than UPDATE_PAGELIST_EVERY,
-        // note: no need to check newArticles (is <= newPages)
-        if ((newPages.size() >= UPDATE_PAGELIST_EVERY)) {
-            updatePageLists1();
+        newPages.get(NamespaceEnum.fromId(title.namespace)).add(title);
+        // only export page list every UPDATE_PAGELIST_EVERY pages:
+        if ((pageCount % UPDATE_PAGELIST_EVERY) == 0) {
+            updatePageList();
         }
         // limit the number of changes in SQLiteUpdatePageLists2Job to
         // UPDATE_PAGELIST_EVERY
         if ((newCategories.size() + newTemplates.size() + newBackLinks.size()) >= UPDATE_PAGELIST_EVERY) {
-            updatePageLists2();
+            updateLinkLists();
         }
     }
     
-    protected void updatePageLists1() {
-        addSQLiteJob(new SQLiteUpdatePageLists1Job(newPages, newArticles));
-        newPages = new ArrayList<String>(UPDATE_PAGELIST_EVERY);
-        newArticles = new ArrayList<String>(UPDATE_PAGELIST_EVERY);
+    protected void updatePageList() {
+        addSQLiteJob(new SQLiteUpdatePageLists1Job(newPages, articleCount));
+        initNewPagesList();
     }
     
-    protected void updatePageLists2() {
+    protected void updateLinkLists() {
         addSQLiteJob(new SQLiteUpdateTmpPageLists2Job(newCategories, newTemplates, newBackLinks));
-        newCategories = new HashMap<String, List<String>>(NEW_CATS_HASH_DEF_SIZE);
-        newTemplates = new HashMap<String, List<String>>(NEW_TPLS_HASH_DEF_SIZE);
-        newBackLinks = new HashMap<String, List<String>>(NEW_BLNKS_HASH_DEF_SIZE);
+        initLinkLists();
     }
     
     protected class SQLiteWorker extends Thread {
@@ -339,7 +330,8 @@ public class WikiDumpPrepareSQLiteForScalarisHandler extends WikiDumpPageHandler
             try {
                 // set up DB:
                 try {
-                    db = openDB(dbFileName, false);
+                    // set 1GB cache_size:
+                    db = SQLiteDataHandler.openDB(dbFileName, false, 1024l*1024l*1024l);
                     db.exec("CREATE TABLE objects(scalaris_key STRING PRIMARY KEY ASC, scalaris_value);");
                     db.exec("CREATE TEMPORARY TABLE pages(id INTEGER PRIMARY KEY ASC, title STRING);");
                     db.exec("CREATE INDEX page_titles ON pages(title);");
@@ -361,7 +353,7 @@ public class WikiDumpPrepareSQLiteForScalarisHandler extends WikiDumpPageHandler
                 // take jobs
 
                 while(!(sqliteJobs.isEmpty() && stopWhenQueueEmpty)) {
-                    SQLiteJob job;
+                    Runnable job;
                     try {
                         job = sqliteJobs.take();
                     } catch (InterruptedException e) {
@@ -392,15 +384,15 @@ public class WikiDumpPrepareSQLiteForScalarisHandler extends WikiDumpPageHandler
                 if (stWrite != null) {
                     stWrite.dispose();
                 }
-                try {
-                    db.exec("DROP TABLE pages;");
-                    db.exec("DROP TABLE categories;");
-                    db.exec("DROP TABLE templates;");
-                    db.exec("DROP TABLE links;");
-                } catch (SQLiteException e) {
-                    throw new RuntimeException(e);
-                }
                 if (db != null) {
+                    try {
+                        db.exec("DROP TABLE pages;");
+                        db.exec("DROP TABLE categories;");
+                        db.exec("DROP TABLE templates;");
+                        db.exec("DROP TABLE links;");
+                    } catch (SQLiteException e) {
+                        throw new RuntimeException(e);
+                    }
                     db.dispose();
                 }
                 initialised = false;
@@ -408,20 +400,16 @@ public class WikiDumpPrepareSQLiteForScalarisHandler extends WikiDumpPageHandler
         }
     }
     
-    protected static interface SQLiteJob {
-        public abstract void run();
-    }
-    
-    protected static class SQLiteNoOpJob implements SQLiteJob {
+    static class SQLiteNoOpJob implements Runnable {
         @Override
         public void run() {
         }
     }
     
-    protected static class SQLiteWriteObjectJob<T> implements SQLiteJob {
-        String key;
-        T value;
-        protected SQLiteStatement stWrite;
+    static class SQLiteWriteObjectJob<T> implements Runnable {
+        protected final String key;
+        protected final T value;
+        protected final SQLiteStatement stWrite;
         
         public SQLiteWriteObjectJob(String key, T value, SQLiteStatement stWrite) {
             this.key = key;
@@ -435,13 +423,20 @@ public class WikiDumpPrepareSQLiteForScalarisHandler extends WikiDumpPageHandler
         }
     }
     
-    abstract protected class SQLiteUpdatePageListsJob implements SQLiteJob {
+    abstract protected class SQLiteUpdatePageListsJob implements Runnable {
 
-        protected <T> T readObject(String key)
+        protected OtpErlangObject readObject(String key)
                 throws RuntimeException, FileNotFoundException {
             // Note: need to qualify static function call due to
             // http://bugs.sun.com/bugdatabase/view_bug.do?bug_id=6302954
-            return WikiDumpPrepareSQLiteForScalarisHandler.<T>readObject(stRead, key);
+            return WikiDumpPrepareSQLiteForScalarisHandler.readObject(stRead, key);
+        }
+
+        protected ErlangValue readObject2(String key)
+                throws RuntimeException, FileNotFoundException {
+            // Note: need to qualify static function call due to
+            // http://bugs.sun.com/bugdatabase/view_bug.do?bug_id=6302954
+            return WikiDumpPrepareSQLiteForScalarisHandler.readObject2(stRead, key);
         }
 
         protected <T> void writeObject(String key, T value)
@@ -454,18 +449,19 @@ public class WikiDumpPrepareSQLiteForScalarisHandler extends WikiDumpPageHandler
          * (temporary) page table.
          * 
          * @param pageTitle
-         *            (normalised) page title
+         *            page title
          * 
          * @return the ID of the page
          * 
          * @throws RuntimeException
          */
-        protected long pageToId(String pageTitle) throws RuntimeException {
+        protected long pageToId(NormalisedTitle pageTitle) throws RuntimeException {
+            String pageTitle2 = pageTitle.toString();
             try {
                 long pageId = -1;
                 // try to find the page id in the pages table:
                 try {
-                    stGetTmpPageId.bind(1, pageTitle);
+                    stGetTmpPageId.bind(1, pageTitle2);
                     if (stGetTmpPageId.step()) {
                         pageId = stGetTmpPageId.columnLong(0);
                     }
@@ -476,14 +472,14 @@ public class WikiDumpPrepareSQLiteForScalarisHandler extends WikiDumpPageHandler
                 if (pageId == -1) {
                     pageId = nextPageId++;
                     try {
-                        stWriteTmpPages.bind(1, pageId).bind(2, pageTitle).stepThrough();
+                        stWriteTmpPages.bind(1, pageId).bind(2, pageTitle2).stepThrough();
                     } finally {
                         stWriteTmpPages.reset();
                     }
                 }
                 return pageId;
             } catch (SQLiteException e) {
-                System.err.println("write of " + pageTitle + " failed (sqlite error: " + e.toString() + ")");
+                error("write of " + pageTitle + " failed (sqlite error: " + e.toString() + ")");
                 throw new RuntimeException(e);
             }
         }
@@ -495,22 +491,20 @@ public class WikiDumpPrepareSQLiteForScalarisHandler extends WikiDumpPageHandler
      * @author Nico Kruber, kruber@zib.de
      */
     protected class SQLiteUpdatePageLists1Job extends SQLiteUpdatePageListsJob {
-        List<String> newPages;
-        List<String> newArticles;
+        EnumMap<NamespaceEnum, ArrayList<NormalisedTitle>> newPages;
+        int articleCount;
         
         /**
          * Writes the page and article list to the DB.
          * 
          * @param newPages
-         *            (un-normalised) list of page titles
-         * @param newArticles
-         *            (un-normalised) list of page titles of articles
+         *            list of page titles
+         * @param articleCount
+         *            number of articles
          */
-        public SQLiteUpdatePageLists1Job(List<String> newPages, List<String> newArticles) {
-            this.newPages = new ArrayList<String>(newPages.size());
-            wikiModel.normalisePageTitles(newPages, this.newPages);
-            this.newArticles = new ArrayList<String>(newArticles.size());
-            wikiModel.normalisePageTitles(newArticles, this.newArticles);
+        public SQLiteUpdatePageLists1Job(EnumMap<NamespaceEnum, ArrayList<NormalisedTitle>> newPages, int articleCount) {
+            this.newPages = newPages;
+            this.articleCount = articleCount;
         }
         
         @Override
@@ -518,28 +512,23 @@ public class WikiDumpPrepareSQLiteForScalarisHandler extends WikiDumpPageHandler
             String scalaris_key;
             
             // list of pages:
-            scalaris_key = ScalarisDataHandler.getPageListKey();
-            List<String> pageList;
-            try {
-                pageList = readObject(scalaris_key);
-                pageList.addAll(newPages);
-            } catch (FileNotFoundException e) {
-                pageList = new ArrayList<String>(newPages);
+            for(NamespaceEnum ns : NamespaceEnum.values()) {
+                scalaris_key = ScalarisDataHandler.getPageListKey(ns.getId());
+                final List<String> curNewPages = ScalarisDataHandlerNormalised
+                        .normList2normStringList(newPages.get(ns));
+                List<String> pageList;
+                try {
+                    pageList = readObject2(scalaris_key).stringListValue();
+                    pageList.addAll(curNewPages);
+                } catch (FileNotFoundException e) {
+                    pageList = curNewPages;
+                }
+                writeObject(scalaris_key, pageList);
+                writeObject(ScalarisDataHandler.getPageCountKey(ns.getId()), pageList.size());
             }
-            writeObject(scalaris_key, pageList);
-            writeObject(ScalarisDataHandler.getPageCountKey(), pageList.size());
             
-            // list of articles:
-            scalaris_key = ScalarisDataHandler.getArticleListKey();
-            List<String> articleList;
-            try {
-                articleList = readObject(scalaris_key);
-                articleList.addAll(newArticles);
-            } catch (FileNotFoundException e) {
-                articleList = new ArrayList<String>(newArticles);
-            }
-            writeObject(scalaris_key, articleList);
-            writeObject(ScalarisDataHandler.getArticleCountKey(), articleList.size());
+            // number articles:
+            writeObject(ScalarisDataHandler.getArticleCountKey(), articleCount);
         }
     }
 
@@ -549,33 +538,33 @@ public class WikiDumpPrepareSQLiteForScalarisHandler extends WikiDumpPageHandler
      * @author Nico Kruber, kruber@zib.de
      */
     protected class SQLiteUpdateTmpPageLists2Job extends SQLiteUpdatePageListsJob {
-        HashMap<String, List<String>> newCategories;
-        HashMap<String, List<String>> newTemplates;
-        HashMap<String, List<String>> newBackLinks;
+        MultiHashMap<NormalisedTitle, NormalisedTitle> newCategories;
+        MultiHashMap<NormalisedTitle, NormalisedTitle> newTemplates;
+        MultiHashMap<NormalisedTitle, NormalisedTitle> newBackLinks;
         
         /**
          * Writes (temporary) page list mappings to the DB.
          * 
          * @param newCategories
-         *            (un-normalised) category mappings
+         *            category mappings
          * @param newTemplates
-         *            (un-normalised) template mappings
+         *            template mappings
          * @param newBackLinks
-         *            (un-normalised) link mappings
+         *            link mappings
          */
         public SQLiteUpdateTmpPageLists2Job(
-                HashMap<String, List<String>> newCategories,
-                HashMap<String, List<String>> newTemplates,
-                HashMap<String, List<String>> newBackLinks) {
+                MultiHashMap<NormalisedTitle, NormalisedTitle> newCategories,
+                MultiHashMap<NormalisedTitle, NormalisedTitle> newTemplates,
+                MultiHashMap<NormalisedTitle, NormalisedTitle> newBackLinks) {
             this.newCategories = newCategories;
             this.newTemplates = newTemplates;
             this.newBackLinks = newBackLinks;
         }
         
-        protected void addToList(SQLiteStatement stmt, String key, Collection<? extends String> values) {
+        protected void addToList(SQLiteStatement stmt, NormalisedTitle key, Collection<? extends NormalisedTitle> values) {
             long key_id = pageToId(key);
             ArrayList<Long> values_id = new ArrayList<Long>(values.size());
-            for (String value : values) {
+            for (NormalisedTitle value : values) {
                 values_id.add(pageToId(value));
             }
             try {
@@ -588,7 +577,7 @@ public class WikiDumpPrepareSQLiteForScalarisHandler extends WikiDumpPageHandler
                     stmt.reset();
                 }
             } catch (SQLiteException e) {
-                System.err.println("write of " + key + " failed (sqlite error: " + e.toString() + ")");
+                error("write of " + key + " failed (sqlite error: " + e.toString() + ")");
                 throw new RuntimeException(e);
             }
         }
@@ -596,20 +585,24 @@ public class WikiDumpPrepareSQLiteForScalarisHandler extends WikiDumpPageHandler
         @Override
         public void run() {
             // list of pages in each category:
-            for (Entry<String, List<String>> category: newCategories.entrySet()) {
+            for (Entry<NormalisedTitle, List<NormalisedTitle>> category: newCategories.entrySet()) {
                 addToList(stWriteTmpCategories, category.getKey(), category.getValue());
             }
         
             // list of pages a template is used in:
-            for (Entry<String, List<String>> template: newTemplates.entrySet()) {
+            for (Entry<NormalisedTitle, List<NormalisedTitle>> template: newTemplates.entrySet()) {
                 addToList(stWriteTmpTemplates, template.getKey(), template.getValue());
             }
             
             // list of pages linking to other pages:
-            for (Entry<String, List<String>> backlinks: newBackLinks.entrySet()) {
+            for (Entry<NormalisedTitle, List<NormalisedTitle>> backlinks: newBackLinks.entrySet()) {
                 addToList(stWriteTmpLinks, backlinks.getKey(), backlinks.getValue());
             }
         }
+    }
+    
+    private static enum ListType {
+        CAT_LIST, TPL_LIST, LNK_LIST;
     }
 
     /**
@@ -631,28 +624,8 @@ public class WikiDumpPrepareSQLiteForScalarisHandler extends WikiDumpPageHandler
                     println("  creating category lists");
                     stmt = db.prepare("SELECT cat.title, page.title FROM categories as categories " +
                             "INNER JOIN pages AS cat ON categories.category == cat.id " +
-                            "INNER JOIN pages AS page ON categories.page == page.id;");
-                    String category0 = null;
-                    List<String> catPageList = new ArrayList<String>(1000);
-                    while (stmt.step()) {
-                        final String stmtCat0 = stmt.columnString(0);
-                        final String stmtPage0 = stmt.columnString(1);
-                        final String stmtPage = wikiModel.normalisePageTitle(stmtPage0);
-                        if (category0 == null) {
-                            category0 = stmtCat0;
-                            catPageList.add(stmtPage);
-                        } else if (category0.equals(stmtCat0)) {
-                            catPageList.add(stmtPage);
-                        } else {
-                            // write old, accumulate new
-                            writeCatToScalaris(category0, catPageList);
-                            category0 = stmtCat0;
-                            catPageList.add(stmtPage);
-                        }
-                    }
-                    if (category0 != null && !catPageList.isEmpty()) {
-                        writeCatToScalaris(category0, catPageList);
-                    }
+                            "INNER JOIN pages AS page ON categories.page == page.id ORDER BY cat.title;");
+                    writeToScalarisKV(stmt, ListType.CAT_LIST);
                     stmt.dispose();
                 } while (false);
 
@@ -661,28 +634,8 @@ public class WikiDumpPrepareSQLiteForScalarisHandler extends WikiDumpPageHandler
                     println("  creating template lists");
                     stmt = db.prepare("SELECT tpl.title, page.title FROM templates as templates " +
                             "INNER JOIN pages AS tpl ON templates.template == tpl.id " +
-                            "INNER JOIN pages AS page ON templates.page == page.id;");
-                    String template0 = null;
-                    List<String> tplPageList = new ArrayList<String>(1000);
-                    while (stmt.step()) {
-                        final String stmtTpl0 = stmt.columnString(0);
-                        final String stmtPage0 = stmt.columnString(1);
-                        final String stmtPage = wikiModel.normalisePageTitle(stmtPage0);
-                        if (template0 == null) {
-                            template0 = stmtTpl0;
-                            tplPageList.add(stmtPage);
-                        } else if (template0.equals(stmtTpl0)) {
-                            tplPageList.add(stmtPage);
-                        } else {
-                            // write old, accumulate new
-                            writeTplToScalaris(template0, tplPageList);
-                            template0 = stmtTpl0;
-                            tplPageList.add(stmtPage);
-                        }
-                    }
-                    if (template0 != null && !tplPageList.isEmpty()) {
-                        writeTplToScalaris(template0, tplPageList);
-                    }
+                            "INNER JOIN pages AS page ON templates.page == page.id ORDER BY tpl.title;");
+                    writeToScalarisKV(stmt, ListType.TPL_LIST);
                     stmt.dispose();
                 } while (false);
 
@@ -691,32 +644,12 @@ public class WikiDumpPrepareSQLiteForScalarisHandler extends WikiDumpPageHandler
                     println("  creating backlink lists");
                     stmt = db.prepare("SELECT lnkDest.title, lnkSrc.title FROM links as links " +
                             "INNER JOIN pages AS lnkDest ON links.lnkDest == lnkDest.id " +
-                            "INNER JOIN pages AS lnkSrc ON links.lnkSrc == lnkSrc.id;");
-                    String linkDest0 = null;
-                    List<String> backLinksPageList = new ArrayList<String>(1000);
-                    while (stmt.step()) {
-                        final String stmtLnkDest0 = stmt.columnString(0);
-                        final String stmtLnkSrc0 = stmt.columnString(1);
-                        final String stmtLnkSrc = wikiModel.normalisePageTitle(stmtLnkSrc0);
-                        if (linkDest0 == null) {
-                            linkDest0 = stmtLnkDest0;
-                            backLinksPageList.add(stmtLnkSrc);
-                        } else if (linkDest0.equals(stmtLnkDest0)) {
-                            backLinksPageList.add(stmtLnkSrc);
-                        } else {
-                            // write old, accumulate new
-                            writeLnkToScalaris(linkDest0, backLinksPageList);
-                            linkDest0 = stmtLnkDest0;
-                            backLinksPageList.add(stmtLnkSrc);
-                        }
-                    }
-                    if (linkDest0 != null && !backLinksPageList.isEmpty()) {
-                        writeLnkToScalaris(linkDest0, backLinksPageList);
-                    }
+                            "INNER JOIN pages AS lnkSrc ON links.lnkSrc == lnkSrc.id ORDER BY lnkDest.title;");
+                    writeToScalarisKV(stmt, ListType.LNK_LIST);
                     stmt.dispose();
                 } while (false);
             } catch (SQLiteException e) {
-                System.err.println("sqlite error: " + e.toString());
+                error("sqlite error: " + e.toString());
                 throw new RuntimeException(e);
             } finally {
                 if (stmt != null) {
@@ -724,50 +657,92 @@ public class WikiDumpPrepareSQLiteForScalarisHandler extends WikiDumpPageHandler
                 }
             }
         }
-
+        
         /**
-         * @param category0
-         * @param catPageList
+         * Aggregates page lists from a 2-column table mapping a list key to a
+         * list content.
+         * 
+         * @param stmt
+         *            the statement to read from
+         * @param listType
+         *            the type of list
+         * 
+         * @throws SQLiteException
          * @throws RuntimeException
          */
-        private void writeCatToScalaris(String category0,
+        private void writeToScalarisKV(SQLiteStatement stmt, ListType listType) throws SQLiteException, RuntimeException {
+            String listKey = null;
+            List<String> pageList = new ArrayList<String>(1000);
+            while (stmt.step()) {
+                // note: both titles are already normalised!
+                final String stmtKey = stmt.columnString(0);
+                final String stmtPage = stmt.columnString(1);
+                if (listKey == null) {
+                    // first row
+                    listKey = stmtKey;
+                    pageList.add(stmtPage);
+                } else if (listKey.equals(stmtKey)) {
+                    // next item with the same list key
+                    pageList.add(stmtPage);
+                } else {
+                    // new item, i.e. different list key
+                    // -> write old list, then accumulate new
+                    writeToScalarisKV(NormalisedTitle.fromNormalised(listKey), pageList, listType);
+                    listKey = stmtKey;
+                    pageList.add(stmtPage);
+                }
+            }
+            if (listKey != null && !pageList.isEmpty()) {
+                writeToScalarisKV(NormalisedTitle.fromNormalised(listKey), pageList, listType);
+            }
+        }
+
+        private void writeToScalarisKV(NormalisedTitle listKey, List<String> pageList,
+                ListType listType) throws RuntimeException {
+            switch (listType) {
+            case CAT_LIST:
+                writeCatToScalarisKV(listKey, pageList);
+                break;
+            case TPL_LIST:
+                writeTplToScalarisKV(listKey, pageList);
+                break;
+            case LNK_LIST:
+                writeLnkToScalarisKV(listKey, pageList);
+                break;
+            }
+        }
+
+        private void writeCatToScalarisKV(NormalisedTitle category0,
                 List<String> catPageList) throws RuntimeException {
+            // note: titles in the page list are already normalised!
             String scalaris_key;
-            scalaris_key = ScalarisDataHandler.getCatPageListKey(category0, wikiModel.getNamespace());
+            scalaris_key = ScalarisDataHandlerNormalised.getCatPageListKey(category0);
             writeObject(scalaris_key, catPageList);
-            scalaris_key = ScalarisDataHandler.getCatPageCountKey(category0, wikiModel.getNamespace());
+            scalaris_key = ScalarisDataHandlerNormalised.getCatPageCountKey(category0);
             writeObject(scalaris_key, catPageList.size());
             catPageList.clear();
         }
 
-        /**
-         * @param template0
-         * @param tplPageList
-         * @throws RuntimeException
-         */
-        private void writeTplToScalaris(String template0,
+        private void writeTplToScalarisKV(NormalisedTitle template0,
                 List<String> tplPageList) throws RuntimeException {
+            // note: titles in the page list are already normalised!
             String scalaris_key;
-            scalaris_key = ScalarisDataHandler.getTplPageListKey(template0, wikiModel.getNamespace());
+            scalaris_key = ScalarisDataHandlerNormalised.getTplPageListKey(template0);
             writeObject(scalaris_key, tplPageList);
             tplPageList.clear();
         }
 
-        /**
-         * @param linkDest0
-         * @param backLinksPageList
-         * @throws RuntimeException
-         */
-        private void writeLnkToScalaris(String linkDest0,
+        private void writeLnkToScalarisKV(NormalisedTitle linkDest0,
                 List<String> backLinksPageList) throws RuntimeException {
+            // note: titles in the page list are already normalised!
             String scalaris_key;
-            scalaris_key = ScalarisDataHandler.getBackLinksPageListKey(linkDest0, wikiModel.getNamespace());
+            scalaris_key = ScalarisDataHandlerNormalised.getBackLinksPageListKey(linkDest0);
             writeObject(scalaris_key, backLinksPageList);
             backLinksPageList.clear();
         }
     }
     
-    protected static class SQLiteWriteSiteInfoJob implements SQLiteJob {
+    protected static class SQLiteWriteSiteInfoJob implements Runnable {
         SiteInfo siteInfo;
         protected SQLiteStatement stWrite;
         

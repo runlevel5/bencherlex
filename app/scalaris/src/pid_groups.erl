@@ -1,4 +1,4 @@
-% @copyright 2007-2012 Zuse Institute Berlin,
+% @copyright 2007-2016 Zuse Institute Berlin
 
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
@@ -22,17 +22,17 @@
 %%      groups. The motivation for this module was to run several
 %%      scalaris nodes in one erlang vm for debugging. But for the
 %%      processes forming a scalaris node being able to talk to each
-%%      other, they have to now their names (dht_node, config,
+%%      other, they have to know their names (dht_node, config,
 %%      etc.). This module allows the processes to keep their names.
 %%
 %%      When a new process group is created, a unique "groupname" is
 %%      created, which has to be shared by all nodes in this group.
 %% @end
-%% @version $Id: pid_groups.erl 2706 2012-01-12 10:33:07Z schintke $
+%% @version $Id$
 -module(pid_groups).
 -author('schuett@zib.de').
 -author('schintke@zib.de').
--vsn('$Id: pid_groups.erl 2706 2012-01-12 10:33:07Z schintke $').
+-vsn('$Id$').
 
 -behaviour(gen_component).
 
@@ -71,7 +71,7 @@
 
          members/1,           %% (GrpName) -> [Pids]
          members_by_name/1,   %% (GrpName) -> [pidname()]
-         
+
          pid_to_name/1,       %% translation of pids to strings for debugging
          pids_to_names/2]).
 
@@ -80,20 +80,30 @@
          groups/0,        %% () -> [GrpName]
          tab2list/0]).    %% () -> [{GrpName, PidName, Pid}]
 
+%% for persistency
+-export([group_to_filename/1,   %% (GrpName) -> string()
+         filename_to_group/1]). %% (string()) -> GrpName
+
 %% for the monitoring in the web interface
 -export([get_web_debug_info/2,    %% (Group, PidName) -> any()
-        groups_as_json/0,
-        members_by_name_as_json/1]).
+         groups_as_json/0,
+         members_by_name_as_json/1,
+         group_to_string/1,
+         string_to_group/1]).
 
 %% for unittests when group is in breakpoint
 -export([hide/1, unhide/1]).
 
--ifdef(with_export_type_support).
 -export_type([pidname/0, groupname/0]).
--endif.
 
--type(pidname() :: atom() | nonempty_string()).
--type(groupname() :: nonempty_string()).
+-type(pidname() :: nonempty_string()                       % vivaldi and fd
+                 | atom()
+                 | {atom(), atom()}
+                 | {atom(), pos_integer()}                 % the nth lease_db
+                 | {{atom(), pos_integer()}, atom()}).     % the acceptor of the nths tm
+-type(groupname() :: atom()
+                   | pos_integer()
+                   | {atom(), pos_integer() | atom()}).
 
 -type(message() ::
     {pid_groups_add, groupname(), pidname(), pid()} |
@@ -101,16 +111,18 @@
     {group_and_name_of, Pid::comm:mypid(), Source::comm:mypid()} |
     {'EXIT', pid(), Reason::any()}).
 
+-include("gen_component.hrl").
+
 %%% group creation
 %% @doc create a new group with a random name.
 -spec new() -> groupname().
 new() ->
-    randoms:getRandomString().
+    randoms:getRandomInt().
 
 %% @doc create a new group with a given prefix.
--spec new(string()) -> groupname().
+-spec new(atom()) -> groupname().
 new(Prefix) ->
-    Prefix ++ new().
+    {Prefix, new()}.
 
 %%% group membership management
 %% @doc Current process joins the group GrpName, but has no process name.
@@ -135,14 +147,21 @@ join_as(GrpName, PidName) ->
 add(GrpName, PidName, Pid) ->
     comm:send_local(pid_groups_manager(),
                     {pid_groups_add, GrpName, PidName, Pid, self()}),
-    receive {pid_groups_add_done} -> ok end.
+    trace_mpath:thread_yield(),
+    receive
+        ?SCALARIS_RECV({pid_groups_add_done}, ok);
+        ?SCALARIS_RECV(
+            {pid_groups_add_done, OldGroup, OldName}, %% ->
+            throw({Pid, already_registered_as, OldGroup, OldName, was_trying, GrpName, PidName})
+          )
+    end.
 
 
 %%% operations inside a group (PRE_COND: caller is group member):
 -spec my_groupname() -> groupname() | undefined.
 my_groupname() -> erlang:get('$@groupname').
 
--spec my_pidname() -> pidname().
+-spec my_pidname() -> pidname() | undefined.
 my_pidname() -> erlang:get('$@pidname').
 
 %% @doc Gets the Pid of the current process' group member with the given name.
@@ -150,7 +169,7 @@ my_pidname() -> erlang:get('$@pidname').
 get_my(PidName) ->
     case my_groupname() of
         undefined -> failed;
-        GrpName   -> pid_of(GrpName, PidName)
+        GrpName   -> cached_lookup(GrpName, PidName)
     end.
 
 -spec my_members() -> [pid()].
@@ -166,13 +185,12 @@ my_tab2list() ->
 %% @doc lookup a pid via its group name and pid name.
 -spec pid_of(groupname(), pidname()) -> pid() | failed.
 pid_of(GrpName, PidName) ->
-    case ets:lookup(?MODULE, {GrpName, PidName}) of
-        [{{GrpName, PidName}, Pid}] -> Pid;
-        []                          -> failed
-    end.
+    cached_lookup(GrpName, PidName).
 
 %% @doc lookup group and pid name of a process via its pid.
 -spec group_and_name_of(pid()) -> {groupname(), pidname()} | failed.
+%% maybe used with reg_name() but '_' would violates result type.
+group_and_name_of('_') -> failed;
 group_and_name_of(Pid) ->
     case ets:match(?MODULE, {'$1',Pid}) of
         [[{GrpName, PidName}]] -> {GrpName, PidName};
@@ -198,32 +216,114 @@ group_with(PidName) ->
 -spec groups_with(pidname()) -> [groupname()] | failed.
 groups_with(PidName) ->
     case ets:match(?MODULE, {{'$1', PidName}, '_'}) of
-        []   -> failed;
-        Groups -> lists:append(Groups)
+        [_|_] = Groups -> lists:append(Groups);
+        []   -> failed
     end.
 
+%% @doc find a pid with the given name (search in own group first), otherwise
+%% allow round-robin returns of all the pids with this name in any group
 -spec find_a(pidname()) -> pid() | failed.
 find_a(PidName) ->
-    % try in my own group first
-    case get_my(PidName) of
-        failed ->
-            % search others
-            case ets:match(?MODULE, {{'_', PidName}, '$1'}) of
-                [[Pid] | _] -> Pid;
-                []          -> failed
+    cached_lookup('_', PidName).
+
+%% @doc perform a lookup with caching and cheking whether the cache is up to date.
+%% Commonly used by find_a/1 and get_my/1. get_my should only search in the own
+%% group, while find_a/1 first searches the own group and then searches in other
+%% groups (parameter SearchGrp =:= '_' instead of a groupname()). For find_a/1,
+%% if several matching pidnames are found, we use a round-robin cache per client
+%% process to spread the load.
+%% @private
+-spec cached_lookup('_' | groupname(), pidname()) -> pid() | failed.
+cached_lookup(SearchGrp, PidName) ->
+    CachedName = {'$?scalaris_pid_groups_cache', SearchGrp, PidName},
+    case erlang:get(CachedName) of
+        undefined ->
+            %% try in my own group first
+            X = case my_groupname() of
+                    undefined -> failed;
+                    SearchGrp ->
+                        %% lookup in own group
+                        case ets:lookup(?MODULE, {SearchGrp, PidName}) of
+                            [{{SearchGrp, PidName}, FPid}] -> FPid;
+                            [] -> failed
+                        end;
+                    GrpName ->
+                        %% generic search, but lookup in own group first.
+                        %% recursive call to ask cache of own group before doing a lookup
+                        cached_lookup(GrpName, PidName)
+                end,
+            %% when (failed =:= X) -> search in own group did not help
+            case X of
+                failed ->
+                    %% search others (when SearchGrp =:= '_' as in find_a/1)
+                    case ets:match(?MODULE, {{SearchGrp, PidName}, '$1'}) of
+                        [[FoundPid]] ->
+                            erlang:put(CachedName, FoundPid),
+                            FoundPid;
+                        [[_TPid] | _] = Pids ->
+                            %% fill process local cache
+                            ?DBG_ASSERT(SearchGrp =:= '_'),
+                            %% This should only happen for client
+                            %% processes not registered in a pid_group (failed)
+                            %% io:format("Ring is created to find a ~p in ~p ~p~n",
+                            %% [PidName, self(), pid_groups:group_and_name_of(self())]),
+                            Ring = ring_new([PidX || [PidX] <- util:shuffle(Pids),
+                                                     erlang:is_process_alive(PidX),
+                                                     erlang:process_info(PidX, priority) =/= {priority, low}]),
+                            {Pid, NewPids} = ring_get(Ring),
+                            erlang:put(CachedName, NewPids),
+                            Pid;
+                        [] ->
+                            log:log(info, "***No pid registered for ~p ~p~n",
+                                    [PidName, util:get_stacktrace()]),
+                            failed
+                    end;
+                Pid ->
+                    erlang:put(CachedName, Pid),
+                    Pid
             end;
-        Pid -> Pid
+        Pid when is_pid(Pid) ->
+            %% clean process local cache if entry is outdated
+            case erlang:is_process_alive(Pid) andalso
+                     erlang:process_info(Pid, priority) =/= {priority, low} of
+                true ->
+                    Pid;
+                false -> erlang:erase(CachedName),
+                         cached_lookup(SearchGrp, PidName)
+            end;
+        Pids ->
+            %% clean process local cache if entry is outdated
+            {Pid, NewPids} = ring_get(Pids),
+            case erlang:is_pid(Pid)
+                andalso erlang:is_process_alive(Pid)
+                andalso
+                erlang:process_info(Pid, priority) =/= {priority, low} of
+                true ->
+                    erlang:put(CachedName, NewPids),
+                    Pid;
+                false -> erlang:erase(CachedName),
+                         cached_lookup(SearchGrp, PidName)
+            end
     end.
+
+-spec ring_get({list(), list()}) -> {any(), {list(), list()}}.
+ring_get({[], []})        -> {'$dead_code', {[], []}};
+ring_get({[E], []} = Q)   -> {E, Q};
+ring_get({[], L}) -> ring_get({lists:reverse(L), []});
+ring_get({[ E | R ], L})  -> {E, {R, [E|L]}}.
+
+-spec ring_new(list()) -> {list(), list()}.
+ring_new(L) -> {L, []}.
 
 -spec find_all(pidname()) -> [pid()].
 find_all(PidName) ->
     PidList = ets:match(?MODULE, {{'_', PidName}, '$1'}),
-    lists:flatten(PidList).
+    lists:append(PidList).
 
 -spec members(groupname()) -> [pid()].
 members(GrpName) ->
     PidList = ets:match(?MODULE, {{GrpName, '_'}, '$1'}),
-    lists:flatten(PidList).
+    lists:append(PidList).
 
 -spec members_by_name(groupname()) -> [pidname()].
 members_by_name(GrpName) ->
@@ -245,6 +345,31 @@ groups() ->
 -spec tab2list() -> [{{groupname(), pidname()}, pid()}].
 tab2list() -> ets:tab2list(?MODULE).
 
+%% @doc only supports the form {atom(), pos_integer()} | atom(). Not
+%%      deeper nested structures.
+-spec group_to_filename(groupname()) -> nonempty_string().
+group_to_filename('') ->
+    ?ASSERT(util:is_unittest()),
+    "''"; %% make tester happy by not delivering an empty string
+group_to_filename(GrpName) when is_atom(GrpName) ->
+    atom_to_list(GrpName);
+group_to_filename(GrpName) when is_integer(GrpName) ->
+    integer_to_list(GrpName);
+group_to_filename({Prefix, Postfix}) ->
+    group_to_filename(Prefix) ++ "@" ++ group_to_filename(Postfix).
+
+%% @doc only supports the form {atom(), pos_integer()} | atom(). Not
+%%      deeper nested structures.
+-spec filename_to_group(nonempty_string()) -> groupname().
+%% filename_to_group([]) -> {'',''};
+filename_to_group(GrpName) ->
+    case string:sub_word(GrpName, 1, $@) of
+        GrpName ->
+            list_to_atom(GrpName);
+        Part1 ->
+            {list_to_atom(Part1), list_to_integer(string:sub_word(GrpName, 2, $@))}
+    end.
+
 %% @doc Resolve a local pid to its name.
 -spec pid_to_name(pid() | {groupname(), pidname()}) -> string().
 pid_to_name(Pid) when is_pid(Pid) ->
@@ -262,20 +387,26 @@ pids_to_names(Pids, Timeout) ->
                 case comm:is_local(Pid) of
                     true -> comm:make_local(Pid);
                     _    -> comm:send(comm:get(pid_groups, Pid),
-                                      {group_and_name_of, Pid, comm:this_with_cookie(Pid)}),
+                                      {group_and_name_of, Pid,
+                                       comm:reply_as(comm:this(), 2, {ok, '_', Pid})}),
                             comm:send_local_after(Timeout, self(), {timeout, Pid})
                 end
             end || Pid <- Pids],
     [begin
          case erlang:is_reference(Ref) of
              false -> pid_to_name(Ref);
-             _     -> receive
-                          {{group_and_name_of_response, Name}, Pid} ->
-                              _ = erlang:cancel_timer(Ref),
-                              receive {timeout, Pid} -> ok
-                                  after 0 -> ok
-                              end,
-                              pid_to_name(Name);
+             _     -> trace_mpath:thread_yield(),
+                      receive
+                          ?SCALARIS_RECV(
+                              {ok, {group_and_name_of_response, Name}, Pid}, %% ->
+                              begin
+                                  _ = erlang:cancel_timer(Ref),
+                                  receive {timeout, Pid} -> ok
+                                      after 0 -> ok
+                                  end,
+                                  pid_to_name(Name)
+                              end
+                            );
                           {timeout, Pid} ->
                               lists:flatten(
                                 io_lib:format("~.0p (timeout)", [Pid]))
@@ -285,36 +416,17 @@ pids_to_names(Pids, Timeout) ->
 
 %% for the monitoring in the web interface
 %% @doc get info about a process
--spec get_web_debug_info(groupname(), nonempty_string()) ->
+-spec get_web_debug_info(string(), string()) ->
    {struct, [{pairs, {array, [{struct, [{key | value, nonempty_string()}]}]}}]}.
-get_web_debug_info(GrpName, PidNameString) ->
-    PidName = try erlang:list_to_existing_atom(PidNameString)
-              catch error:badarg -> PidNameString
-              end,
-    Pid = case pid_of(GrpName, PidName) of
-              failed -> pid_of(GrpName, PidNameString);
-              X -> X
+get_web_debug_info([], []) ->
+    {struct, [{pairs, {array, [ {struct, [{key, "process"}, {value, "unknown"}]} ]}}]};
+get_web_debug_info(GrpStr, PidNameString) ->
+    GrpName = string_to_group(GrpStr),
+    KVs = case pid_of_string(GrpName, PidNameString) of
+              failed -> [{"process", "unknown"}];
+              Pid    -> util:debug_info(Pid)
           end,
-    KVs =
-        case Pid of
-            failed -> [{"process", "unknown"}];
-            _ ->
-                comm:send_local(Pid , {web_debug_info, self()}),
-                GenCompInfo =
-                    receive
-                        {web_debug_info_reply, LocalKVs} -> LocalKVs
-                    after 2000 -> []
-                    end,
-
-                [{_, Memory}, {_, Reductions}, {_, QueueLen}] =
-                    process_info(Pid, [memory, reductions, message_queue_len]),
-
-                [{"memory", Memory},
-                 {"reductions", Reductions},
-                 {"message_queue_len", QueueLen}
-                 | GenCompInfo]
-        end,
-    JsonKVs = [ {struct, [{key, K}, {value, toString(V)}]} || {K, V} <- KVs],
+    JsonKVs = [ {struct, [{key, K}, {value, V}]} || {K, V} <- KVs],
     {struct, [{pairs, {array, JsonKVs}}]}.
 
 %% for web interface
@@ -323,19 +435,38 @@ get_web_debug_info(GrpName, PidNameString) ->
 groups_as_json() ->
     GroupList = groups(),
     GroupListAsStructs =
-        [ {struct, [{id, El}, {text, El}, {leaf, false}]} || El <- GroupList ],
+        [ {struct, [{id, group_to_string(El)}, {text, group_to_string(El)}, {leaf, false}]} || El <- GroupList ],
     {array, GroupListAsStructs}.
 
 %% @doc find processes in a group (for web interface)
--spec members_by_name_as_json(groupname()) ->
+-spec members_by_name_as_json(nonempty_string()) ->
    {array, [{struct, [{id | text, nonempty_string()} | {leaf, true}]}]}.
-members_by_name_as_json(GrpName) ->
+members_by_name_as_json(GrpString) ->
+    GrpName = string_to_group(GrpString),
     PidList = members_by_name(GrpName),
     PidListAsJson =
-        [ {struct, [{id, toString(GrpName) ++ "." ++ toString(El)},
-                    {text, toString(El)}, {leaf, true}]}
-          || El <- PidList ],
+        [ begin
+              ElStr = pidname_to_string(El),
+              {struct, [{id, GrpString ++ "." ++ ElStr},
+                        {text, ElStr}, {leaf, true}]}
+          end || El <- PidList ],
     {array, PidListAsJson}.
+
+-spec group_to_string(groupname()) -> string().
+group_to_string(Group) when is_atom(Group) ->
+    atom_to_list(Group);
+group_to_string(Group) when is_integer(Group) ->
+    integer_to_list(Group);
+group_to_string(Group) when is_tuple(Group) ->
+    lists:flatten(io_lib:format("~p", [Group])).
+
+-spec string_to_group(nonempty_string()) -> groupname() | failed.
+string_to_group(GrpStr) ->
+    case [Name || Name <- groups(),
+                  group_to_string(Name) =:= GrpStr] of
+        [GrpName] -> GrpName;
+        [] -> failed
+    end.
 
 %% @doc hide a group of processes temporarily (for paused groups in
 %% unit tests)
@@ -343,13 +474,15 @@ members_by_name_as_json(GrpName) ->
 hide(GrpName) ->
     comm:send_local(pid_groups_manager(),
                     {pid_groups_hide, GrpName, self()}),
-    receive {pid_groups_hide_done, GrpName} -> ok end.
+    trace_mpath:thread_yield(),
+    receive ?SCALARIS_RECV({pid_groups_hide_done, GrpName}, ok) end.
 
 -spec unhide(groupname()) -> ok.
 unhide(GrpName) ->
     comm:send_local(pid_groups_manager(),
                     {pid_groups_unhide, GrpName, self()}),
-    receive {pid_groups_unhide_done, GrpName} -> ok end.
+    trace_mpath:thread_yield(),
+    receive ?SCALARIS_RECV({pid_groups_unhide_done, GrpName}, ok) end.
 
 %%
 %% pid_groups manager process (gen_component)
@@ -358,7 +491,13 @@ unhide(GrpName) ->
 %% @doc Starts the server
 -spec start_link() -> {ok, pid()}.
 start_link() ->
-    gen_component:start_link(?MODULE, fun ?MODULE:on/2, [], [{erlang_register, ?MODULE}]).
+    gen_component:start_link(?MODULE, fun ?MODULE:on/2, [],
+                             [{erlang_register, ?MODULE},
+                              %% we provide a protected ets table,
+                              %% that should be available when we
+                              %% started..., so we better wait for its
+                              %% creation.
+                              {wait_for_init}]).
 
 %% @doc Initiates the server
 %% @private
@@ -377,15 +516,22 @@ init(_Args) ->
 %% @private
 -spec on(message(), null) -> null.
 on({pid_groups_add, GrpName, PidName, Pid, ReplyTo}, State) ->
-    case ets:insert_new(?MODULE, {{GrpName, PidName}, Pid}) of
-        true -> ok;
-        false ->
-            OldPid = ets:lookup_element(?MODULE, {GrpName, PidName}, 2),
-            unlink(OldPid),
-            ets:insert(?MODULE, {{GrpName, PidName}, Pid})
+    case group_and_name_of(Pid) of
+        failed ->
+            case ets:insert_new(?MODULE, {{GrpName, PidName}, Pid}) of
+                true -> ok;
+                false ->
+                    OldPid = ets:lookup_element(?MODULE, {GrpName, PidName}, 2),
+                    unlink(OldPid),
+                    ets:insert(?MODULE, {{GrpName, PidName}, Pid})
+            end,
+            link(Pid),
+            comm:send_local(ReplyTo, {pid_groups_add_done});
+        {GrpName, PidName} ->
+            comm:send_local(ReplyTo, {pid_groups_add_done});
+        {OldGroup, OldName} ->
+            comm:send_local(ReplyTo, {pid_groups_add_done, OldGroup, OldName})
     end,
-    link(Pid),
-    comm:send_local(ReplyTo, {pid_groups_add_done}),
     State;
 
 on({drop_state}, State) ->
@@ -425,10 +571,38 @@ on({'EXIT', FromPid, _Reason}, State) ->
 
 
 %% Internal functions
--spec toString(atom() | nonempty_string()) -> nonempty_string().
-%%toString(X) -> io_lib:write_string(X).
-toString(X) when is_atom(X) -> atom_to_list(X);
-toString(X)                 -> X.
+%% @doc Helper for the web debug interface to convert a pidname.
+-spec pidname_to_string(pidname()) -> nonempty_string().
+pidname_to_string('') ->
+    ?ASSERT(util:is_unittest()),
+    "''"; %% make tester happy by not delivering an empty string
+pidname_to_string(X) when is_atom(X) ->
+    atom_to_list(X);
+pidname_to_string(Name) when is_tuple(Name) ->
+    lists:flatten(io_lib:format("~p", [Name]));
+pidname_to_string(Name) when is_list(Name) ->
+    Name.
+
+-spec pid_of_string(groupname() | failed, nonempty_string()) -> pid() | failed.
+pid_of_string(failed, _) -> failed;
+pid_of_string(GrpName, [${ | _] = PidNameStr) ->
+    case [Name || Name <- members_by_name(GrpName),
+                  pidname_to_string(Name) =:= PidNameStr] of
+        [PidName] -> pid_of(GrpName, PidName);
+        [] -> failed
+    end;
+pid_of_string(GrpName, "''") ->
+    pid_of(GrpName, '');
+pid_of_string(GrpName, PidNameStr) ->
+    PidName = try erlang:list_to_existing_atom(PidNameStr)
+              catch error:badarg -> PidNameStr
+              end,
+    case pid_of(GrpName, PidName) of
+        failed when is_atom(PidName) ->
+            % fallback for string pidnames with matching atoms somewhere
+            pid_of(GrpName, PidNameStr);
+        X -> X
+    end.
 
 %% @doc Returns the pid of the pid_groups manager process (a gen_component).
 -spec pid_groups_manager() -> pid() | failed.

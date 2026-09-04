@@ -1,5 +1,5 @@
 /**
- *  Copyright 2007-2011 Zuse Institute Berlin
+ *  Copyright 2007-2013 Zuse Institute Berlin
  *
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -20,7 +20,6 @@ import info.bliki.wiki.template.AbstractTemplateFunction;
 import info.bliki.wiki.template.ITemplateFunction;
 import info.bliki.wiki.template.If;
 
-import java.io.IOException;
 import java.util.List;
 
 /**
@@ -48,14 +47,16 @@ public class MyParsingIfTemplateFun extends AbstractTemplateFunction {
      * @see info.bliki.wiki.template.AbstractTemplateFunction#parseFunction(java.util.List, info.bliki.wiki.model.IWikiModel, char[], int, int)
      */
     @Override
-    public String parseFunction(List<String> parts, IWikiModel model,
-            char[] src, int beginIndex, int endIndex) throws IOException {
-        if (parts.size() > 1) {
-            parse(parts.get(0), model);
+    public String parseFunction(List<String> list, IWikiModel model,
+            char[] src, int beginIndex, int endIndex, boolean isSubst) {
+        if (list.size() > 1) {
+            if (!isSubst) {
+                parseTrim(list.get(0), model);
+            }
             // parse both parameters
-            String result = parse(parts.get(1), model);
-            if (parts.size() >= 3) {
-                result += parse(parts.get(2), model);
+            String result = isSubst ? list.get(1) : parseTrim(list.get(1), model);
+            if (list.size() >= 3) {
+                result += isSubst ? list.get(2) : parseTrim(list.get(2), model);
             }
             return result;
         }

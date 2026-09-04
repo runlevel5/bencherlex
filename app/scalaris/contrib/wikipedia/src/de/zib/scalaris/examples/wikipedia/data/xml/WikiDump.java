@@ -40,6 +40,13 @@ public interface WikiDump {
     public abstract void setMsgOut(PrintStream msgOut);
 
     /**
+     * Whether {@link #stopParsing()} is supported or not.
+     * 
+     * @return stop parsing support
+     */
+    public abstract boolean hasStopSupport();
+
+    /**
      * Tells the import to stop (may not be supported by an implementation!).
      */
     public abstract void stopParsing();
@@ -74,5 +81,20 @@ public interface WikiDump {
      * @see #setMsgOut(PrintStream)
      */
     public void println(String message);
+
+    /**
+     * Indicates an error with the given message. The implementation decides where and if to print it.
+     * 
+     * @param message
+     *            the error message
+     */
+    public void error(String message);
+    
+    /**
+     * Whether an error occurred during import.
+     * 
+     * @return <tt>true</tt> if an error occurred, <tt>false</tt> otherwise
+     */
+    public boolean isErrorDuringImport();
 
 }

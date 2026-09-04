@@ -15,18 +15,16 @@
 %% @author Nico Kruber <kruber@zib.de>
 %% @doc    Useful methods for mockup modules, e.g. matching of messages.
 %% @end
-%% @version $Id: mockup.erl 1445 2011-02-23 11:34:29Z kruber@zib.de $
+%% @version $Id$
 -module(mockup).
 -author('kruber@zib.de').
--vsn('$Id: mockup.erl 1445 2011-02-23 11:34:29Z kruber@zib.de $ ').
+-vsn('$Id$').
 
 -include("scalaris.hrl").
 
 -export([match_any/2]).
 
--ifdef(with_export_type_support).
 -export_type([match_spec/0]).
--endif.
 
 -type match_variable() ::
     '$1' | '$2' | '$3' | '$4' | '$5' | '$6' | '$7' | '$8' | '$9'.

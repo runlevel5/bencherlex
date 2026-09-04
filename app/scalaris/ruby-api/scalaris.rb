@@ -14,7 +14,10 @@
 #    limitations under the License.
 
 require 'rubygems'
+begin
 gem 'json', '>=1.4.1'
+rescue LoadError
+end
 require 'json'
 require 'net/http'
 require 'base64'
@@ -68,8 +71,6 @@ module Scalaris
     DEFAULT_URL = 'http://localhost:8000'
   end
   
-  # socket timeout in seconds
-  DEFAULT_TIMEOUT = 5
   # path to the json rpc page
   DEFAULT_PATH = '/jsonrpc.yaws'
   
@@ -80,7 +81,16 @@ module Scalaris
   # Exception that is thrown if a the commit of a write operation on a Scalaris
   # ring fails.
   class AbortError < ScalarisError
-    include InternalScalarisSimpleError
+    attr_reader :raw_result
+    attr_reader :failed_keys
+    def initialize(raw_result, failed_keys)
+      @raw_result = raw_result
+      @failed_keys = failed_keys
+    end
+  
+    def to_s
+      @raw_result
+    end
   end
 
   # Exception that is thrown if an operation on a Scalaris ring fails because
@@ -154,8 +164,8 @@ module Scalaris
   
   # Abstracts connections to Scalaris using JSON
   class JSONConnection
-    # Creates a JSON connection to the given URL using the given TCP timeout
-    def initialize(url = DEFAULT_URL, timeout = DEFAULT_TIMEOUT)
+    # Creates a JSON connection to the given URL using the given TCP timeout (or default)
+    def initialize(url = DEFAULT_URL, timeout = nil)
       begin
         @uri = URI.parse(url)
         @timeout = timeout
@@ -168,7 +178,9 @@ module Scalaris
     def start
       if @conn == nil or not @conn.started?
         @conn = Net::HTTP.start(@uri.host, @uri.port)
-        @conn.read_timeout = @timeout
+        unless @timeout.nil?
+          @conn.read_timeout = @timeout
+        end
       end
     end
     private :start
@@ -272,16 +284,17 @@ module Scalaris
     # Raises the appropriate exception if the operation failed.
     # 
     # result: {'status' => 'ok'} or
-    #         {'status' => 'fail', 'reason' => 'timeout' or 'abort'}
+    #         {'status' => 'fail', 'reason' => 'abort', 'keys' => <list>} or
+    #         {'status' => 'fail', 'reason' => 'timeout'}
     def self.process_result_commit(result)
       if result.is_a?(Hash) and result.has_key?('status')
         if result == {'status' => 'ok'}
           return true
-        elsif result['status'] == 'fail' and result.has_key?('reason') and result.length == 2
-          if result['reason'] == 'timeout'
+        elsif result['status'] == 'fail' and result.has_key?('reason')
+          if result.length == 2 and result['reason'] == 'timeout'
             raise TimeoutError.new(result)
-          elsif result['reason'] == 'abort'
-            raise AbortError.new(result)
+          elsif result.length == 3 and result['reason'] == 'abort' and result.has_key?('keys')
+            raise AbortError.new(result, result['keys'])
           end
         end
       end
@@ -356,60 +369,6 @@ module Scalaris
       end
       raise UnknownError.new(result)
     end
-    
-    # Processes the result of a publish operation.
-    # Raises the appropriate exception if the operation failed.
-    # 
-    # results: {'status': 'ok'}
-    def self.process_result_publish(result)
-      if result == {'status' => 'ok'}
-        return nil
-      end
-      raise UnknownError.new(result)
-    end
-    
-    # Processes the result of a subscribe operation.
-    # Raises the appropriate exception if the operation failed.
-    # 
-    # results: {'status': 'ok'} or
-    #          {'status': 'fail', 'reason': 'timeout' or 'abort'}
-    def self.process_result_subscribe(result)
-      process_result_commit(result)
-    end
-    
-    # Processes the result of a unsubscribe operation.
-    # Raises the appropriate exception if the operation failed.
-    #  
-    # results: {'status': 'ok'} or
-    #          {'status': 'fail', 'reason': 'timeout' or 'abort' or 'not_found'}
-    def self.process_result_unsubscribe(result)
-      if result == {'status' => 'ok'}
-        return nil
-      elsif result.is_a?(Hash) and result.has_key?('status')
-        if result['status'] == 'fail' and result.has_key?('reason') and result.length == 2
-          if result['reason'] == 'timeout'
-            raise TimeoutError.new(result)
-          elsif result['reason'] == 'abort'
-            raise AbortError.new(result)
-          elsif result['reason'] == 'not_found'
-            raise NotFoundError.new(result)
-          end
-        end
-      end
-      raise UnknownError.new(result)
-    end
-    
-    # Processes the result of a get_subscribers operation.
-    # Returns the list of subscribers on success.
-    # Raises the appropriate exception if the operation failed.
-    # 
-    # results: [urls=str()]
-    def self.process_result_get_subscribers(result)
-      if result.is_a?(Array)
-        return result
-      end
-      raise UnknownError.new(result)
-    end
 
     # Processes the result of a delete operation.
     # Returns an Array of
@@ -444,11 +403,11 @@ module Scalaris
       undefined = 0
       if result.is_a?(Array)
         for element in result
-          if element == 'ok':
+          if element == 'ok'
               ok += 1
-          elsif element == 'locks_set':
+          elsif element == 'locks_set'
               locks_set += 1
-          elsif element == 'undef':
+          elsif element == 'undef'
               undefined += 1
           else
             raise UnknownError.new(:'Unknown reason ' + element + :'in ' + result)
@@ -529,6 +488,8 @@ module Scalaris
     end
     
     # Issues multiple parallel requests to scalaris; each will be committed.
+    # NOTE: The execution order of multiple requests on the same key is
+    # undefined!
     # Request lists can be created using new_req_list().
     # The returned list has the following form:
     # [{'status': 'ok'} or {'status': 'ok', 'value': xxx} or
@@ -771,7 +732,7 @@ module Scalaris
     # Assumes en empty list if no value exists at key.
     def add_del_on_list(key, to_add, to_remove)
       result = req_list(new_req_list().add_add_del_on_list(key, to_add, to_remove))[0]
-      _process_result_add_del_on_list(result)
+      process_result_add_del_on_list(result)
     end
 
     # Issues a add_on_nr operation to scalaris and adds it to the
@@ -780,7 +741,7 @@ module Scalaris
     # Assumes 0 if no value exists at key.
     def add_on_nr(key, to_add)
       result = req_list(new_req_list().add_add_on_nr(key, to_add))[0]
-      _process_result_add_on_nr(result)
+      process_result_add_on_nr(result)
     end
 
     # Issues a test_and_set operation to scalaris and adds it to the
@@ -789,7 +750,7 @@ module Scalaris
     # write new_value.
     def test_and_set(key, old_value, new_value)
       result = req_list(new_req_list().add_test_and_set(key, old_value, new_value))[0]
-      _process_result_test_and_set(result)
+      process_result_test_and_set(result)
     end
 
     include InternalScalarisNopClose
@@ -808,7 +769,7 @@ module Scalaris
     
     # Adds a read operation to the request list.
     def add_read(key)
-      if (@is_commit):
+      if (@is_commit)
           raise RuntimeError.new('No further request supported after a commit!')
       end
       @requests << {'read' => key}
@@ -817,7 +778,7 @@ module Scalaris
     
     # Adds a write operation to the request list.
     def add_write(key, value, binary = false)
-      if (@is_commit):
+      if (@is_commit)
           raise RuntimeError.new('No further request supported after a commit!')
       end
       @requests << {'write' => {key => JSONConnection.encode_value(value, binary)}}
@@ -826,7 +787,7 @@ module Scalaris
 
     # Adds a add_del_on_list operation to the request list.
     def add_add_del_on_list(key, to_add, to_remove)
-      if (@is_commit):
+      if (@is_commit)
           raise RuntimeError.new('No further request supported after a commit!')
       end
       @requests << {'add_del_on_list' => {'key' => key, 'add' => to_add, 'del'=> to_remove}}
@@ -835,7 +796,7 @@ module Scalaris
 
     # Adds a add_on_nr operation to the request list.
     def add_add_on_nr(key, to_add)
-      if (@is_commit):
+      if (@is_commit)
           raise RuntimeError.new('No further request supported after a commit!')
       end
       @requests << {'add_on_nr' => {key => to_add}}
@@ -844,7 +805,7 @@ module Scalaris
 
     # Adds a test_and_set operation to the request list.
     def add_test_and_set(key, old_value, new_value)
-      if (@is_commit):
+      if (@is_commit)
           raise RuntimeError.new('No further request supported after a commit!')
       end
       @requests << {'test_and_set' => {'key' => key,
@@ -855,7 +816,7 @@ module Scalaris
 
     # Adds a commit operation to the request list.
     def add_commit
-      if (@is_commit):
+      if (@is_commit)
           raise RuntimeError.new('Only one commit per request list allowed!')
       end
       @requests << {'commit' => ''}
@@ -910,49 +871,6 @@ module Scalaris
     end
   end
 
-  # Publish and subscribe methods accessing Scalaris' pubsub system
-  class PubSub
-    # Create a new object using the given connection.
-    def initialize(conn = JSONConnection.new())
-      @conn = conn
-    end
-    
-    # Publishes content under topic.
-    def publish(topic, content)
-      # note: do NOT encode the content, this is not decoded on the erlang side!
-      # (only strings are allowed anyway)
-      # content = @conn.class.encode_value(content)
-      result = @conn.call(:publish, [topic, content])
-      @conn.class.process_result_publish(result)
-    end
-    
-    # Subscribes url for topic.
-    def subscribe(topic, url)
-      # note: do NOT encode the URL, this is not decoded on the erlang side!
-      # (only strings are allowed anyway)
-      # url = @conn.class.encode_value(url)
-      result = @conn.call(:subscribe, [topic, url])
-      @conn.class.process_result_subscribe(result)
-    end
-    
-    # Unsubscribes url from topic.
-    def unsubscribe(topic, url)
-      # note: do NOT encode the URL, this is not decoded on the erlang side!
-      # (only strings are allowed anyway)
-      # url = @conn.class.encode_value(url)
-      result = @conn.call(:unsubscribe, [topic, url])
-      @conn.class.process_result_unsubscribe(result)
-    end
-    
-    # Gets the list of all subscribers to topic.
-    def get_subscribers(topic)
-      result = @conn.call(:get_subscribers, [topic])
-      @conn.class.process_result_get_subscribers(result)
-    end
-    
-    include InternalScalarisNopClose
-  end
-
   # Non-transactional operations on the replicated DHT of Scalaris
   class ReplicatedDHT
     # Create a new object using the given connection.
@@ -988,6 +906,25 @@ module Scalaris
     # result object once generated.
     def get_last_delete_result
       @conn.class.create_delete_result(@lastDeleteResult)
+    end
+
+    include InternalScalarisNopClose
+  end
+
+  # API for using routing tables
+  class RoutingTable
+    # Create a new object using the given connection.
+    def initialize(conn = JSONConnection.new())
+      @conn = conn
+    end
+
+    def get_replication_factor()
+      result_raw = @conn.call(:get_replication_factor, [])
+      if result_raw.is_a?(Hash) and result_raw.has_key?('status') and result_raw.has_key?('value')
+        return result_raw['value']
+      else
+        raise UnknownError.new(result)
+      end
     end
 
     include InternalScalarisNopClose

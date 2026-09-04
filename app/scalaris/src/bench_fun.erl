@@ -1,5 +1,5 @@
-% Copyright 2008-2011 Zuse Institute Berlin
-%
+%  @copyright 2008-2015 Zuse Institute Berlin
+
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
 %   You may obtain a copy of the License at
@@ -11,17 +11,15 @@
 %   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %   See the License for the specific language governing permissions and
 %   limitations under the License.
-%%%-------------------------------------------------------------------
-%%% File    : bench_fun.erl
-%%% Author  : Thorsten Schuett <schuett@zib.de>
-%%% Description : i++ benchmark
-%%%
-%%% Created :  25 Aug 2008 by Thorsten Schuett <schuett@zib.de>
-%%%-------------------------------------------------------------------
+
+%% @author Thorsten Schuett <schuett@zib.de>
+%% @doc    i++ benchmark
+%% @end
+%% @version $Id$
 -module(bench_fun).
 
 -author('schuett@zib.de').
--vsn('$Id: bench_fun.erl 2560 2011-12-14 11:25:53Z kruber@zib.de $').
+-vsn('$Id$').
 
 -include("scalaris.hrl").
 -include("client_types.hrl").
@@ -96,28 +94,25 @@ inc(Key) ->
         Fail -> Fail
     end.
 
--spec increment_iter(string(), integer(), non_neg_integer()) -> any().
+-spec increment_iter(string(), integer(), non_neg_integer()) -> non_neg_integer().
 increment_iter(_Key, 0, Aborts) ->
     Aborts;
 increment_iter(Key, Iterations, Aborts) ->
     Result = inc(Key),
     case Result of
         {ok}              -> increment_iter(Key, Iterations - 1, Aborts);
-        {fail, abort}     ->
-            timer:sleep(randoms:rand_uniform(1, 10 * Aborts + 1)),
-            increment_iter(Key, Iterations, Aborts + 1);
-        {fail, timeout}   ->
-            %% overloaded system?
-            timer:sleep(randoms:rand_uniform(1, 100 * (Aborts + 1)
-                                                   * (Aborts +1))),
+        {fail, abort, [Key]}     ->
+            timer:sleep(randoms:rand_uniform(1, erlang:max(2, 10 * Aborts + 1))),
             increment_iter(Key, Iterations, Aborts + 1);
         {fail, not_found} ->
-            timer:sleep(randoms:rand_uniform(1, 10 * Aborts + 1)),
+            timer:sleep(randoms:rand_uniform(1, erlang:max(2, 10 * Aborts + 1))),
             increment_iter(Key, Iterations, Aborts + 1);
-        X -> log:log(warn, "~p", [X])
+        X ->
+            log:log(warn, "bench_fun:increment_iter unexpected return: ~p", [X]),
+            increment_iter(Key, Iterations, Aborts + 1)
     end.
 
--spec increment_with_histo_iter(histogram:histogram(), string(), integer(), non_neg_integer()) -> any().
+-spec increment_with_histo_iter(histogram:histogram(), string(), integer(), non_neg_integer()) -> {non_neg_integer(), histogram:histogram()}.
 increment_with_histo_iter(H, _Key, 0, Aborts) ->
     {Aborts, H};
 increment_with_histo_iter(H, Key, Iterations, Aborts) ->
@@ -128,18 +123,15 @@ increment_with_histo_iter(H, Key, Iterations, Aborts) ->
         {ok}              -> increment_with_histo_iter(
                                histogram:add(timer:now_diff(After, Before) / 1000, H),
                                Key, Iterations - 1, Aborts);
-        {fail, abort}     ->
-            timer:sleep(randoms:rand_uniform(1, 10 * Aborts + 1)),
-            increment_with_histo_iter(H, Key, Iterations, Aborts + 1);
-        {fail, timeout}   ->
-            %% overloaded system?
-            timer:sleep(randoms:rand_uniform(1, 100 * (Aborts + 1)
-                                                   * (Aborts +1))),
+        {fail, abort, [Key]}     ->
+            timer:sleep(randoms:rand_uniform(1, erlang:max(2, 10 * Aborts + 1))),
             increment_with_histo_iter(H, Key, Iterations, Aborts + 1);
         {fail, not_found} ->
-            timer:sleep(randoms:rand_uniform(1, 10 * Aborts + 1)),
+            timer:sleep(randoms:rand_uniform(1, erlang:max(2, 10 * Aborts + 1))),
             increment_with_histo_iter(H, Key, Iterations, Aborts + 1);
-        X -> log:log(warn, "~p", [X])
+        X ->
+            log:log(warn, "bench_fun:increment_with_histo_iter unexpected return: ~p", [X]),
+            increment_with_histo_iter(H, Key, Iterations, Aborts + 1)
     end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -152,8 +144,8 @@ read_iter(_Key, 0, Aborts) ->
     Aborts;
 read_iter(Key, Iterations, Aborts) ->
     case api_tx:read(Key) of
-        {fail, _Reason} -> read_iter(Key, Iterations, Aborts + 1);
-        {ok, _Value}    -> read_iter(Key, Iterations - 1, Aborts)
+        {ok, _Value}    -> read_iter(Key, Iterations - 1, Aborts);
+        {fail, _Reason} -> read_iter(Key, Iterations, Aborts + 1)
     end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -187,6 +179,8 @@ get_and_init_key() ->
     Key = randoms:getRandomString(),
     get_and_init_key(Key, retries(), _TriedKeys = 1).
 
+-spec get_and_init_key(Key::string(), Retries::non_neg_integer(),
+                       TriedKeys::pos_integer()) -> FinalKey::string().
 get_and_init_key(_Key, 0, TriedKeys) ->
     NewKey = randoms:getRandomString(),
     io:format("geT_and_init_key choosing new key and retrying~n"),
@@ -197,14 +191,10 @@ get_and_init_key(Key, Count, TriedKeys) ->
     case api_tx:write(Key, 0) of
         {ok} ->
             Key;
-        {fail, abort} ->
-            SleepTime = randoms:rand_uniform(1, TriedKeys * 2000 * 11-Count),
+        {fail, abort, [Key]} ->
+            SleepTime = randoms:rand_uniform(1, TriedKeys * 2000 * 11 - Count),
             io:format("geT_and_init_key 1 failed, retrying in ~p ms~n",
                       [SleepTime]),
             timer:sleep(SleepTime),
-            get_and_init_key(Key, Count - 1, TriedKeys);
-        {fail, timeout} ->
-            io:format("geT_and_init_key 2 timeout, retrying~n", []),
-            timer:sleep(TriedKeys * randoms:rand_uniform(1, 2000 * 11-Count)),
             get_and_init_key(Key, Count - 1, TriedKeys)
     end.

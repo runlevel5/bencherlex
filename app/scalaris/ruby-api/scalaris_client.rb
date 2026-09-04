@@ -14,15 +14,22 @@
 #    limitations under the License.
 
 require 'rubygems'
+begin
 gem 'json', '>=1.4.1'
+rescue LoadError
+end
 require 'json'
 require 'optparse'
 require 'pp'
 begin
-  require "#{File.dirname(__FILE__)}/scalaris"
+  require "#{File.expand_path(File.dirname(__FILE__))}/scalaris"
 rescue LoadError => e
   raise unless e.message =~ /scalaris/
   require "scalaris"
+end
+
+def get_replication_factor()
+  (Scalaris::RoutingTable.new).get_replication_factor
 end
 
 def write(sc, key_value_list)
@@ -59,6 +66,12 @@ options = {}
 
 optparse = OptionParser.new do |opts|
   options[:help] = true
+
+  options[:replication_factor] = nil
+  opts.on('-f', '--get-replication-factor', 'get the replication factor' ) do |f|
+    options[:factor] = f
+    options[:help] = false
+  end
 
   options[:read] = nil
   opts.on('-r', '--read KEY', 'read key KEY' ) do |key|
@@ -107,11 +120,18 @@ rescue OptionParser::ParseError
   exit
 end
 
-sc = Scalaris::TransactionSingleOp.new
+sc = nil
+communicating_options = [options[:read], options[:write], options[:test_and_set], 
+                         options[:add_on_nr], options[:add_del_on_list]]
+
+if communicating_options.compact != []
+  sc = Scalaris::TransactionSingleOp.new
+end
 
 pp sc.read(options[:read]) unless options[:read] == nil
 pp write(sc, options[:write]) unless options[:write] == nil
 pp test_and_set(sc, options[:test_and_set]) unless options[:test_and_set] == nil
 pp add_on_nr(sc, options[:add_on_nr]) unless options[:add_on_nr] == nil
 pp add_del_on_list(sc, options[:add_del_on_list]) unless options[:add_del_on_list] == nil
+pp get_replication_factor() unless options[:factor] == nil
 puts optparse if options[:help]

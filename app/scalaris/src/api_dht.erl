@@ -15,10 +15,10 @@
 %% @author Thorsten Schuett <schuett@zib.de>
 %% @doc API for access to the non replicated DHT items.
 %% @end
-%% @version $Id: api_dht.erl 2677 2012-01-10 13:50:56Z kruber@zib.de $
+%% @version $Id$
 -module(api_dht).
 -author('schuett@zib.de').
--vsn('$Id: api_dht.erl 2677 2012-01-10 13:50:56Z kruber@zib.de $').
+-vsn('$Id$').
 
 -export([hash_key/1]).
 

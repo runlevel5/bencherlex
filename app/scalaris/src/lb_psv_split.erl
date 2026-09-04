@@ -15,14 +15,16 @@
 %% @author Nico Kruber <kruber@zib.de>
 %% @doc    Simple passive load balancing sampling k nodes and choosing the
 %%         one that reduces the standard deviation the most.
-%%         Splits loads in half, if there is no load address ranges are split.
+%%         Splits loads in half, if there is no load address ranges are split
+%%         according to lb_psv_split_fallback, i.e. in halves or using the
+%%         selected keys.
 %% @end
-%% @version $Id: lb_psv_split.erl 2639 2012-01-03 15:00:45Z kruber@zib.de $
+%% @version $Id$
 -module(lb_psv_split).
 -author('kruber@zib.de').
--vsn('$Id: lb_psv_split.erl 2639 2012-01-03 15:00:45Z kruber@zib.de $ ').
+-vsn('$Id$').
 
-%-define(TRACE(X,Y), ct:pal(X,Y)).
+%-define(TRACE(X,Y), log:pal(X,Y)).
 -define(TRACE(X,Y), ok).
 -define(TRACE_SEND(Pid, Msg), ?TRACE("[ ~.0p ] to ~.0p: ~.0p)~n", [self(), Pid, Msg])).
 -define(TRACE1(Msg, State), ?TRACE("[ ~.0p ]~n  Msg: ~.0p~n  State: ~.0p)~n", [self(), Msg, State])).
@@ -30,13 +32,12 @@
 -behaviour(lb_psv_beh).
 -include("lb_psv_beh.hrl").
 
--ifdef(with_export_type_support).
 -export_type([custom_message/0]).
--endif.
 
 -export([my_sort_fun/2]).
 
--type custom_message() :: none().
+-type custom_message() ::
+          {get_split_key_response, SplitKey::{?RT:key(), TakenLoad::non_neg_integer()}}.
 
 %% @doc Gets the number of IDs to sample during join.
 %%      Note: this is executed at the joining node.
@@ -63,25 +64,63 @@ get_number_of_samples_remote(SourcePid, Connection) ->
 create_join(DhtNodeState, SelectedKey, SourcePid, Conn) ->
     case dht_node_state:get(DhtNodeState, slide_pred) of
         null ->
+            Neighbors = dht_node_state:get(DhtNodeState, neighbors),
+            MyNodeId = nodelist:nodeid(Neighbors),
+            try
+                MyLoad = dht_node_state:get(DhtNodeState, load),
+                if MyLoad >= 2 ->
+%%                        log:pal("[ ~.0p ] trying split by load", [self()]),
+                       TargetLoad = util:floor(MyLoad / 2),
+%%                        log:pal("T: ~.0p, My: ~.0p~n", [TargetLoad, MyLoad]),
+                       MyPredId = node:id(nodelist:pred(Neighbors)),
+                       SPid = comm:reply_as(self(), 3,
+                                            {join, ?MODULE, '_',
+                                             {create_join2, SelectedKey, SourcePid, Conn}}),
+                       DBCache = pid_groups:get_my(dht_node_db_cache),
+                       
+                       Msg = {get_split_key, dht_node_state:get(DhtNodeState, db),
+                              dht_node_state:get(DhtNodeState, full_range), MyPredId, MyNodeId,
+                              TargetLoad, forward, SPid},
+                       ?TRACE_SEND(DBCache, Msg),
+                       comm:send_local(DBCache, Msg),
+                       DhtNodeState;
+                   true -> % fall-back
+                       create_join2(DhtNodeState, SelectedKey, SourcePid, {MyNodeId, 0}, Conn)
+                end
+            catch
+                Error:Reason -> % fall-back
+                    log:log(error, "[ Node ~w ] failed to get split key "
+                                "for another node: ~.0p:~.0p~n"
+                                "  SelectedKey: ~.0p, SourcePid: ~.0p~n  State: ~.0p",
+                            [self(), Error, Reason, SelectedKey, SourcePid, DhtNodeState]),
+                    create_join2(DhtNodeState, SelectedKey, SourcePid, {MyNodeId, 0}, Conn)
+            end;
+        _ ->
+            % postpone message:
+            Msg = {join, get_candidate, SourcePid, SelectedKey, ?MODULE, Conn},
+            ?TRACE_SEND(SourcePid, Msg),
+            _ = comm:send_local_after(100, self(), Msg),
+            DhtNodeState
+    end.
+
+-spec create_join2(DhtNodeState::dht_node_state:state(), SelectedKey::?RT:key(),
+                   SourcePid::comm:mypid(),
+                   SplitKey::{?RT:key(), TakenLoad::non_neg_integer()},
+                   Conn::dht_node_join:connection()) -> dht_node_state:state().
+create_join2(DhtNodeState, SelectedKey, SourcePid, SplitKey0, Conn) ->
+    case dht_node_state:get(DhtNodeState, slide_pred) of
+        null ->
             Candidate =
                 try
                     MyNode = dht_node_state:get(DhtNodeState, node),
                     MyNodeId = node:id(MyNode),
-                    MyLoad = dht_node_state:get(DhtNodeState, load),
                     {SplitKey, OtherLoadNew} =
-                        case MyLoad >= 2 of
-                            true ->
-                                TargetLoad = util:floor(MyLoad / 2),
-%%                                 ct:pal("T: ~.0p, My: ~.0p~n", [TargetLoad, MyLoad]),
-                                try lb_common:split_by_load(DhtNodeState, TargetLoad)
-                                catch
-                                    throw:'no key in range' ->
-                                        %%                                 log:log(info, "[ Node ~w ] could not split load - no key in my range, "
-                                        %%                                             "splitting address range instead", [self()]),
-                                        lb_common:split_my_range(DhtNodeState, SelectedKey)
-                                end;
-                            _ -> % split address range (fall-back):
-                                lb_common:split_my_range(DhtNodeState, SelectedKey)
+                        case SplitKey0 of
+                            {MyNodeId, _TargetLoadNew} -> % fall-back
+%%                                 log:log(info, "[ Node ~w ] could not split load - no key in my range, "
+%%                                             "splitting address range instead", [self()]),
+                                lb_common:split_my_range(DhtNodeState, SelectedKey);
+                            X -> X
                         end,
                     MyPredId = node:id(dht_node_state:get(DhtNodeState, pred)),
                     case SplitKey of
@@ -94,7 +133,8 @@ create_join(DhtNodeState, SelectedKey, SourcePid, Conn) ->
                                         "sending no_op...", [self(), MyPredId]),
                             lb_op:no_op();
                         _ ->
-%%                             ct:pal("MK: ~.0p, SK: ~.0p~n", [MyNodeId, SplitKey]),
+%%                             log:pal("MK: ~.0p, SK: ~.0p~n", [MyNodeId, SplitKey]),
+                            MyLoad = dht_node_state:get(DhtNodeState, load),
                             MyLoadNew = MyLoad - OtherLoadNew,
                             MyNodeDetails1 = node_details:set(node_details:new(), node, MyNode),
                             MyNodeDetails = node_details:set(MyNodeDetails1, load, MyLoad),
@@ -104,7 +144,7 @@ create_join(DhtNodeState, SelectedKey, SourcePid, Conn) ->
                             OtherNodeDetailsNew2 = node_details:set(OtherNodeDetailsNew1, load, OtherLoadNew),
                             Interval = node:mk_interval_between_ids(MyPredId, SplitKey),
                             OtherNodeDetailsNew = node_details:set(OtherNodeDetailsNew2, my_range, Interval),
-                            lb_op:slide_op(OtherNodeDetails, MyNodeDetails,
+                            lb_op:slide_op(comm:this(), OtherNodeDetails, MyNodeDetails,
                                            OtherNodeDetailsNew, MyNodeDetailsNew)
                     end
                 catch
@@ -119,7 +159,7 @@ create_join(DhtNodeState, SelectedKey, SourcePid, Conn) ->
             ?TRACE_SEND(SourcePid, Msg),
             comm:send(SourcePid, Msg);
         _ ->
-            % postpone message:
+            % re-start with create_join (it can then create a new up-to-date request for a split key):
             Msg = {join, get_candidate, SourcePid, SelectedKey, ?MODULE, Conn},
             ?TRACE_SEND(SourcePid, Msg),
             _ = comm:send_local_after(100, self(), Msg),
@@ -134,24 +174,26 @@ create_join(DhtNodeState, SelectedKey, SourcePid, Conn) ->
 -spec my_sort_fun(Op1::{lb_op:lb_op(), integer()},
                   Op2::{lb_op:lb_op(), integer()}) -> boolean().
 my_sort_fun({Op1, Op1Change}, {Op2, Op2Change}) ->
-    case Op1Change < Op2Change of
-        true -> true;
-        _ when Op1Change =:= Op2Change ->
-            Op1NewInterval = node_details:get(lb_op:get(Op1, n1_new), my_range),
-            {_, Op1NewPredId, Op1NewMyId, _} =
-                intervals:get_bounds(Op1NewInterval),
-            Op1NewRange = try ?RT:get_range(Op1NewPredId, Op1NewMyId)
-                          catch throw:not_supported -> 0
-                          end,
-            Op2NewInterval = node_details:get(lb_op:get(Op2, n1_new), my_range),
-            {_, Op2NewPredId, Op2NewMyId, _} =
-                intervals:get_bounds(Op2NewInterval),
-            Op2NewRange = try ?RT:get_range(Op2NewPredId, Op2NewMyId)
-                          catch throw:not_supported -> 0
-                          end,
-            Op2NewRange =< Op1NewRange orelse
-                ((Op1NewRange =:= Op2NewRange) andalso Op1 =< Op2);
-        _ -> false
+    if Op1Change < Op2Change -> true;
+       true ->
+           case config:read(lb_psv_split_fallback) of
+               split_address when Op1Change =:= Op2Change ->
+                   Op1NewInterval = node_details:get(lb_op:get(Op1, n1_new), my_range),
+                   {_, Op1NewPredId, Op1NewMyId, _} =
+                       intervals:get_bounds(Op1NewInterval),
+                   Op1NewRange = try ?RT:get_range(Op1NewPredId, Op1NewMyId)
+                                 catch throw:not_supported -> 0
+                                 end,
+                   Op2NewInterval = node_details:get(lb_op:get(Op2, n1_new), my_range),
+                   {_, Op2NewPredId, Op2NewMyId, _} =
+                       intervals:get_bounds(Op2NewInterval),
+                   Op2NewRange = try ?RT:get_range(Op2NewPredId, Op2NewMyId)
+                                 catch throw:not_supported -> 0
+                                 end,
+                   Op2NewRange =< Op1NewRange;
+               split_address -> false;
+               keep_key -> Op1Change =:= Op2Change
+           end
     end.
 
 %% @doc Sorts all provided operations so that the one with the biggest change
@@ -161,10 +203,13 @@ my_sort_fun({Op1, Op1Change}, {Op2, Op2Change}) ->
 %%      Note: this is executed at the joining node.
 -spec sort_candidates(Ops::[lb_op:lb_op()]) -> [lb_op:lb_op()].
 sort_candidates(Ops) ->
-    lb_common:bestStddev(Ops, plus_infinity, fun my_sort_fun/2).
+    lb_common:bestStddev(util:shuffle(Ops), plus_infinity, fun my_sort_fun/2).
 
 -spec process_join_msg(comm:message(), State::any(),
         DhtNodeState::dht_node_state:state()) -> unknown_event.
+process_join_msg({get_split_key_response, SplitKey},
+                 {create_join2, SelectedKey, SourcePid, Conn}, DhtNodeState) ->
+    create_join2(DhtNodeState, SelectedKey, SourcePid, SplitKey, Conn);
 process_join_msg(_Msg, _State, _DhtNodeState) ->
     unknown_event.
 
@@ -172,10 +217,11 @@ process_join_msg(_Msg, _State, _DhtNodeState) ->
 %%      algorithm exist and are valid.
 -spec check_config() -> boolean().
 check_config() ->
-    config:cfg_is_integer(lb_psv_split_samples) and
-    config:cfg_is_greater_than_equal(lb_psv_split_samples, 1).
+    config:cfg_is_integer(lb_psv_samples) and
+    config:cfg_is_greater_than_equal(lb_psv_samples, 1) and
+    config:cfg_is_in(lb_psv_split_fallback, [split_address, keep_key]).
 
 %% @doc Gets the number of nodes to sample (set in the config files).
 -spec conf_get_number_of_samples() -> pos_integer().
 conf_get_number_of_samples() ->
-    config:read(lb_psv_split_samples).
+    config:read(lb_psv_samples).

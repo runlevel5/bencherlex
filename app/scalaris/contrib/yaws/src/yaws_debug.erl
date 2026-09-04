@@ -33,7 +33,7 @@ typecheck([{record, Rec, X} | Tail], File, Line) when is_atom(X),
 typecheck([{int, Int} |Tail], File, Line) when is_integer(Int) ->
     typecheck(Tail, File, Line);
 typecheck([Err|_], File, Line) ->
-    io:format(user, "TC ERROR ~s:~w:~n~p",
+    debug_format(user, "TC ERROR ~s:~w:~n~p",
               [File, Line, Err]),
     erlang:error(tcerr);
 typecheck([], _,_) ->
@@ -104,7 +104,7 @@ assert(interval,X,{Min,Max},_) when is_integer(X), is_integer(Min),
                                     X>=Min, Max>=X ->
     ok;
 assert('fun', Fun, _, Failure) ->
-    case try Fun() catch throw:CaughtT1 -> CaughtT1; error:CaughtR1:CaughtS1 -> {'EXIT', {CaughtR1, CaughtS1}}; exit:CaughtR1 -> {'EXIT', CaughtR1} end of
+    case catch Fun() of
         true -> ok;
         _Other -> fail(Failure)
     end;
@@ -119,11 +119,11 @@ assert(_,_,_,Failure) ->
     fail(Failure).
 
 fail({assert,File,Line,Message}) ->
-    io:format(user, "Assertion FAILED ~p:~p, pid ~w exiting: ~p~n",
+    debug_format(user, "Assertion FAILED ~p:~p, pid ~w exiting: ~p~n",
               [File, Line, self(), Message]),
     erlang:error(assertion_failed);
 fail({alert,File,Line,Message}) ->
-    io:format(user, "Assert WARNING ~p:~p, pid ~w: ~p~n",
+    debug_format(user, "Assert WARNING ~p:~p, pid ~w: ~p~n",
               [File, Line, self(), Message]),
     ok;
 fail({{debug,Fstr}, File,Line,Fmt, Args}) ->
@@ -132,30 +132,44 @@ fail({{debug,Fstr}, File,Line,Fmt, Args}) ->
                           [Fstr, node(), filename:basename(File),
                            Line, self()])),
 
-    case (try io:format(user, Str ++ Fmt ++ "~n", Args) catch throw:CaughtT2 -> CaughtT2; error:CaughtR2:CaughtS2 -> {'EXIT', {CaughtR2, CaughtS2}}; exit:CaughtR2 -> {'EXIT', CaughtR2} end) of
+    case (catch debug_format(user, Str ++ Fmt ++ "~n", Args)) of
         ok -> ok;
-        _ -> io:format(user, "ERROR ~p:~p: Pid ~w: (bad format)~n~p,~p~n",
+        _ -> debug_format(user, "ERROR ~p:~p: Pid ~w: (bad format)~n~p,~p~n",
                        [File, Line, self(), Fmt, Args]),
 
              ok
     end;
 
 fail({format, File,Line,Fmt,Args}) ->
-    case (try io:format(user, Fmt,Args) catch throw:CaughtT3 -> CaughtT3; error:CaughtR3:CaughtS3 -> {'EXIT', {CaughtR3, CaughtS3}}; exit:CaughtR3 -> {'EXIT', CaughtR3} end) of
+    case (catch debug_format(user, Fmt,Args)) of
         ok -> ok;
         _ ->
-            io:format(user, "ERROR ~p:~p: Pid ~w: (bad format)~n~p,~p~n",
+            debug_format(user, "ERROR ~p:~p: Pid ~w: (bad format)~n~p,~p~n",
                       [File, Line, self(), Fmt, Args]),
 
             ok
     end.
+
+debug_format(_, F, D) ->
+    debug_format(F, D).
+
+debug_format(F, A) ->
+    Str = case catch io_lib:format("yaws debug: " ++ F, A) of
+        {'EXIT', Reason} ->
+            io_lib:format("yaws debug: F=~s A=~p (failed to format: ~p)",
+                [F, A, Reason]);
+        Ok -> Ok
+    end,
+    error_logger:info_msg(Str),
+    catch io:format(F, A),
+    ok.
 
 format(F, A) ->
     format(get(gc), F, A).
 format(GC, F, A) ->
     case ?gc_has_debug(GC) of
         true ->
-            io:format("yaws:" ++ F, A);
+            error_logger:info_msg("yaws debug:" ++ F, A);
         false ->
             ok
     end.
@@ -184,12 +198,12 @@ mktags() ->
 
 
 xref([Dir]) ->
-    io:format("~p~n", [xref:d(Dir)]),
+    debug_format("~p~n", [xref:d(Dir)]),
     init:stop().
 
 
 pids() ->
-    lists:filtermap(
+    lists:zf(
       fun(P) ->
               case process_info(P) of
                   L when is_list(L) ->
@@ -218,7 +232,7 @@ pids() ->
 eprof() ->
     eprof:start(),
     eprof:profile(pids()),
-    io:format("Ok run some traffic \n", []).
+    debug_format("Ok run some traffic \n", []).
 
 
 
@@ -295,7 +309,7 @@ bad_other(L) ->
 
 
 nobin(X) ->
-    case try xnobin(X) catch throw:CaughtT4 -> CaughtT4; error:CaughtR4:CaughtS4 -> {'EXIT', {CaughtR4, CaughtS4}}; exit:CaughtR4 -> {'EXIT', CaughtR4} end of
+    case catch xnobin(X) of
         {'EXIT', Reason} ->
             error_logger:format("~p~n~p~n", [X, Reason]),
             erlang:error(Reason);
@@ -324,19 +338,19 @@ do_debug_dump(Socket) ->
     %% keep proc status last, to report on hangs for the others
     CollectOS = gen_os(Socket),
     Collect = lists:foldl(fun({F, Str}, Acc) ->
-				  Ret = collect(F, Socket, Str),
-				  gen_sep(Socket),
-				  [Ret|Acc]
-			  end,
-			  CollectOS,
-			  [{fun send_status/1, "Yaws status"},
+                                  Ret = collect(F, Socket, Str),
+                                  gen_sep(Socket),
+                                  [Ret|Acc]
+                          end,
+                          CollectOS,
+                          [{fun send_status/1, "Yaws status"},
                            {fun send_inet/1,   "Inet status"},
-			   {proc_status_fun(), "process status"}]),
+                           {proc_status_fun(), "process status"}]),
     lists:foreach(fun(ok) ->
-			  ok;
-		     ({pid, Pid}) ->
-			  exit(Pid, shutdown)
-		  end, Collect),
+                          ok;
+                     ({pid, Pid}) ->
+                          exit(Pid, shutdown)
+                  end, Collect),
     ok.
 
 
@@ -352,8 +366,8 @@ gen_os(Socket) ->
 
 gen_oscmd(Socket, Cmd) ->
     F = fun(Sock) ->
-		sock_format(Sock, "~s:~n~s~n", [Cmd, os:cmd(Cmd)])
-	end,
+                sock_format(Sock, "~s:~n~s~n", [Cmd, os:cmd(Cmd)])
+        end,
     Ret = collect(F, Socket, Cmd),
     gen_sep(Socket),
     Ret.
@@ -381,8 +395,8 @@ gen_sep(Socket) ->
 
 proc_status_fun() ->
     fun(Fd) ->
-	    sock_format(Fd, "Process status:~n", []),
-	    i1(Fd, processes())
+            sock_format(Fd, "Process status:~n", []),
+            i1(Fd, processes())
     end.
 
 i1(Fd, Ps) ->
@@ -478,12 +492,12 @@ display_susp1(Fd, {Pid, Reds0, LM0}) ->
             Reds1 = fetch(reductions, Info),
             LM1 = fetch(message_queue_len, Info),
             Msgs = fetch(messages, Info),
-	    Bt = case process_info(Pid, backtrace) of
-		     {backtrace, Bin} ->
-			 binary_to_list(Bin);
-		     _ ->
-			 []
-		 end,
+            Bt = case process_info(Pid, backtrace) of
+                     {backtrace, Bin} ->
+                         binary_to_list(Bin);
+                     _ ->
+                         []
+                 end,
             if LM1 > 0 ->
                     %% still suspicious
                     sock_format(Fd,
@@ -494,7 +508,7 @@ display_susp1(Fd, {Pid, Reds0, LM0}) ->
                       fun(Msg) -> sock_format(Fd, "  ~p\n",[Msg]) end,
                       Msgs),
                     gen_sep(Fd),
-		    sock_format(Fd, "\n\n\n\n*** Backtrace *** for ~w\n~s\n",
+                    sock_format(Fd, "\n\n\n\n*** Backtrace *** for ~w\n~s\n",
                                 [Pid,Bt]);
                true ->
                     ok
@@ -503,44 +517,44 @@ display_susp1(Fd, {Pid, Reds0, LM0}) ->
 
 display_susp2(Fd, {Pid, Reds0}) ->
     case process_info(Pid, reductions) of
-	undefined ->
-	    ok;
-	{reductions, Reds0} ->
-	    %% it hasn't done any work... print bt
-	    case process_info(Pid, backtrace) of
-		{backtrace, Bin} ->
+        undefined ->
+            ok;
+        {reductions, Reds0} ->
+            %% it hasn't done any work... print bt
+            case process_info(Pid, backtrace) of
+                {backtrace, Bin} ->
                     gen_sep(Fd),
-		    sock_format(Fd, "\n\n\n\n*** Backtrace (gen_wait) "
+                    sock_format(Fd, "\n\n\n\n*** Backtrace (gen_wait) "
                                 "*** for ~w\n~s\n",
-				[Pid, binary_to_list(Bin)]);
-		_ ->
-		    ok
-	    end;
-	_ ->
-	    ok
+                                [Pid, binary_to_list(Bin)]);
+                _ ->
+                    ok
+            end;
+        _ ->
+            ok
     end.
 
 display_susp3(Fd, {Pid, _Mem}) ->
     case {process_info(Pid, memory), process_info(Pid, current_function)} of
-	{undefined, _} ->
-	    ok;
+        {undefined, _} ->
+            ok;
         {_, {current_function,{yaws_debug,display_susp3,2}}} ->
             ok;
-	{{memory, Mem2}, _} when Mem2 > ?MEM_LARGE ->
+        {{memory, Mem2}, _} when Mem2 > ?MEM_LARGE ->
             %% it's still too big
-	    case process_info(Pid, backtrace) of
-		{backtrace, Bin} ->
+            case process_info(Pid, backtrace) of
+                {backtrace, Bin} ->
                     gen_sep(Fd),
-		    sock_format(Fd,
+                    sock_format(Fd,
                                 "\n\n\n\n*** Backtrace (mem=~p) "
                                 "*** for ~w\n~p~n~s\n",
-				[Mem2, Pid, process_info(Pid),
+                                [Mem2, Pid, process_info(Pid),
                                  binary_to_list(Bin)]);
-		_ ->
-		    ok
-	    end;
-	_ ->
-	    ok
+                _ ->
+                    ok
+            end;
+        _ ->
+            ok
     end.
 
 
@@ -581,28 +595,28 @@ sock_format(Sock, Fmt, Args) ->
 collect(F, Sock, User) ->
     SELF = self(),
     Pid = spawn(fun() ->
-			F(Sock),
-			SELF ! {self(), ok},
-			timer:sleep(infinity)
-		end),
+                        F(Sock),
+                        SELF ! {self(), ok},
+                        timer:sleep(infinity)
+                end),
     Ref = erlang:monitor(process, Pid),
     receive
-	{Pid, ok} ->
-	    erlang:demonitor(Ref),
-	    exit(Pid, shutdown),
-	    ok;
-	Down = {'DOWN', Ref, _,_,_} ->
-	    sock_format(Sock, "*** Failed to collect ~s: ~p~n", [User, Down]),
-	    ok
+        {Pid, ok} ->
+            erlang:demonitor(Ref),
+            exit(Pid, shutdown),
+            ok;
+        Down = {'DOWN', Ref, _,_,_} ->
+            sock_format(Sock, "*** Failed to collect ~s: ~p~n", [User, Down]),
+            ok
     after ?COLLECT_TIMEOUT ->
-	    erlang:demonitor(Ref),
-	    sock_format(Sock, "*** Failed to collect ~s: timeout~n", [User]),
-	    {pid, Pid}	% Let it hang for proc status, exit after
+            erlang:demonitor(Ref),
+            sock_format(Sock, "*** Failed to collect ~s: timeout~n", [User]),
+            {pid, Pid}  % Let it hang for proc status, exit after
     end.
 
 send_status(Sock) ->
     {InitStatus, _} = init:get_status(),
-    sock_format(Sock, ["vsn: ", yaws_generated:version(), "\n"], []),
+    sock_format(Sock, "vsn: ~s\n", [yaws_generated:version()]),
     sock_format(Sock, "status: ~p\n", [InitStatus]),
     ok.
 
@@ -640,6 +654,9 @@ collect_io(Pid, Mref, Ack) ->
         {'DOWN', Mref, _,_,_} ->
             Ack;
         {io_request, From, Me, {put_chars, M, F, A}} ->
+            From ! {io_reply, Me, ok},
+            collect_io(Pid, Mref, [Ack, apply(M,F, A)]);
+        {io_request, From, Me, {put_chars, unicode, M, F, A}} ->
             From ! {io_reply, Me, ok},
             collect_io(Pid, Mref, [Ack, apply(M,F, A)]);
         capio_timeout ->

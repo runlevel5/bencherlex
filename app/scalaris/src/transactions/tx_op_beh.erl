@@ -1,4 +1,5 @@
-%% @copyright 2009, 2010 onScale solutions GmbH
+%% @copyright 2012 Zuse Institute Berlin
+%%            2009, 2010 onScale solutions GmbH
 
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
@@ -15,10 +16,10 @@
 %% @author Florian Schintke <schintke@onscale.de>
 %% @doc Part of generic transactions implementation.
 %%      The behaviour of an operation in a transaction.
-%% @version $Id: tx_op_beh.erl 2639 2012-01-03 15:00:45Z kruber@zib.de $
+%% @version $Id$
 -module(tx_op_beh).
 -author('schintke@zib.de').
--vsn('$Id: tx_op_beh.erl 2639 2012-01-03 15:00:45Z kruber@zib.de $').
+-vsn('$Id$').
 
 %-define(TRACE(X,Y), io:format(X,Y)).
 -define(TRACE(X,Y), ok).
@@ -30,11 +31,13 @@
 -ifdef(have_callback_support).
 -include("scalaris.hrl").
 -callback work_phase(pid(), rdht_tx:req_id() | rdht_tx_write:req_id(),
-                     rdht_tx:request()) -> ok.
+                     api_tx:request()) -> ok.
 -callback validate_prefilter(tx_tlog:tlog_entry()) -> [tx_tlog:tlog_entry()].
--callback validate(?DB:db(), tx_tlog:tlog_entry()) -> {?DB:db(), prepared | abort}.
--callback commit(?DB:db(), tx_tlog:tlog_entry(), prepared | abort) -> ?DB:db().
--callback abort(?DB:db(), tx_tlog:tlog_entry(), prepared | abort) -> ?DB:db().
+-callback validate(db_dht:db(), tx_tlog:snap_number(), tx_tlog:tlog_entry()) -> {db_dht:db(), ?prepared | ?abort}.
+-callback commit(db_dht:db(), tx_tlog:tlog_entry(), ?prepared | ?abort,
+                 tx_tlog:snap_number(), tx_tlog:snap_number()) -> db_dht:db().
+-callback abort(db_dht:db(), tx_tlog:tlog_entry(), ?prepared | ?abort,
+                tx_tlog:snap_number(), tx_tlog:snap_number()) -> db_dht:db().
 -else.
 -spec behaviour_info(atom()) -> [{atom(), arity()}] | undefined.
 behaviour_info(callbacks) ->
@@ -49,11 +52,11 @@ behaviour_info(callbacks) ->
      {validate_prefilter, 1},
      %% validate a single item
      %% validate(DB, RTLogentry) -> {DB, Proposal (prepared/abort)}
-     {validate, 2},
-     %% commit(DB, RTLogentry, OwnProposalWas)
-     {commit, 3},
-     %% abort(DB, RTLogentry, OwnProposalWas)
-     {abort, 3}
+     {validate, 3},
+     %% commit(DB, RTLogentry, OwnProposalWas, TMSnapNo, OwnSnapNo)
+     {commit, 5},
+     %% abort(DB, RTLogentry, OwnProposalWas, TMSnapNo, OwnSnapNo)
+     {abort, 5}
     ];
 behaviour_info(_Other) ->
     undefined.

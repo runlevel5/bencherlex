@@ -1,4 +1,4 @@
-%  @copyright 2011 Zuse Institute Berlin
+%  @copyright 2011-2014 Zuse Institute Berlin
 
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
@@ -16,10 +16,10 @@
 %% @doc    A dht_node mockup that can ignore some messages or process them
 %%         differently compared to dht_node.
 %% @end
-%% @version $Id: mockup_dht_node.erl 2576 2011-12-16 18:01:34Z kruber@zib.de $
+%% @version $Id$
 -module(mockup_dht_node).
 -author('kruber@zib.de').
--vsn('$Id: mockup_dht_node.erl 2576 2011-12-16 18:01:34Z kruber@zib.de $ ').
+-vsn('$Id$').
 
 -include("scalaris.hrl").
 
@@ -70,15 +70,20 @@ on(Msg, State = {Module, Handler, ModuleState, MsgDropSpecs}) ->
 
 -spec start_link(pid_groups:groupname(), [tuple()]) -> {ok, pid()}.
 start_link(DHTNodeGroup, Options) ->
-    gen_component:start_link(?MODULE, fun ?MODULE:on/2, {DHTNodeGroup, Options},
-                             [{pid_groups_join_as, DHTNodeGroup, dht_node}, wait_for_init]).
+    gen_component:start_link(?MODULE, fun ?MODULE:on/2, Options,
+                             [{pid_groups_join_as, DHTNodeGroup, dht_node}, {wait_for_init}]).
 
--spec init({DHTNodeGroup::pid_groups:groupname(), Options::[tuple()]}) -> state().
-init({DHTNodeGroup, Options}) ->
-    % at first, join pid_groups - allow dht_node to overwrite my_pid (it will join as dht_node!):
-    pid_groups:join_as(DHTNodeGroup, mockup_dht_node),
-    ModuleState = dht_node:init(Options),
-    module_state_to_my_state(ModuleState, {dht_node, fun dht_node:on/2, ModuleState, []}).
+-spec init(Options::[tuple()]) -> state().
+init(Options) ->
+    case lists:keytake(match_specs, 1, Options) of
+        {value, {match_specs, MatchSpecs}, RestOptions} ->
+            ok;
+        false -> RestOptions = Options,
+                 MatchSpecs = [],
+                 ok
+    end,
+    ModuleState = dht_node:init(RestOptions),
+    module_state_to_my_state(ModuleState, {dht_node, fun dht_node:on/2, ModuleState, MatchSpecs}).
 
 -spec module_state_to_my_state(module_state(), state()) -> state().
 module_state_to_my_state(ModuleState, {Module, OldHandler, _, NewMatchSpecs}) ->

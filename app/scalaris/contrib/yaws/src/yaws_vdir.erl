@@ -2,7 +2,7 @@
 
 -export([arg_rewrite/1]).
 
--include_lib("../include/yaws_api.hrl").
+-include("../include/yaws_api.hrl").
 
 -export([join/2]).
 
@@ -17,7 +17,7 @@ arg_rewrite(ARG) ->
 
     case Req#http_request.path of
         {abs_path, RawPath} ->
-            case (try yaws_api:url_decode_q_split(RawPath) catch throw:CaughtT1 -> CaughtT1; error:CaughtR1:CaughtS1 -> {'EXIT', {CaughtR1, CaughtS1}}; exit:CaughtR1 -> {'EXIT', CaughtR1} end) of
+            case (catch yaws_api:url_decode_q_split(RawPath)) of
                 {'EXIT', _} ->
                     %%broken request - ignore let yaws_server handle it.
                     ARG2 = ARG;

@@ -3,14 +3,19 @@ package de.zib.scalaris.examples.wikipedia.data.xml;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collections;
-import java.util.HashMap;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Set;
 
+import de.zib.scalaris.examples.wikipedia.bliki.MyNamespace;
+import de.zib.scalaris.examples.wikipedia.bliki.MyNamespace.NamespaceEnum;
+import de.zib.scalaris.examples.wikipedia.bliki.MyWikiModel;
+import de.zib.scalaris.examples.wikipedia.bliki.NormalisedTitle;
 import de.zib.scalaris.examples.wikipedia.data.Page;
 import de.zib.scalaris.examples.wikipedia.data.Revision;
 import de.zib.scalaris.examples.wikipedia.data.ShortRevision;
 import de.zib.scalaris.examples.wikipedia.data.SiteInfo;
+import de.zib.tools.MultiHashMap;
 
 /**
  * Intermediate class between XML processing of a Wiki dump and custom
@@ -20,16 +25,16 @@ import de.zib.scalaris.examples.wikipedia.data.SiteInfo;
  * @author Nico Kruber, kruber@zib.de
  */
 public abstract class WikiDumpPageHandler extends WikiDumpHandler {
-    protected static final int UPDATE_PAGELIST_EVERY = 400;
+    protected static final int UPDATE_PAGELIST_EVERY = 500;
     protected static final int NEW_CATS_HASH_DEF_SIZE = 100;
     protected static final int NEW_TPLS_HASH_DEF_SIZE = 100;
     protected static final int NEW_BLNKS_HASH_DEF_SIZE = 100;
-    
-    protected ArrayList<String> newPages = new ArrayList<String>(UPDATE_PAGELIST_EVERY);
-    protected ArrayList<String> newArticles = new ArrayList<String>(UPDATE_PAGELIST_EVERY);
-    protected HashMap<String, List<String>> newCategories = new HashMap<String, List<String>>(NEW_CATS_HASH_DEF_SIZE);
-    protected HashMap<String, List<String>> newTemplates = new HashMap<String, List<String>>(NEW_TPLS_HASH_DEF_SIZE);
-    protected HashMap<String, List<String>> newBackLinks = new HashMap<String, List<String>>(NEW_BLNKS_HASH_DEF_SIZE);
+
+    protected EnumMap<NamespaceEnum, ArrayList<NormalisedTitle>> newPages;
+    protected int articleCount = 0;
+    protected MultiHashMap<NormalisedTitle, NormalisedTitle> newCategories;
+    protected MultiHashMap<NormalisedTitle, NormalisedTitle> newTemplates;
+    protected MultiHashMap<NormalisedTitle, NormalisedTitle> newBackLinks;
 
     /**
      * Sets up a SAX XmlHandler exporting all parsed pages except the ones in a
@@ -55,6 +60,39 @@ public abstract class WikiDumpPageHandler extends WikiDumpHandler {
     public WikiDumpPageHandler(Set<String> blacklist, Set<String> whitelist,
             int maxRevisions, Calendar minTime, Calendar maxTime) {
         super(blacklist, whitelist, maxRevisions, minTime, maxTime);
+        initNewPagesList();
+        initLinkLists();
+    }
+
+    /**
+     * Initialises the {@link #newPages} member.
+     */
+    protected void initNewPagesList() {
+        newPages = createNewPagesList();
+    }
+
+    /**
+     * Creates a new EnumMap similar to the {@link #newPages} member.
+     * 
+     * @return a map with wiki namespace keys and lists of strings as values
+     */
+    public static EnumMap<NamespaceEnum, ArrayList<NormalisedTitle>> createNewPagesList() {
+        EnumMap<NamespaceEnum, ArrayList<NormalisedTitle>> result =
+                new EnumMap<NamespaceEnum, ArrayList<NormalisedTitle>>(NamespaceEnum.class);
+        for(NamespaceEnum ns : NamespaceEnum.values()) {
+            result.put(ns, new ArrayList<NormalisedTitle>(UPDATE_PAGELIST_EVERY));
+        }
+        return result;
+    }
+
+    /**
+     * Initialises the {@link #newCategories}, {@link #newTemplates} and
+     * {@link #newBackLinks} members.
+     */
+    protected void initLinkLists() {
+        newCategories = new MultiHashMap<NormalisedTitle, NormalisedTitle>(NEW_CATS_HASH_DEF_SIZE);
+        newTemplates = new MultiHashMap<NormalisedTitle, NormalisedTitle>(NEW_TPLS_HASH_DEF_SIZE);
+        newBackLinks = new MultiHashMap<NormalisedTitle, NormalisedTitle>(NEW_BLNKS_HASH_DEF_SIZE);
     }
 
     /**
@@ -84,41 +122,38 @@ public abstract class WikiDumpPageHandler extends WikiDumpHandler {
             List<ShortRevision> revisions_short = ShortRevision.fromRevisions(revisions);
             Collections.sort(revisions, Collections.reverseOrder(new byRevId()));
             Collections.sort(revisions_short, Collections.reverseOrder(new byShortRevId()));
-    
-            if (!revisions.isEmpty() && wikiModel != null) {
+
+            assert(wikiModel != null);
+            final NormalisedTitle normTitle = wikiModel.normalisePageTitle(page.getTitle());
+            if (!revisions.isEmpty()) {
                 wikiModel.setUp();
-                wikiModel.setPageName(page.getTitle());
-                wikiModel.render(null, revisions.get(0).unpackedText());
+                wikiModel.setNamespaceName(wikiModel.getNamespace().getNamespaceByNumber(normTitle.namespace));
+                wikiModel.setPageName(normTitle.title);
+                wikiModel.renderPageWithCache(null, revisions.get(0).unpackedText());
                 for (String cat_raw: wikiModel.getCategories().keySet()) {
-                    String category = wikiModel.getCategoryNamespace() + ":" + cat_raw;
-                    List<String> catPages = newCategories.get(category);
-                    if (catPages == null) {
-                        catPages = new ArrayList<String>(UPDATE_PAGELIST_EVERY / 4);
-                    }
-                    catPages.add(page.getTitle());
-                    newCategories.put(category, catPages);
+                    NormalisedTitle category = new NormalisedTitle(
+                            MyNamespace.CATEGORY_NAMESPACE_KEY,
+                            MyWikiModel.normaliseName(cat_raw));
+                    newCategories.put1(category, normTitle);
                 }
-                for (String tpl_raw: wikiModel.getTemplates()) {
-                    String template = wikiModel.getTemplateNamespace() + ":" + tpl_raw;
-                    List<String> templatePages = newTemplates.get(template);
-                    if (templatePages == null) {
-                        templatePages = new ArrayList<String>(UPDATE_PAGELIST_EVERY / 4);
-                    }
-                    templatePages.add(page.getTitle());
-                    newTemplates.put(template, templatePages);
+                for (String tpl_raw: wikiModel.getTemplatesNoMagicWords()) {
+                    NormalisedTitle template = new NormalisedTitle(
+                            MyNamespace.TEMPLATE_NAMESPACE_KEY,
+                            MyWikiModel.normaliseName(tpl_raw));
+                    newTemplates.put1(template, normTitle);
                 }
                 for (String link: wikiModel.getLinks()) {
-                    List<String> backLinks = newBackLinks.get(link);
-                    if (backLinks == null) {
-                        backLinks = new ArrayList<String>(UPDATE_PAGELIST_EVERY / 4);
-                    }
-                    backLinks.add(page.getTitle());
-                    newBackLinks.put(link, backLinks);
+                    newBackLinks.put1(wikiModel.normalisePageTitle(link),
+                            normTitle);
+                }
+                if (MyWikiModel.isArticle(normTitle.namespace, wikiModel
+                        .getLinks(), wikiModel.getCategories().keySet())) {
+                    ++articleCount;
                 }
                 wikiModel.tearDown();
             }
     
-            doExport(page, revisions, revisions_short);
+            doExport(page, revisions, revisions_short, normTitle);
         }
         if ((pageCount % UPDATE_PAGELIST_EVERY) == 0) {
             println("processed pages: " + pageCount);
@@ -128,7 +163,7 @@ public abstract class WikiDumpPageHandler extends WikiDumpHandler {
     abstract protected void doExport(SiteInfo siteInfo);
 
     abstract protected void doExport(Page page, List<Revision> revisions,
-            List<ShortRevision> revisions_short);
+            List<ShortRevision> revisions_short, NormalisedTitle title);
 
     /**
      * Provides a comparator for sorting {@link Revision} objects by their IDs.

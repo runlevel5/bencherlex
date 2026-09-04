@@ -1,4 +1,4 @@
-% @copyright 2008-2011 Zuse Institute Berlin
+% @copyright 2008-2014 Zuse Institute Berlin
 
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
@@ -14,10 +14,10 @@
 
 %% @author Thorsten Schuett <schuett@zib.de>
 %% @doc Service for loggins messages.
-%% @version $Id: comm_logger.erl 1823 2011-06-22 09:03:17Z schuett $
+%% @version $Id$
 -module(comm_logger).
 -author('schuett@zib.de').
--vsn('$Id: comm_logger.erl 1823 2011-06-22 09:03:17Z schuett $').
+-vsn('$Id$').
 
 -behaviour(gen_server).
 
@@ -26,18 +26,22 @@
 %% API
 -export([start_link/0]).
 
--export([log/2, dump/0]).
+-export([log/3, dump/0]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {start :: {integer(), integer(), integer()},
-                map   :: gb_tree()}).
+-export_type([stat_tree/0]).
 
-%%====================================================================
+-type stat_tree() :: gb_trees:tree(Tag::atom(), {Size::non_neg_integer(), Count::pos_integer()}).
+-record(state, {start    :: erlang_timestamp(),
+                received :: stat_tree(),
+                sent     :: stat_tree()}).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% API
-%%====================================================================
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%--------------------------------------------------------------------
 %% Function: start_link() -> {ok,Pid} | ignore | {error,Error}
 %% Description: Starts the server
@@ -50,21 +54,21 @@ start_link() ->
 %% Function: log(Tag, Size) -> ok
 %% Description: logs a message type with its size
 %%--------------------------------------------------------------------
--spec log(atom(), integer()) -> ok.
-log(Tag, Size) ->
-    gen_server:cast(?MODULE, {log, Tag, Size}).
+-spec log('send' | 'rcv', term(), non_neg_integer()) -> ok.
+log(SendRcv, Tag, Size) ->
+    gen_server:cast(?MODULE, {log, SendRcv, Tag, Size}).
 
 %%--------------------------------------------------------------------
 %% Function: dump() -> {gb_tree:gb_trees(), {Date, Time}}
 %% Description: gets the logging state
 %%--------------------------------------------------------------------
--spec dump() -> {gb_tree(), {integer(), integer(), integer()}}.
+-spec dump() -> {Received::stat_tree(), Sent::stat_tree(), erlang_timestamp()}.
 dump() ->
     gen_server:call(?MODULE, {dump}).
 
-%%====================================================================
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% gen_server callbacks
-%%====================================================================
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %%--------------------------------------------------------------------
 %% Function: init(Args) -> {ok, State} |
@@ -75,7 +79,7 @@ dump() ->
 %%--------------------------------------------------------------------
 -spec init(list()) -> {ok, #state{}}.
 init([]) ->
-    {ok, #state{start=erlang:timestamp(), map=gb_trees:empty()}}.
+    {ok, #state{start=os:timestamp(), received=gb_trees:empty(), sent=gb_trees:empty()}}.
 
 %%--------------------------------------------------------------------
 %% Function: %% handle_call(Request, From, State) -> {reply, Reply, State} |
@@ -86,9 +90,10 @@ init([]) ->
 %%                                      {stop, Reason, State}
 %% Description: Handling call messages
 %%--------------------------------------------------------------------
--spec handle_call({dump}, any(), #state{}) -> {reply, any(), #state{}}.
+-spec handle_call({dump}, any(), #state{})
+        -> {reply, {Received::stat_tree(), Sent::stat_tree(), erlang_timestamp()}, #state{}}.
 handle_call({dump}, _From, State) ->
-    Reply = {State#state.map, State#state.start},
+    Reply = {State#state.received, State#state.sent, State#state.start},
     {reply, Reply, State};
 handle_call(_Request, _From, State) ->
     Reply = ok,
@@ -100,13 +105,21 @@ handle_call(_Request, _From, State) ->
 %%                                      {stop, Reason, State}
 %% Description: Handling cast messages
 %%--------------------------------------------------------------------
--spec handle_cast({log, atom(), integer()}, #state{}) -> {noreply, #state{}}.
-handle_cast({log, Tag, Size}, State) ->
-    case gb_trees:lookup(Tag, State#state.map) of
+-spec handle_cast({log, 'send' | 'rcv', atom(), non_neg_integer()}, #state{})
+        -> {noreply, #state{}}.
+handle_cast({log, 'rcv', Tag, Size}, State) ->
+    case gb_trees:lookup(Tag, State#state.received) of
         none ->
-            {noreply, State#state{map=gb_trees:insert(Tag, {Size, 1}, State#state.map)}};
+            {noreply, State#state{received=gb_trees:insert(Tag, {Size, 1}, State#state.received)}};
         {value, {OldSize, OldCount}} ->
-            {noreply, State#state{map=gb_trees:update(Tag, {Size + OldSize, OldCount + 1}, State#state.map)}}
+            {noreply, State#state{received=gb_trees:update(Tag, {Size + OldSize, OldCount + 1}, State#state.received)}}
+    end;
+handle_cast({log, 'send', Tag, Size}, State) ->
+    case gb_trees:lookup(Tag, State#state.sent) of
+        none ->
+            {noreply, State#state{sent=gb_trees:insert(Tag, {Size, 1}, State#state.sent)}};
+        {value, {OldSize, OldCount}} ->
+            {noreply, State#state{sent=gb_trees:update(Tag, {Size + OldSize, OldCount + 1}, State#state.sent)}}
     end;
 handle_cast(_Msg, State) ->
     {noreply, State}.

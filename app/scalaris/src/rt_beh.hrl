@@ -1,4 +1,4 @@
-% @copyright 2010-2011 Zuse Institute Berlin
+% @copyright 2010-2013 Zuse Institute Berlin
 
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
@@ -17,29 +17,30 @@
 %% @end
 %% @version $Id$
 
-% note: define key_t(), rt_t() and external_rt_t() in the RT-implementation!
--opaque key()::key_t().
--opaque rt()::rt_t().
--type external_rt()::external_rt_t(). %% @todo: make opaque
-
 -include("client_types.hrl").
 
--ifdef(with_export_type_support).
 -export_type([key/0, rt/0, custom_message/0, external_rt/0]).
--endif.
 
--export([empty/1, empty_ext/1,
-         hash_key/1, get_random_node_id/0, next_hop/2,
+-export([empty_ext/1, init/0, activate/1,
+         hash_key/1, get_random_node_id/0, next_hop/3, succ/2,
          init_stabilize/2, update/3,
-         filter_dead_node/2, to_pid_list/1, get_size/1, get_replica_keys/1,
-         n/0, get_range/2, get_split_key/3,
+         filter_dead_node/3, to_pid_list/1, get_size/1, get_size_ext/1,
+         get_replica_keys/1, get_replica_keys/2, get_key_segment/1,
+         get_key_segment/2,
+         n/0, get_range/2, get_random_in_interval/1, get_random_in_interval/2,
+         get_split_key/3, get_split_keys/3,
          dump/1, to_list/1, export_rt_to_dht_node/2,
-         handle_custom_message/2,
-         check/4, check/5,
+         handle_custom_message_inactive/2, handle_custom_message/2,
+         check/5, check/6,
          check_config/0,
-         client_key_to_binary/1]).
+         client_key_to_binary/1,
+         wrap_message/5,
+         unwrap_message/2
+     ]).
 
 -spec client_key_to_binary(Key::client_key()) -> binary().
+client_key_to_binary(Key) when is_binary(Key) ->
+    Key;
 client_key_to_binary(Key) ->
     case unicode:characters_to_binary(Key) of
         {incomplete, Encoded, Rest} ->

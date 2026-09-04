@@ -1,5 +1,5 @@
-%  Copyright 2008-2011 Zuse Institute Berlin
-%
+%  @copyright 2008-2011 Zuse Institute Berlin
+
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
 %   You may obtain a copy of the License at
@@ -11,12 +11,15 @@
 %   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %   See the License for the specific language governing permissions and
 %   limitations under the License.
-%%% Author  : Thorsten Schuett <schuett@zib.de>
+
+%% @author Thorsten Schuett <schuett@zib.de>
+%% @doc Unit tests testing banking transactions
+%% @end
+%% @version $Id$
 -module(banking_account_SUITE).
 -author('schuett@zib.de').
--vsn('$Id: banking_account_SUITE.erl 1445 2011-02-23 11:34:29Z kruber@zib.de $').
--export([all/0, banking_account/1, end_per_suite/1, init_per_suite/1,
-         money_transfer/2, process/4, process_iter/5, suite/0, wait_for_done/1]).
+-vsn('$Id$').
+-compile(export_all).
 
 -include("unittest.hrl").
 
@@ -24,13 +27,11 @@ all()   -> [banking_account].
 suite() -> [ {timetrap, {seconds, 120}} ].
 
 init_per_suite(Config) ->
-    Config2 = unittest_helper:init_per_suite(Config),
     {priv_dir, PrivDir} = lists:keyfind(priv_dir, 1, Config),
     unittest_helper:make_ring(4, [{config, [{log_path, PrivDir}]}]),
-    Config2.
+    Config.
 
-end_per_suite(Config) ->
-    _ = unittest_helper:end_per_suite(Config),
+end_per_suite(_Config) ->
     ok.
 
 money_transfer(A, B) ->

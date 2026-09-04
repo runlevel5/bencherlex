@@ -1,4 +1,4 @@
-%  @copyright 2011 Zuse Institute Berlin
+%  @copyright 2011, 2012 Zuse Institute Berlin
 
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
@@ -25,41 +25,57 @@
 %%      the processes register as 'paxos_proposer', 'paxos_acceptor',
 %%      and 'paxos_learner' directly.
 %% @end
-%% @version $Id: sup_paxos.erl 2641 2012-01-03 15:01:13Z kruber@zib.de $
+%% @version $Id$
 -module(sup_paxos).
 -author('schintke@zib.de').
--vsn('$Id: sup_paxos.erl 2641 2012-01-03 15:01:13Z kruber@zib.de $').
+-vsn('$Id$').
 -behaviour(supervisor).
--export([start_link/2, init/1]).
+-export([start_link/1, init/1]).
+-export([supspec/1, childs/1]).
 
--spec start_link(pid_groups:groupname(), Options::[tuple()]) ->
+-spec start_link({pid_groups:groupname(), Options::[tuple()]}) ->
                         {ok, Pid::pid()} | ignore |
                         {error, Error::{already_started, Pid::pid()} |
                                        shutdown | term()}.
-start_link(PidGroup, Options) ->
-    supervisor:start_link(?MODULE, {PidGroup, Options}).
+start_link({PidGroup, Options}) ->
+    supervisor:start_link(?MODULE, [{PidGroup, Options}]).
 
 %% userdevguide-begin sup_dht_node_core:init
--spec init({pid_groups:groupname(), Options::[tuple()]}) ->
+-spec init([{pid_groups:groupname(), Options::[tuple()]}]) ->
                   {ok, {{one_for_one, MaxRetries::pos_integer(),
                          PeriodInSeconds::pos_integer()},
                         [ProcessDescr::supervisor:child_spec()]}}.
-init({PidGroup, Options}) ->
-    {SupervisorName, ProposerName, AcceptorName, LearnerName} =
-        case lists:keyfind(sup_paxos_prefix, 1, Options) of
-            {sup_paxos_prefix, Prefix} ->
-                PrefixS = atom_to_list(Prefix),
-                {list_to_atom(PrefixS ++ "_" ++ atom_to_list(?MODULE)),
-                 list_to_atom(PrefixS ++ atom_to_list('_proposer')),
-                 list_to_atom(PrefixS ++ atom_to_list('_acceptor')),
-                 list_to_atom(PrefixS ++ atom_to_list('_learner'))};
-            false -> {?MODULE, paxos_proposer, paxos_acceptor, paxos_learner}
+init([{PidGroup, Options}] = X) ->
+    SupervisorName =
+        case lists:keyfind(sup_paxos_parent, 1, Options) of
+            {sup_paxos_parent, Parent} ->
+                {Parent, ?MODULE};
+            false -> ?MODULE
         end,
     pid_groups:join_as(PidGroup, SupervisorName),
-    Proposer = util:sup_worker_desc(proposer, proposer,
+    supspec(X).
+
+-spec supspec(any()) -> {ok, {{one_for_one, MaxRetries::pos_integer(),
+                         PeriodInSeconds::pos_integer()}, []}}.
+supspec(_) ->
+    {ok, {{one_for_one, 10, 1}, []}}.
+
+-spec childs([{pid_groups:groupname(), Options::[tuple()]}]) ->
+                    [ProcessDescr::supervisor:child_spec()].
+childs([{PidGroup, Options}]) ->
+    {ProposerName, AcceptorName, LearnerName} =
+        case lists:keyfind(sup_paxos_parent, 1, Options) of
+            {sup_paxos_parent, Parent} ->
+                {{Parent, proposer},
+                 {Parent, acceptor},
+                 {Parent, learner}};
+            false ->
+                {paxos_proposer, paxos_acceptor, paxos_learner}
+        end,
+    Proposer = sup:worker_desc(proposer, proposer,
                                     start_link, [PidGroup, ProposerName]),
-    Acceptor = util:sup_worker_desc(acceptor, acceptor,
+    Acceptor = sup:worker_desc(acceptor, acceptor,
                                     start_link, [PidGroup, AcceptorName]),
-    Learner = util:sup_worker_desc(learner, learner,
+    Learner = sup:worker_desc(learner, learner,
                                    start_link, [PidGroup, LearnerName]),
-    {ok, {{one_for_one, 10, 1}, [Proposer, Acceptor, Learner]}}.
+    [Proposer, Acceptor, Learner].

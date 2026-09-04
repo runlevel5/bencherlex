@@ -17,15 +17,13 @@
 %% @end
 %% @version $Id$
 
--ifdef(with_export_type_support).
 -export_type([state/0, custom_message/0]).
--endif.
 
--export([init/3, on/2,
-         zombie_node/2, crashed_node/2,
+-export([init_first/0, init/3, trigger_action/1, handle_custom_message/2,
+         trigger_interval/0,
+         zombie_node/2, fd_notify/4,
          new_pred/2, new_succ/2,
-         leave/1, remove_pred/3, remove_succ/3,
-         update_node/2,
+         update_node/2, contact_new_nodes/1,
          get_neighbors/1,
          get_web_debug_info/1,
          check_config/0,

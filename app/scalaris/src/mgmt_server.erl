@@ -1,4 +1,4 @@
-% @copyright 2007-2011 Zuse Institute Berlin
+% @copyright 2007-2015 Zuse Institute Berlin
 
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
@@ -18,56 +18,52 @@
 %%      purpose is to give new scalaris nodes a list of nodes already
 %%      in the system.
 %% @end
+%% @version $Id$
 -module(mgmt_server).
 -author('schuett@zib.de').
--vsn('$Id: mgmt_server.erl 2576 2011-12-16 18:01:34Z kruber@zib.de $').
+-vsn('$Id$').
 
 -export([start_link/2,
          number_of_nodes/0,
-         node_list/0,
-         connect/0]).
+         node_list/0, node_list/1]).
 
 -behaviour(gen_component).
 -include("scalaris.hrl").
 
 -export([init/1, on/2]).
 
+-include("gen_component.hrl").
+
 % accepted messages of the mgmt_server process
 -type(message() ::
-    {crash, PID::comm:mypid()} |
-    {get_list, Ping_PID::comm:mypid()} |
-    {be_the_first, Ping_PID::comm:mypid()} |
-    {get_list_length, Ping_PID::comm:mypid()} |
-    {register, Ping_PID::comm:mypid()} |
-    {connect}).
+    {fd_notify, fd:event(), PID::comm:mypid(), Reason::fd:reason()} |
+    {get_list, SourcePid::comm:mypid()} |
+    {get_list_length, SourcePid::comm:mypid()} |
+    {register, Node::node:node_type()}).
 
 % internal state (known nodes)
--type(state()::Nodes::gb_set()).
+-type(state()::Nodes::gb_trees:tree(comm:mypid(), node:node_type())).
 
-%% @doc trigger a message with  the number of nodes known to the mgmt server
+%% @doc trigger a message with the number of nodes known to the mgmt server
 -spec number_of_nodes() -> ok.
 number_of_nodes() ->
     Pid = mgmtPid(),
-    case comm:is_valid(Pid) of
-        true -> comm:send(Pid, {get_list_length, comm:this()});
+    This = comm:this(),
+    case comm:is_valid(Pid) andalso comm:is_valid(This) of
+        true -> comm:send(Pid, {get_list_length, This});
         _    -> comm:send_local(self(), {get_list_length_response, 0})
-    end.
-
--spec connect() -> ok.
-connect() ->
-    % @todo we have to improve the startup process!
-    Pid = mgmtPid(),
-    case comm:is_valid(Pid) of
-        true -> comm:send(Pid, {connect});
-        _    -> ok
     end.
 
 %% @doc trigger a message with all nodes known to the mgmt server
 -spec node_list() -> ok.
-node_list() ->
+node_list() -> node_list(false).
+
+-spec node_list(UseShepherd::boolean()) -> ok.
+node_list(UseShepherd) ->
     Pid = mgmtPid(),
     case comm:is_valid(Pid) of
-        true -> comm:send(Pid, {get_list, comm:this()});
+        true -> comm:send(Pid, {get_list, comm:this()},
+                          ?IIF(UseShepherd, [{shepherd, self()}], []));
         _    -> comm:send_local(self(), {get_list_response, []})
     end.
 
@@ -76,37 +72,40 @@ node_list() ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 -spec on(message(), state()) -> state().
-on({crash, PID}, Nodes) ->
-    NewNodes = gb_sets:delete_any(PID, Nodes),
-    dn_cache:add_zombie_candidate(PID),
-    NewNodes;
-
-on({get_list, Ping_PID}, Nodes) ->
-    comm:send(Ping_PID, {get_list_response, gb_sets:to_list(Nodes)}),
+on({fd_notify, crash, PID, _Reason}, Nodes) ->
+    case gb_trees:lookup(PID, Nodes) of
+        {value, Node} -> dn_cache:add_zombie_candidate(Node),
+                         gb_trees:delete(PID, Nodes);
+        none          -> Nodes
+    end;
+on({fd_notify, leave, PID, _Reason}, Nodes) ->
+    % graceful leave - prevent the node being added as a zombie candidate by removing now:
+    gb_trees:delete_any(PID, Nodes);
+on({fd_notify, _Event, _PID, _Reason}, Nodes) ->
     Nodes;
 
-on({get_list_length, Ping_PID}, Nodes) ->
-    L = length(gb_sets:to_list(Nodes)),
-    comm:send(Ping_PID, {get_list_length_response, L}),
+on({get_list, SourcePid}, Nodes) ->
+    comm:send(SourcePid, {get_list_response, gb_trees:keys(Nodes)}),
     Nodes;
 
-on({register, Ping_PID}, Nodes) ->
-    fd:subscribe(Ping_PID),
-    NewNodes = gb_sets:add(Ping_PID, Nodes),
-    NewNodes;
+on({get_list_length, SourcePid}, Nodes) ->
+    comm:send(SourcePid, {get_list_length_response, gb_trees:size(Nodes)}),
+    Nodes;
 
-on({connect}, State) ->
-    % ugly work around for finding the local ip by setting up a socket first
-    State;
+on({register, Node}, Nodes) ->
+    NodePid = node:pidX(Node),
+    case gb_trees:lookup(NodePid, Nodes) of
+        {value, _OldNode} -> gb_trees:update(NodePid, Node, Nodes);
+        none              -> fd:subscribe(self(), [NodePid]),
+                             gb_trees:insert(NodePid, Node, Nodes)
+    end;
 
 % dead-node-cache reported dead node to be alive again
-on({zombie_pid, Ping_PID}, Nodes) ->
-    fd:subscribe(Ping_PID),
-    NewNodes = gb_sets:add(Ping_PID, Nodes),
-    NewNodes;
+on({zombie, Node}, Nodes) ->
+    on({register, Node}, Nodes);
 
 on({web_debug_info, Requestor}, Nodes) ->
-    RegisteredPids = gb_sets:to_list(Nodes),
+    RegisteredPids = gb_trees:keys(Nodes),
     % resolve (local and remote) pids to names:
     PidNames = pid_groups:pids_to_names(RegisteredPids, 1000),
     KeyValueList =
@@ -118,14 +117,8 @@ on({web_debug_info, Requestor}, Nodes) ->
 
 -spec init(Options::[tuple()]) -> state().
 init(_Options) ->
-    case config:read(start_dht_node) of
-        failed ->
-            % if a dht_node is started, it will do this job:
-            comm:init_and_wait_for_valid_pid();
-        _ -> ok
-    end,
     dn_cache:subscribe(),
-    gb_sets:empty().
+    gb_trees:empty().
 
 %% @doc starts the server; called by the mgmt supervisor
 %% @see sup_scalaris

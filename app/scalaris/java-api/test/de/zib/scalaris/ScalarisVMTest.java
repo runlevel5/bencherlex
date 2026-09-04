@@ -44,8 +44,11 @@ public class ScalarisVMTest {
     final static String scalarisNode;
 
     static {
+        // determine good/bad nodes:
+        final ConnectionFactory cf = ConnectionFactory.getInstance();
+        cf.testAllNodes();
         // set not to automatically try reconnects (auto-retries prevent ConnectionException tests from working):
-        final DefaultConnectionPolicy cp = ((DefaultConnectionPolicy) ConnectionFactory.getInstance().getConnectionPolicy());
+        final DefaultConnectionPolicy cp = ((DefaultConnectionPolicy) cf.getConnectionPolicy());
         cp.setMaxRetries(0);
         scalarisNode = cp.selectNode().toString();
     }
@@ -187,8 +190,7 @@ public class ScalarisVMTest {
     public final void testGetNodes1() throws ConnectionException {
         final ScalarisVM conn = new ScalarisVM(scalarisNode);
         try {
-            final List<String> nodes = conn.getNodes();
-            assertTrue(nodes.size() >= 0);
+            final List<ErlangValue> nodes = conn.getNodes();
             assertEquals(conn.getNumberOfNodes(), nodes.size());
         } finally {
             conn.closeConnection();
@@ -256,13 +258,13 @@ public class ScalarisVMTest {
             final AddNodesResult addedNodes = conn.addNodes(nodesToAdd);
             size += nodesToAdd;
             assertEquals(nodesToAdd, addedNodes.successful.size());
-            assertTrue(addedNodes.errors.isEmpty());
+            assertEquals(addedNodes.errors.length(), 0);
             assertEquals(size, conn.getNumberOfNodes());
-            final List<String> nodes = conn.getNodes();
-            for (final String name : addedNodes.successful) {
+            final List<ErlangValue> nodes = conn.getNodes();
+            for (final ErlangValue name : addedNodes.successful) {
                 assertTrue(nodes.toString() + " should contain " + name, nodes.contains(name));
             }
-            for (final String name : addedNodes.successful) {
+            for (final ErlangValue name : addedNodes.successful) {
                 conn.killNode(name);
             }
             size -= nodesToAdd;
@@ -273,7 +275,7 @@ public class ScalarisVMTest {
     }
 
     /**
-     * Test method for {@link ScalarisVM#shutdownNode(String)} with a closed
+     * Test method for {@link ScalarisVM#shutdownNode(ErlangValue)} with a closed
      * connection.
      *
      * @throws ConnectionException
@@ -283,11 +285,11 @@ public class ScalarisVMTest {
     public final void testShutdownNode_NotConnected() throws ConnectionException, InterruptedException {
         final ScalarisVM conn = new ScalarisVM(scalarisNode);
         conn.closeConnection();
-        conn.shutdownNode("test");
+        conn.shutdownNode(new ErlangValue("test"));
     }
 
     /**
-     * Test method for {@link ScalarisVM#shutdownNode(String)}.
+     * Test method for {@link ScalarisVM#shutdownNode(ErlangValue)}.
      *
      * @throws ConnectionException
      * @throws InterruptedException
@@ -298,7 +300,7 @@ public class ScalarisVMTest {
     }
 
     /**
-     * Test method for {@link ScalarisVM#killNode(String)} with a closed
+     * Test method for {@link ScalarisVM#killNode(ErlangValue)} with a closed
      * connection.
      *
      * @throws ConnectionException
@@ -308,11 +310,11 @@ public class ScalarisVMTest {
     public final void testKillNode_NotConnected() throws ConnectionException, InterruptedException {
         final ScalarisVM conn = new ScalarisVM(scalarisNode);
         conn.closeConnection();
-        conn.killNode("test");
+        conn.killNode(new ErlangValue("test"));
     }
 
     /**
-     * Test method for {@link ScalarisVM#killNode(String)}.
+     * Test method for {@link ScalarisVM#killNode(ErlangValue)}.
      *
      * @throws ConnectionException
      * @throws InterruptedException
@@ -323,8 +325,8 @@ public class ScalarisVMTest {
     }
 
     /**
-     * Test method for {@link ScalarisVM#shutdownNode(String)} and
-     * {@link ScalarisVM#killNode(String)}.
+     * Test method for {@link ScalarisVM#shutdownNode(ErlangValue)} and
+     * {@link ScalarisVM#killNode(ErlangValue)}.
      *
      * @throws ConnectionException
      * @throws InterruptedException
@@ -333,7 +335,7 @@ public class ScalarisVMTest {
         final ScalarisVM conn = new ScalarisVM(scalarisNode);
         try {
             final int size = conn.getNumberOfNodes();
-            final String name = conn.addNodes(1).successful.get(0);
+            final ErlangValue name = conn.addNodes(1).successful.get(0);
             assertEquals(size + 1, conn.getNumberOfNodes());
             boolean result = false;
             switch (action) {
@@ -346,7 +348,7 @@ public class ScalarisVMTest {
             }
             assertTrue(result);
             assertEquals(size, conn.getNumberOfNodes());
-            final List<String> nodes = conn.getNodes();
+            final List<ErlangValue> nodes = conn.getNodes();
             assertTrue(nodes.toString() + " should not contain " + name, !nodes.contains(name));
         } finally {
             conn.closeConnection();
@@ -462,7 +464,7 @@ public class ScalarisVMTest {
                 conn.addNodes(nodesToRemove);
                 assertEquals(size + nodesToRemove, conn.getNumberOfNodes());
             }
-            List<String> result = null;
+            List<ErlangValue> result = null;
             switch (action) {
                 case SHUTDOWN:
                     result = conn.shutdownNodes(nodesToRemove);
@@ -470,11 +472,13 @@ public class ScalarisVMTest {
                 case KILL:
                     result = conn.killNodes(nodesToRemove);
                     break;
+                default:
+                    throw new RuntimeException();
             }
             assertEquals(nodesToRemove, result.size());
             assertEquals(size, conn.getNumberOfNodes());
-            final List<String> nodes = conn.getNodes();
-            for (final String name : result) {
+            final List<ErlangValue> nodes = conn.getNodes();
+            for (final ErlangValue name : result) {
                 assertTrue(nodes.toString() + " should not contain " + name, !nodes.contains(name));
             }
         } finally {
@@ -490,10 +494,10 @@ public class ScalarisVMTest {
      * @throws InterruptedException
      */
     @Test(expected=ConnectionException.class)
-    public final void testShutdownNodesList_NotConnected() throws ConnectionException, InterruptedException {
+    public final void testShutdownByName_NotConnected() throws ConnectionException, InterruptedException {
         final ScalarisVM conn = new ScalarisVM(scalarisNode);
         conn.closeConnection();
-        conn.shutdownNodesByName(Arrays.asList("test"));
+        conn.shutdownNodesByName(Arrays.asList(new ErlangValue("test")));
     }
 
     /**
@@ -503,8 +507,8 @@ public class ScalarisVMTest {
      * @throws InterruptedException
      */
     @Test
-    public final void testShutdownNodesList0() throws ConnectionException, InterruptedException {
-        testDeleteNodesListX(0, DeleteAction.SHUTDOWN);
+    public final void testShutdownByName0() throws ConnectionException, InterruptedException {
+        testDeleteNodesByNameX(0, DeleteAction.SHUTDOWN);
     }
 
     /**
@@ -515,8 +519,8 @@ public class ScalarisVMTest {
      * @throws InterruptedException
      */
     @Test
-    public final void testShutdownNodesList1() throws ConnectionException, InterruptedException {
-        testDeleteNodesListX(1, DeleteAction.SHUTDOWN);
+    public final void testShutdownByName1() throws ConnectionException, InterruptedException {
+        testDeleteNodesByNameX(1, DeleteAction.SHUTDOWN);
     }
 
     /**
@@ -527,8 +531,8 @@ public class ScalarisVMTest {
      * @throws InterruptedException
      */
     @Test
-    public final void testShutdownNodesList3() throws ConnectionException, InterruptedException {
-        testDeleteNodesListX(3, DeleteAction.SHUTDOWN);
+    public final void testShutdownByName3() throws ConnectionException, InterruptedException {
+        testDeleteNodesByNameX(3, DeleteAction.SHUTDOWN);
     }
 
     /**
@@ -539,10 +543,10 @@ public class ScalarisVMTest {
      * @throws InterruptedException
      */
     @Test(expected=ConnectionException.class)
-    public final void testKillNodesList_NotConnected() throws ConnectionException, InterruptedException {
+    public final void testKillByName_NotConnected() throws ConnectionException, InterruptedException {
         final ScalarisVM conn = new ScalarisVM(scalarisNode);
         conn.closeConnection();
-        conn.killNodes(Arrays.asList("test"));
+        conn.killNodes(Arrays.asList(new ErlangValue("test")));
     }
 
     /**
@@ -552,8 +556,8 @@ public class ScalarisVMTest {
      * @throws InterruptedException
      */
     @Test
-    public final void testKillNodesList0() throws ConnectionException, InterruptedException {
-        testDeleteNodesListX(0, DeleteAction.KILL);
+    public final void testKillByName0() throws ConnectionException, InterruptedException {
+        testDeleteNodesByNameX(0, DeleteAction.KILL);
     }
 
     /**
@@ -563,8 +567,8 @@ public class ScalarisVMTest {
      * @throws InterruptedException
      */
     @Test
-    public final void testKillNodesList1() throws ConnectionException, InterruptedException {
-        testDeleteNodesListX(1, DeleteAction.KILL);
+    public final void testKillByName1() throws ConnectionException, InterruptedException {
+        testDeleteNodesByNameX(1, DeleteAction.KILL);
     }
 
     /**
@@ -574,8 +578,8 @@ public class ScalarisVMTest {
      * @throws InterruptedException
      */
     @Test
-    public final void testKillNodesList3() throws ConnectionException, InterruptedException {
-        testDeleteNodesListX(3, DeleteAction.KILL);
+    public final void testKillByName3() throws ConnectionException, InterruptedException {
+        testDeleteNodesByNameX(3, DeleteAction.KILL);
     }
 
     /**
@@ -585,7 +589,7 @@ public class ScalarisVMTest {
      * @throws ConnectionException
      * @throws InterruptedException
      */
-    private final void testDeleteNodesListX(final int nodesToRemove, final DeleteAction action) throws ConnectionException, InterruptedException {
+    private final void testDeleteNodesByNameX(final int nodesToRemove, final DeleteAction action) throws ConnectionException, InterruptedException {
         final ScalarisVM conn = new ScalarisVM(scalarisNode);
         try {
             final int size = conn.getNumberOfNodes();
@@ -593,9 +597,9 @@ public class ScalarisVMTest {
                 conn.addNodes(nodesToRemove);
                 assertEquals(size + nodesToRemove, conn.getNumberOfNodes());
             }
-            List<String> nodes = conn.getNodes();
-            //        Collections.shuffle(nodes); TODO
-            final List<String> removedNodes = nodes.subList(nodes.size() - nodesToRemove, nodes.size());
+            List<ErlangValue> nodes = conn.getNodes();
+            Collections.shuffle(nodes);
+            final List<ErlangValue> removedNodes = nodes.subList(nodes.size() - nodesToRemove, nodes.size());
             DeleteNodesByNameResult result = null;
             switch (action) {
                 case SHUTDOWN:
@@ -604,6 +608,8 @@ public class ScalarisVMTest {
                 case KILL:
                     result = conn.killNodes(removedNodes);
                     break;
+                default:
+                    throw new RuntimeException();
             }
             assertEquals(nodesToRemove, result.successful.size());
             assertEquals(0, result.notFound.size());
@@ -612,7 +618,7 @@ public class ScalarisVMTest {
             assertEquals(removedNodes, result.successful);
             assertEquals(size, conn.getNumberOfNodes());
             nodes = conn.getNodes();
-            for (final String name : result.successful) {
+            for (final ErlangValue name : result.successful) {
                 assertTrue(nodes.toString() + " should not contain " + name, !nodes.contains(name));
             }
         } finally {
@@ -671,7 +677,7 @@ public class ScalarisVMTest {
         final ScalarisVM conn = new ScalarisVM(scalarisNode);
         try {
             final List<String> result = conn.getOtherVMs(max);
-            assertTrue("list too long:" + result.toString(), result.size() <= max);
+            assertTrue("list too long: " + result.toString(), result.size() <= max);
             for (final String node : result) {
                 final ScalarisVM conn2 = new ScalarisVM(node);
                 try {

@@ -15,12 +15,12 @@
 %% @author Thorsten Schuett <schuett@zib.de>
 %% @doc    node data structure + functions
 
-%% @version $Id: node.erl 2157 2011-08-22 14:10:37Z kruber@zib.de $
+%% @version $Id$
 -module(node).
 -author('schuett@zib.de').
--vsn('$Id: node.erl 2157 2011-08-22 14:10:37Z kruber@zib.de $').
+-vsn('$Id$').
 
--export([id/1, id_version/1, pidX/1, erlNode/1, yawsPort/1,
+-export([id/1, id_version/1, pidX/1, yawsPort/1,
          new/3, null/0, is_valid/1,
          same_process/2, is_newer/2, newer/2, is_me/1,
          update_id/2]).
@@ -30,14 +30,11 @@
 -include("scalaris.hrl").
 -include("record_helpers.hrl").
 
--ifdef(with_export_type_support).
 -export_type([node_type/0]).
--endif.
 
 -record(node, {pid        = ?required(node, pid)        :: comm:mypid(),
                id         = ?required(node, id)         :: ?RT:key(),
                id_version = ?required(node, id_version) :: non_neg_integer(),
-               erl_node   = erlang:node()               :: node(),
                yaws_port  = config:read(yaws_port)      :: non_neg_integer()}).
 -opaque(node_type() :: #node{}).
 
@@ -52,9 +49,6 @@ null() -> null.
 %% @doc Gets the pid of the node.
 -spec pidX(node_type()) -> comm:mypid().
 pidX(#node{pid=PID}) -> PID.
-
--spec erlNode(node_type()) -> node().
-erlNode(#node{erl_node = Node}) -> Node.
 
 -spec yawsPort(node_type()) -> non_neg_integer().
 yawsPort(#node{yaws_port = Port}) -> Port.
@@ -79,11 +73,11 @@ is_valid(_) -> false.
                   (node_type(), comm:mypid() | pid()) -> boolean();
                   (null | unknown, node_type() | comm:mypid() | pid()) -> false;
                   (node_type() | comm:mypid() | pid(), null | unknown) -> false.
-same_process(Node1, Node2) when ((Node1 =:= null) orelse (Node1 =:= unknown) orelse
-                           (Node2 =:= null) orelse (Node2 =:= unknown)) ->
-    false;
 same_process(Node1, Node2) when is_record(Node1, node) andalso is_record(Node2, node) ->
     pidX(Node1) =:= pidX(Node2);
+same_process(Node1, Node2) when (Node1 =:= null) orelse (Node1 =:= unknown) orelse
+                           (Node2 =:= null) orelse (Node2 =:= unknown) ->
+    false;
 same_process(Pid1, Node2) when is_record(Node2, node) andalso is_pid(Pid1) ->
     comm:make_global(Pid1) =:= pidX(Node2);
 same_process(Pid1, Node2) when is_record(Node2, node) ->
@@ -103,24 +97,23 @@ is_me(Node) ->
 %%      Note: Both nodes need to share the same PID, otherwise an exception of
 %%      type 'throw' is thrown!
 -spec is_newer(Node1::node_type(), Node2::node_type()) -> boolean().
-is_newer(#node{pid=PID, id=Id1, id_version=IdVersion1}, #node{pid=PID, id=Id2, id_version=IdVersion2}) ->
+is_newer(#node{pid=PID, id=Id1, id_version=IdVersion1},
+         #node{pid=PID, id=Id2, id_version=IdVersion2}) ->
     if
         (IdVersion1 > IdVersion2) -> true;
-        (IdVersion1 =:= IdVersion2) andalso (Id1 =:= Id2) -> false;
-        IdVersion1 =:= IdVersion2 ->
-            throw('got two nodes with same IDversion but different ID');
-        true -> false
+        IdVersion1 < IdVersion2 -> false;
+        Id1 =:= Id2 -> false;
+        true -> throw('got two nodes with same IDversion but different ID')
     end.
 
 %% @doc Creates an interval that covers all keys a node with MyKey is
 %%      responsible for if his predecessor has PredKey, i.e. (PredKey, MyKey]
 -spec mk_interval_between_ids(PredKey::?RT:key(), MyKey::?RT:key())
                              -> intervals:interval().
+mk_interval_between_ids(Key, Key) ->
+    intervals:all();
 mk_interval_between_ids(PredKey, MyKey) ->
-    case PredKey of
-        MyKey -> intervals:all();
-        _     -> intervals:new('(', PredKey, MyKey, ']')
-    end.
+    intervals:new('(', PredKey, MyKey, ']').
 
 %% @doc Creates an interval that covers all keys a node is responsible for given
 %%      his predecessor, i.e. (node:id(PredKey), node:id(MyKey)]

@@ -1,5 +1,5 @@
 /**
- *  Copyright 2011 Zuse Institute Berlin
+ *  Copyright 2011-2013 Zuse Institute Berlin
  *
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -19,9 +19,9 @@ import info.bliki.Messages;
 import info.bliki.wiki.namespaces.Namespace;
 
 import java.util.ListResourceBundle;
+import java.util.Locale;
 import java.util.Map;
-import java.util.Map.Entry;
-import java.util.TreeMap;
+import java.util.ResourceBundle;
 
 import de.zib.scalaris.examples.wikipedia.NamespaceUtils;
 import de.zib.scalaris.examples.wikipedia.data.SiteInfo;
@@ -33,8 +33,145 @@ import de.zib.scalaris.examples.wikipedia.data.SiteInfo;
  */
 public class MyNamespace extends Namespace implements NamespaceUtils {
     private SiteInfo siteinfo;
-    protected final Map<String, Integer> NAMESPACE_INT_MAP =
-            new TreeMap<String, Integer>(String.CASE_INSENSITIVE_ORDER);
+    
+    /**
+     * Provides all namespace values as an enum type.
+     * 
+     * @author Nico Kruber, kruber@zib.de
+     */
+    public static enum NamespaceEnum {
+        /**
+         * Alias for direct links to media files.
+         */
+        MEDIA_NAMESPACE_KEY(MyNamespace.MEDIA_NAMESPACE_KEY),
+        /**
+         * Holds special pages.
+         */
+        SPECIAL_NAMESPACE_KEY(MyNamespace.SPECIAL_NAMESPACE_KEY),
+        /**
+         * "Real" content; articles. Has no prefix.
+         */
+        MAIN_NAMESPACE_KEY(MyNamespace.MAIN_NAMESPACE_KEY),
+        /**
+         * Talk pages of "Real" content
+         */
+        TALK_NAMESPACE_KEY(MyNamespace.TALK_NAMESPACE_KEY),
+        /**
+         * 
+         */
+        USER_NAMESPACE_KEY(MyNamespace.USER_NAMESPACE_KEY),
+        /**
+         * Talk pages for User Pages
+         */
+        USER_TALK_NAMESPACE_KEY(MyNamespace.USER_TALK_NAMESPACE_KEY),
+        /**
+         * Information about the wiki. Prefix is the same as $wgSitename of the PHP
+         * installation.
+         */
+        PROJECT_NAMESPACE_KEY(MyNamespace.PROJECT_NAMESPACE_KEY),
+        /**
+         * 
+         */
+        PROJECT_TALK_NAMESPACE_KEY(MyNamespace.PROJECT_TALK_NAMESPACE_KEY),
+        /**
+         * Media description pages.
+         */
+        FILE_NAMESPACE_KEY(MyNamespace.FILE_NAMESPACE_KEY),
+        /**
+         * 
+         */
+        FILE_TALK_NAMESPACE_KEY(MyNamespace.FILE_TALK_NAMESPACE_KEY),
+        /**
+         * Site interface customisation. Protected.
+         */
+        MEDIAWIKI_NAMESPACE_KEY(MyNamespace.MEDIAWIKI_NAMESPACE_KEY),
+        /**
+         * 
+         */
+        MEDIAWIKI_TALK_NAMESPACE_KEY(MyNamespace.MEDIAWIKI_TALK_NAMESPACE_KEY),
+        /**
+         * Template pages.
+         */
+        TEMPLATE_NAMESPACE_KEY(MyNamespace.TEMPLATE_NAMESPACE_KEY),
+        /**
+         * 
+         */
+        TEMPLATE_TALK_NAMESPACE_KEY(MyNamespace.TEMPLATE_TALK_NAMESPACE_KEY),
+        /**
+         * Help pages.
+         */
+        HELP_NAMESPACE_KEY(MyNamespace.HELP_NAMESPACE_KEY),
+        /**
+         * 
+         */
+        HELP_TALK_NAMESPACE_KEY(MyNamespace.HELP_TALK_NAMESPACE_KEY),
+        /**
+         * Category description pages.
+         */
+        CATEGORY_NAMESPACE_KEY(MyNamespace.CATEGORY_NAMESPACE_KEY),
+        /**
+         * Talk pages for portal pages.
+         */
+        CATEGORY_TALK_NAMESPACE_KEY(MyNamespace.CATEGORY_TALK_NAMESPACE_KEY),
+        /**
+         * Portal pages.
+         */
+        PORTAL_NAMESPACE_KEY(MyNamespace.PORTAL_NAMESPACE_KEY),
+        /**
+         * 
+         */
+        PORTAL_TALK_NAMESPACE_KEY(MyNamespace.PORTAL_TALK_NAMESPACE_KEY);
+        
+        private final int id;
+        NamespaceEnum(int id) {
+            this.id = id;
+        }
+        
+        /**
+         * Returns the namespace's ID.
+         * 
+         * @return the ID of the namespace
+         */
+        public int getId() {
+            return id;
+        }
+
+        /**
+         * Tries to convert a namespace ID to the according enum value.
+         * 
+         * @param id  the ID to convert
+         * 
+         * @return the according enum value
+         */
+        public static NamespaceEnum fromId(int id) {
+            // manual 'switch' is less elegant but faster than going through all
+            // values and comparing the IDs
+            switch (id) {
+                case -2: return MEDIA_NAMESPACE_KEY;
+                case -1: return SPECIAL_NAMESPACE_KEY;
+                case 0:  return MAIN_NAMESPACE_KEY;
+                case 1:  return TALK_NAMESPACE_KEY;
+                case 2:  return USER_NAMESPACE_KEY;
+                case 3:  return USER_TALK_NAMESPACE_KEY;
+                case 4:  return PROJECT_NAMESPACE_KEY;
+                case 5:  return PROJECT_TALK_NAMESPACE_KEY;
+                case 6:  return FILE_NAMESPACE_KEY;
+                case 7:  return FILE_TALK_NAMESPACE_KEY;
+                case 8:  return MEDIAWIKI_NAMESPACE_KEY;
+                case 9:  return MEDIAWIKI_TALK_NAMESPACE_KEY;
+                case 10: return TEMPLATE_NAMESPACE_KEY;
+                case 11: return TEMPLATE_TALK_NAMESPACE_KEY;
+                case 12: return HELP_NAMESPACE_KEY;
+                case 13: return HELP_TALK_NAMESPACE_KEY;
+                case 14: return CATEGORY_NAMESPACE_KEY;
+                case 15: return CATEGORY_TALK_NAMESPACE_KEY;
+                case 100: return PORTAL_NAMESPACE_KEY;
+                case 101: return PORTAL_TALK_NAMESPACE_KEY;
+                default: throw new IllegalArgumentException(
+                        "No constant with id " + id + " found");
+            }
+        }
+    }
     
     /**
      * Resource bundle derived from a given {@link SiteInfo} object.
@@ -43,6 +180,8 @@ public class MyNamespace extends Namespace implements NamespaceUtils {
      */
     public static class MyResourceBundle extends ListResourceBundle {
         protected SiteInfo siteinfo;
+        protected ResourceBundle langResBundle = null;
+        protected ResourceBundle enBundle;
         
         /**
          * Creates a new bundle using the namespace contents from the given
@@ -54,6 +193,11 @@ public class MyNamespace extends Namespace implements NamespaceUtils {
         public MyResourceBundle(SiteInfo siteinfo) {
             super();
             this.siteinfo = siteinfo;
+            Locale locale = siteinfo.extractLolace();
+            if (locale != null) {
+                langResBundle = Messages.getResourceBundle(locale);
+            }
+            enBundle = Messages.getResourceBundle(Locale.ENGLISH);
         }
         
         @Override
@@ -76,36 +220,34 @@ public class MyNamespace extends Namespace implements NamespaceUtils {
              * 12  Help    Help pages
              * 13  Help talk   
              * 14  Category    Category description pages
-             * 15  Category talk   
+             * 15  Category talk
+             * 100 Portal
+             * 101 Portal talk
              * -1  Special     Holds special pages
              * -2  Media   Alias for direct links to media files
              */
             return new Object[][] {
-                    {Messages.WIKI_API_MEDIA1, getNsPref(Namespace.MEDIA_NAMESPACE_KEY)},
-                    {Messages.WIKI_API_SPECIAL1, getNsPref(Namespace.SPECIAL_NAMESPACE_KEY)},
+                    {Messages.WIKI_API_MEDIA1, getNsPref(Namespace.MEDIA_NAMESPACE_KEY, Messages.WIKI_API_MEDIA1)},
+                    {Messages.WIKI_API_SPECIAL1, getNsPref(Namespace.SPECIAL_NAMESPACE_KEY, Messages.WIKI_API_SPECIAL1)},
                     // Main - nothing to add for this
-                    {Messages.WIKI_API_TALK1, getNsPref(Namespace.TALK_NAMESPACE_KEY)},
-                    {Messages.WIKI_API_USER1, getNsPref(Namespace.USER_NAMESPACE_KEY)},
-                    {Messages.WIKI_API_USERTALK1, getNsPref(Namespace.USER_TALK_NAMESPACE_KEY)},
-                    {Messages.WIKI_API_META1, getNsPref(Namespace.PROJECT_NAMESPACE_KEY)},
-                    {Messages.WIKI_API_METATALK1, getNsPref(Namespace.PROJECT_TALK_NAMESPACE_KEY)},
-                    {Messages.WIKI_API_IMAGE1, getNsPref(Namespace.FILE_NAMESPACE_KEY)},
-                    {Messages.WIKI_API_IMAGETALK1, getNsPref(Namespace.FILE_TALK_NAMESPACE_KEY)},
-                    {Messages.WIKI_API_MEDIAWIKI1, getNsPref(Namespace.MEDIAWIKI_NAMESPACE_KEY)},
-                    {Messages.WIKI_API_MEDIAWIKITALK1, getNsPref(Namespace.MEDIAWIKI_TALK_NAMESPACE_KEY)},
-                    {Messages.WIKI_API_TEMPLATE1, getNsPref(Namespace.TEMPLATE_NAMESPACE_KEY)},
-                    {Messages.WIKI_API_TEMPLATETALK1, getNsPref(Namespace.TEMPLATE_TALK_NAMESPACE_KEY)},
-                    {Messages.WIKI_API_HELP1, getNsPref(Namespace.HELP_NAMESPACE_KEY)},
-                    {Messages.WIKI_API_HELPTALK1, getNsPref(Namespace.HELP_TALK_NAMESPACE_KEY)},
-                    {Messages.WIKI_API_CATEGORY1, getNsPref(Namespace.CATEGORY_NAMESPACE_KEY)},
-                    {Messages.WIKI_API_CATEGORYTALK1, getNsPref(Namespace.CATEGORY_TALK_NAMESPACE_KEY)},
-                    {Messages.WIKI_TAGS_TOC_CONTENT, "Contents"}, // TODO: internationalise!
-                    // Aliases as defined by
-                    // https://secure.wikimedia.org/wikipedia/en/wiki/Wikipedia:Namespace#Aliases
-                    {Messages.WIKI_API_META2, "WP"}, // also: "Project" but we can only add one here
-                    {Messages.WIKI_API_METATALK2, "WT"}, // also: "Project talk" but we can only add one here
-                    {Messages.WIKI_API_IMAGE2, "Image"},
-                    {Messages.WIKI_API_IMAGETALK2, "Image talk"},
+                    {Messages.WIKI_API_TALK1, getNsPref(Namespace.TALK_NAMESPACE_KEY, Messages.WIKI_API_TALK1)},
+                    {Messages.WIKI_API_USER1, getNsPref(Namespace.USER_NAMESPACE_KEY, Messages.WIKI_API_USER1)},
+                    {Messages.WIKI_API_USERTALK1, getNsPref(Namespace.USER_TALK_NAMESPACE_KEY, Messages.WIKI_API_USERTALK1)},
+                    {Messages.WIKI_API_META1, getNsPref(Namespace.PROJECT_NAMESPACE_KEY, Messages.WIKI_API_META1)},
+                    {Messages.WIKI_API_METATALK1, getNsPref(Namespace.PROJECT_TALK_NAMESPACE_KEY, Messages.WIKI_API_METATALK1)},
+                    {Messages.WIKI_API_IMAGE1, getNsPref(Namespace.FILE_NAMESPACE_KEY, Messages.WIKI_API_IMAGE1)},
+                    {Messages.WIKI_API_IMAGETALK1, getNsPref(Namespace.FILE_TALK_NAMESPACE_KEY, Messages.WIKI_API_IMAGETALK1)},
+                    {Messages.WIKI_API_MEDIAWIKI1, getNsPref(Namespace.MEDIAWIKI_NAMESPACE_KEY, Messages.WIKI_API_MEDIAWIKI1)},
+                    {Messages.WIKI_API_MEDIAWIKITALK1, getNsPref(Namespace.MEDIAWIKI_TALK_NAMESPACE_KEY, Messages.WIKI_API_MEDIAWIKITALK1)},
+                    {Messages.WIKI_API_TEMPLATE1, getNsPref(Namespace.TEMPLATE_NAMESPACE_KEY, Messages.WIKI_API_TEMPLATE1)},
+                    {Messages.WIKI_API_TEMPLATETALK1, getNsPref(Namespace.TEMPLATE_TALK_NAMESPACE_KEY, Messages.WIKI_API_TEMPLATETALK1)},
+                    {Messages.WIKI_API_HELP1, getNsPref(Namespace.HELP_NAMESPACE_KEY, Messages.WIKI_API_HELP1)},
+                    {Messages.WIKI_API_HELPTALK1, getNsPref(Namespace.HELP_TALK_NAMESPACE_KEY, Messages.WIKI_API_HELPTALK1)},
+                    {Messages.WIKI_API_CATEGORY1, getNsPref(Namespace.CATEGORY_NAMESPACE_KEY, Messages.WIKI_API_CATEGORY1)},
+                    {Messages.WIKI_API_CATEGORYTALK1, getNsPref(Namespace.CATEGORY_TALK_NAMESPACE_KEY, Messages.WIKI_API_CATEGORYTALK1)},
+                    {Messages.WIKI_API_PORTAL1, getNsPref(Namespace.PORTAL_NAMESPACE_KEY, Messages.WIKI_API_PORTAL1)},
+                    {Messages.WIKI_API_PORTALTALK1, getNsPref(Namespace.PORTAL_TALK_NAMESPACE_KEY, Messages.WIKI_API_PORTALTALK1)},
+                    {Messages.WIKI_TAGS_TOC_CONTENT, langResBundle == null ? "Contents" : Messages.getString(langResBundle, Messages.WIKI_TAGS_TOC_CONTENT, "Contents")}
             };
         }
 
@@ -114,10 +256,25 @@ public class MyNamespace extends Namespace implements NamespaceUtils {
          * 
          * @param key
          *            the key of the namespace to retrieve
-         * @return
+         * @param msgkey
+         *            the key used by {@link Messages}
+         * @return namespace name
          */
-        private String getNsPref(Integer key) {
-            return siteinfo.getNamespaces().get(key.toString()).get(SiteInfo.NAMESPACE_PREFIX);
+        private String getNsPref(Integer key, String msgkey) {
+            final Map<String, String> nsMap = siteinfo.getNamespaces().get(key.toString());
+            if (nsMap != null) {
+                return nsMap.get(SiteInfo.NAMESPACE_PREFIX);
+            }
+            // note: the result MUST NOT BE NULL!
+            // otherwise Messages#getString() will return <tt>"!" + key + "!"</tt>
+            String fallBackName = null;
+            if (langResBundle != null) {
+                fallBackName = Messages.getString(langResBundle, msgkey, null);
+            }
+            if (fallBackName == null) {
+                fallBackName = Messages.getString(enBundle, msgkey, null);
+            }
+            return fallBackName;
         }
     }
 
@@ -138,82 +295,10 @@ public class MyNamespace extends Namespace implements NamespaceUtils {
     public MyNamespace(SiteInfo siteinfo) {
         super(new MyResourceBundle(siteinfo));
         this.siteinfo = siteinfo;
-        initializeIntNamespaces();
-        initializeTalkNamespaces();
-    }
-
-    /**
-     * Fixes {@link Namespace} not initialising the talk namespaces depending on
-     * the resource bundle.
-     */
-    private void initializeTalkNamespaces() {
-        // remove (false) mappings set by Namespace#Namespace(java.util.ResourceBundle)
-        TALKSPACE_MAP.clear();
-        // add correct mappings:
-        TALKSPACE_MAP.put(getNamespaceByNumber(Namespace.MEDIA_NAMESPACE_KEY), null); // media
-        TALKSPACE_MAP.put(getNamespaceByNumber(Namespace.SPECIAL_NAMESPACE_KEY), null); // special
-        TALKSPACE_MAP.put(getNamespaceByNumber(Namespace.MAIN_NAMESPACE_KEY), getTalk()); // ""
-        TALKSPACE_MAP.put(getNamespaceByNumber(Namespace.TALK_NAMESPACE_KEY), getTalk()); // talk
-        TALKSPACE_MAP.put(getNamespaceByNumber(Namespace.USER_NAMESPACE_KEY), getUser_talk()); // user
-        TALKSPACE_MAP.put(getNamespaceByNumber(Namespace.USER_TALK_NAMESPACE_KEY), getUser_talk()); // user_talk
-        TALKSPACE_MAP.put(getNamespaceByNumber(Namespace.PROJECT_NAMESPACE_KEY), getMeta_talk()); // project
-        TALKSPACE_MAP.put(getNamespaceByNumber(Namespace.PROJECT_TALK_NAMESPACE_KEY), getMeta_talk()); // project_talk
-        TALKSPACE_MAP.put(getNamespaceByNumber(Namespace.FILE_NAMESPACE_KEY), getImage_talk()); // image
-        TALKSPACE_MAP.put(getNamespaceByNumber(Namespace.FILE_TALK_NAMESPACE_KEY), getImage_talk()); // image_talk
-        TALKSPACE_MAP.put(getNamespaceByNumber(Namespace.MEDIAWIKI_NAMESPACE_KEY), getMediaWiki_talk()); // mediawiki
-        TALKSPACE_MAP.put(getNamespaceByNumber(Namespace.MEDIAWIKI_TALK_NAMESPACE_KEY), getMediaWiki_talk()); // mediawiki_talk
-        TALKSPACE_MAP.put(getNamespaceByNumber(Namespace.TEMPLATE_NAMESPACE_KEY), getTemplate_talk()); // template
-        TALKSPACE_MAP.put(getNamespaceByNumber(Namespace.TEMPLATE_TALK_NAMESPACE_KEY), getTemplate_talk()); // template_talk
-        TALKSPACE_MAP.put(getNamespaceByNumber(Namespace.HELP_NAMESPACE_KEY), getHelp_talk()); // help
-        TALKSPACE_MAP.put(getNamespaceByNumber(Namespace.HELP_TALK_NAMESPACE_KEY), getHelp_talk()); // help_talk
-        TALKSPACE_MAP.put(getNamespaceByNumber(Namespace.CATEGORY_NAMESPACE_KEY), getCategory_talk()); // category
-        TALKSPACE_MAP.put(getNamespaceByNumber(Namespace.CATEGORY_TALK_NAMESPACE_KEY), getCategory_talk()); // category_talk
-    }
-
-    /**
-     * Initialises a mapping of namespace strings to integers.
-     */
-    private void initializeIntNamespaces() {
-        NAMESPACE_INT_MAP.put(getNamespaceByNumber(Namespace.MEDIA_NAMESPACE_KEY), Namespace.MEDIA_NAMESPACE_KEY);
-        NAMESPACE_INT_MAP.put(getNamespaceByNumber(Namespace.SPECIAL_NAMESPACE_KEY), Namespace.SPECIAL_NAMESPACE_KEY);
-        NAMESPACE_INT_MAP.put(getNamespaceByNumber(Namespace.MAIN_NAMESPACE_KEY), Namespace.MAIN_NAMESPACE_KEY);
-        NAMESPACE_INT_MAP.put(getNamespaceByNumber(Namespace.TALK_NAMESPACE_KEY), Namespace.TALK_NAMESPACE_KEY);
-        NAMESPACE_INT_MAP.put(getNamespaceByNumber(Namespace.USER_NAMESPACE_KEY), Namespace.USER_NAMESPACE_KEY);
-        NAMESPACE_INT_MAP.put(getNamespaceByNumber(Namespace.USER_TALK_NAMESPACE_KEY), Namespace.USER_TALK_NAMESPACE_KEY);
-        NAMESPACE_INT_MAP.put(getNamespaceByNumber(Namespace.PROJECT_NAMESPACE_KEY), Namespace.PROJECT_NAMESPACE_KEY);
-        NAMESPACE_INT_MAP.put(getNamespaceByNumber(Namespace.PROJECT_TALK_NAMESPACE_KEY), Namespace.PROJECT_TALK_NAMESPACE_KEY);
-        NAMESPACE_INT_MAP.put(getNamespaceByNumber(Namespace.FILE_NAMESPACE_KEY), Namespace.FILE_NAMESPACE_KEY);
-        NAMESPACE_INT_MAP.put(getNamespaceByNumber(Namespace.FILE_TALK_NAMESPACE_KEY), Namespace.FILE_TALK_NAMESPACE_KEY);
-        NAMESPACE_INT_MAP.put(getNamespaceByNumber(Namespace.MEDIAWIKI_NAMESPACE_KEY), Namespace.MEDIAWIKI_NAMESPACE_KEY);
-        NAMESPACE_INT_MAP.put(getNamespaceByNumber(Namespace.MEDIAWIKI_TALK_NAMESPACE_KEY), Namespace.MEDIAWIKI_TALK_NAMESPACE_KEY);
-        NAMESPACE_INT_MAP.put(getNamespaceByNumber(Namespace.TEMPLATE_NAMESPACE_KEY), Namespace.TEMPLATE_NAMESPACE_KEY);
-        NAMESPACE_INT_MAP.put(getNamespaceByNumber(Namespace.TEMPLATE_TALK_NAMESPACE_KEY), Namespace.TEMPLATE_TALK_NAMESPACE_KEY);
-        NAMESPACE_INT_MAP.put(getNamespaceByNumber(Namespace.HELP_NAMESPACE_KEY), Namespace.HELP_NAMESPACE_KEY);
-        NAMESPACE_INT_MAP.put(getNamespaceByNumber(Namespace.HELP_TALK_NAMESPACE_KEY), Namespace.HELP_TALK_NAMESPACE_KEY);
-        NAMESPACE_INT_MAP.put(getNamespaceByNumber(Namespace.CATEGORY_NAMESPACE_KEY), Namespace.CATEGORY_NAMESPACE_KEY);
-        NAMESPACE_INT_MAP.put(getNamespaceByNumber(Namespace.CATEGORY_TALK_NAMESPACE_KEY), Namespace.CATEGORY_TALK_NAMESPACE_KEY);
-        // Aliases as defined by
-        // https://secure.wikimedia.org/wikipedia/en/wiki/Wikipedia:Namespace#Aliases
-        NAMESPACE_INT_MAP.put("WP", Namespace.PROJECT_NAMESPACE_KEY);
-        NAMESPACE_INT_MAP.put("Project", Namespace.PROJECT_NAMESPACE_KEY);
-        NAMESPACE_INT_MAP.put("WT", Namespace.PROJECT_TALK_NAMESPACE_KEY);
-        NAMESPACE_INT_MAP.put("Project talk", Namespace.PROJECT_TALK_NAMESPACE_KEY);
-        NAMESPACE_INT_MAP.put("Image", Namespace.FILE_NAMESPACE_KEY);
-        NAMESPACE_INT_MAP.put("Image talk", Namespace.FILE_TALK_NAMESPACE_KEY);
-    }
-
-    /* (non-Javadoc)
-     * @see de.zib.scalaris.examples.wikipedia.bliki.NamespaceUtils#getSubjectspace(java.lang.String)
-     */
-    @Override
-    public String getSubjectspace(String talkNamespace) {
-        for (Entry<String, String> entry: TALKSPACE_MAP.entrySet() ) {
-            String value = entry.getValue();
-            if (value != null && value.equals(talkNamespace)) {
-                return NAMESPACE_MAP.get(entry.getKey());
-            }
+        Locale locale = siteinfo.extractLolace();
+        if (locale != null) {
+            initializeAliases(Messages.getResourceBundle(locale));
         }
-        return null;
     }
 
     /* (non-Javadoc)
@@ -223,25 +308,13 @@ public class MyNamespace extends Namespace implements NamespaceUtils {
     public SiteInfo getSiteinfo() {
         return siteinfo;
     }
-
-    /**
-     * Gets the integer number of the given namespace.
-     * 
-     * @param namespace
-     *            the namespace
-     * 
-     * @return an integer or <tt>null</tt> if this is no namespace
-     */
-    public Integer getNumberByName(String namespace) {
-        return NAMESPACE_INT_MAP.get(namespace);
-    }
     
     /* (non-Javadoc)
      * @see de.zib.scalaris.examples.wikipedia.bliki.NamespaceUtils#getTalkPageFromPageName(java.lang.String)
      */
     @Override
     public String getTalkPageFromPageName(String pageName) {
-        String[] pnSplit = MyWikiModel.splitNsTitle(pageName, this);
+        String[] pnSplit = splitNsTitle(pageName);
         String talkspace = getTalkspace(pnSplit[0]);
         if (talkspace == null) {
             return pnSplit[1];
@@ -255,7 +328,7 @@ public class MyNamespace extends Namespace implements NamespaceUtils {
      */
     @Override
     public String getPageNameFromTalkPage(String talkPageName) {
-        String[] pnSplit = MyWikiModel.splitNsTitle(talkPageName, this);
+        String[] pnSplit = splitNsTitle(talkPageName);
         String namespace = pnSplit[0];
         String talkspace = getTalkspace(namespace);
         if (talkspace == null || !namespace.equals(talkspace)) {
@@ -270,7 +343,7 @@ public class MyNamespace extends Namespace implements NamespaceUtils {
      */
     @Override
     public boolean isTalkPage(String pageName) {
-        String namespace = MyWikiModel.getNamespace(pageName, this);
+        String namespace = splitNsTitle(pageName)[0];
         String talkspace = getTalkspace(namespace);
         if (talkspace == null || !namespace.equals(talkspace)) {
             return false;

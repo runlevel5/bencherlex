@@ -6,11 +6,27 @@
     <meta http-equiv="pragma" content="no-cache">
     <meta http-equiv="cache-control" content="no-cache">
     <meta http-equiv="expires" content="-1">
+    <link rel='shortcut icon' type='image/x-icon' href='/favicon.ico' />
+<erl>
+out(Arg) ->
+    {header, {cache_control, "no-cache"}}.
+</erl>
     <title>Scalaris Management Interface</title>
     <link rel="stylesheet" type="text/css" href="main.css">
-  <!--[if lte IE 5.5999]>
+    <!--[if lte IE 5.5999]>
     <style type="text/css">@import url(ie55-.css);</style>
-  <![endif]-->
+    <![endif]-->
+
+    <!--[if lte IE 8]>
+    <script language="javascript" type="text/javascript" src="flot/excanvas.min.js"></script>
+    <![endif]-->
+    <script language="javascript" type="text/javascript" src="flot/jquery.min.js"></script>
+    <script language="javascript" type="text/javascript" src="flot/jquery.flot.min.js"></script>
+    <script language="javascript" type="text/javascript" src="flot/jquery.flot.pie.min.js"></script>
+    <script language="javascript" type="text/javascript" src="flot/jquery.colorhelpers.min.js"></script>
+    <script language="javascript" type="text/javascript" src="flot/jquery.flot.navigate.min.js"></script>
+    <script language="javascript" type="text/javascript" src="flot/jquery.flot.errorbars.min.js"></script>
+    <script language="javascript" type="text/javascript" src="flot/jquery.flot.selection.min.js"></script>
   </head>
   <body>
 
@@ -36,6 +52,17 @@ out(Arg) ->
       </div>
       <div class=\"highlighted\">
         <a class=\"menua\" href=\"vivaldi.yaws\">Vivaldi Map</a>
+      </div>" ++ 
+    case config:read(dc_clustering_enable) of
+        true -> "
+      <div class=\"nothighlighted\">
+        <a class=\"menua\" href=\"dc.yaws\">Datacenter Clusters Map</a>
+      </div>
+";
+        _ -> ""
+    end ++ "
+      <div class=\"nothighlighted\">
+        <a class=\"menua\" href=\"bench.yaws\">Benchmarks</a>
       </div>
 "}
     end.
@@ -63,20 +90,23 @@ out(Arg) ->
       <div class="middleleft">
 <h2>Vivaldi Map</h2>
 
-<object data="vivaldiMap.yaws" type="image/svg+xml"
-        width="400" height="400">
-    <embed src="vivaldiMap.yaws" type="image/svg+xml"
-            width="400" height="400" />
-</object>
+<div id='plot'>
+    <div id="loading"><p>Loading map...</p></div>
+    <div id='graph' style='width:800px;height:400px;float:left;'></div>
+    <div id='legend' style='float:left'></div>
+</div>
+<div class="clear"></div>
+<button id='zoom_out'>Zoom out</button>
+<br />
+<script src="dc.js"></script>
 
-Last update:
+<hr />
+<p>Last update:
 <erl>
- 
  out(Arg) ->
-	{Date, {Hour, Minute, Second}} = calendar:local_time(),
+    {Date, {Hour, Minute, Second}} = calendar:local_time(),
     {html, io_lib:format("~2..0B:~2..0B:~2..0B", [Hour, Minute, Second])}.
-</erl>
-</p>
+</erl></p>
 </div>
 <br class="br_class">&nbsp;
 </div>

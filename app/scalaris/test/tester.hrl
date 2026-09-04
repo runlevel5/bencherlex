@@ -1,4 +1,4 @@
-%  @copyright 2010-2011 Zuse Institute Berlin
+%  @copyright 2010-2016 Zuse Institute Berlin
 
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
@@ -45,59 +45,31 @@
 
 
 -type(builtin_type() ::
-      dict
-    | gb_tree
+      array
+    | bitstring
+    | dict
     | gb_set
+    | gb_tree
+    | identifier
+    | iodata
+    | maybe_improper_list
+    | map
     | module
-    | iodata).
+    | set
+    | timeout).
 
 -type(type_name() ::
       {'fun', Module :: module(), FunName :: atom(), FunArity :: byte()}
-      | {type, Module :: module(), TypeName :: atom()}
+      | {type, Module :: module(), TypeName :: atom(), Arity::arity()}
       | {record, Module :: module(), TypeName :: atom()}).
 
--ifdef(forward_or_recursive_types_are_not_allowed).
--type(record_field_type() ::
-     {typed_record_field, atom(), any()}
-   | {untyped_record_field, atom()}).
+-type(var_list() :: list(atom())).
 
--type(type_spec() ::
-      {'fun', any(), any()}
-    | {'union_fun', [{'fun', any(), any()}]}
-    | {product, [any()]}
-    | {tuple, [any()]}
-    | {tuple, {typedef, tester, test_any}}
-    | {list, any()}
-    | {nonempty_list, any()}
-    | {range, {integer, integer()}, {integer, integer()}}
-    | {union, [any()]}
-    | {record, atom(), atom()}
-    | nonempty_string
-    | integer
-    | pos_integer
-    | non_neg_integer
-    | bool
-    | binary
-    | iolist
-    | node
-    | pid
-    | port
-    | reference
-    | none
-    | no_return
-    | {typedef, module(), atom()}
-    | atom
-    | float
-    | nil
-    | {atom, atom()}
-    | {integer, integer()}
-    | {builtin_type, builtin_type()}
-    | {record, list(record_field_type())}
-     ).
--else.
 -type(record_field_type() ::
-     {typed_record_field, atom(), type_spec()}
-   | {untyped_record_field, atom()}).
+      {typed_record_field, atom(), type_spec()}
+    | {untyped_record_field, atom()}
+    | {field_type, Name::atom(), Type::type_spec()}
+     ).
 
 -type(type_spec() ::
       {'fun', type_spec(), type_spec()}
@@ -113,9 +85,10 @@
     | nonempty_string
     | integer
     | pos_integer
+    | neg_integer
     | non_neg_integer
     | bool
-    | binary
+    | {binary, list()}
     | iolist
     | node
     | pid
@@ -123,13 +96,27 @@
     | reference
     | none
     | no_return
-    | {typedef, module(), atom()}
     | atom
     | float
     | nil
     | {atom, atom()}
     | {integer, integer()}
+    | {typedef, module(), atom(), [type_spec()]}
+    | {var, atom()}
+    | {var_type, list(atom()), type_spec()}
     | {builtin_type, builtin_type()}
-    | {record, list(record_field_type())}
+    | {builtin_type, array_array, ValueType::type_spec()}
+    | {builtin_type, dict_dict, KeyType::type_spec(), ValueType::type_spec()}
+    | {builtin_type, queue_queue, ValueType::type_spec()}
+    | {builtin_type, gb_sets_set, ValueType::type_spec()}
+    | {builtin_type, gb_trees_tree, KeyType::type_spec(), ValueType::type_spec()}
+    | {builtin_type, gb_trees_iter, KeyType::type_spec(), ValueType::type_spec()}
+    | {builtin_type, sets_set, ValueType::type_spec()}
+    | {builtin_type, ordsets_ordset, ValueType::type_spec()}
+    | {record, [record_field_type()]} % TODO: is this still used?
+    | {record, module(), Name::atom()}
+    | {record, module(), Name::atom(), FieldTypes::[type_spec()]}
+    | record_field_type()
      ).
--endif.
+
+-type(test_fun_type() :: {'fun', type_spec(), type_spec()}).

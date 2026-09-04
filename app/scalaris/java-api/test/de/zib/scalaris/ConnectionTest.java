@@ -41,6 +41,19 @@ import com.ericsson.otp.erlang.OtpSelf;
  * @since 2.3
  */
 public class ConnectionTest {
+
+    final static String scalarisNode;
+
+    static {
+        // determine good/bad nodes:
+        final ConnectionFactory cf = ConnectionFactory.getInstance();
+        cf.testAllNodes();
+        // set not to automatically try reconnects (auto-retries prevent ConnectionException tests from working):
+        final DefaultConnectionPolicy cp = ((DefaultConnectionPolicy) cf.getConnectionPolicy());
+        cp.setMaxRetries(0);
+        scalarisNode = cp.selectNode().toString();
+    }
+
     /**
      * Test method for {@link Connection#Connection(OtpSelf, PeerNode)}.
      *
@@ -59,10 +72,9 @@ public class ConnectionTest {
     @Test
     public final void testConnectionOtpSelfPeerNode() throws ConnectionException,
             OtpErlangExit, OtpAuthException, IOException, InterruptedException {
-        final OtpSelf self = new OtpSelf("testConnection", ConnectionFactory
+        final OtpSelf self = new OtpSelf("testConnection@" + ConnectionFactory.getLocalhostName(), ConnectionFactory
                 .getInstance().getCookie());
-        final PeerNode remote = new PeerNode(ConnectionFactory.getInstance()
-                .getNodes().get(0).getNode().node());
+        final PeerNode remote = new PeerNode(scalarisNode);
         final Date d0 = new Date();
         TimeUnit.MILLISECONDS.sleep(10);
         final Connection c = new Connection(self, remote);
@@ -96,10 +108,9 @@ public class ConnectionTest {
     @Test
     public final void testConnectionOtpSelfConnectionPolicy() throws ConnectionException,
             OtpErlangExit, OtpAuthException, IOException, InterruptedException {
-        final OtpSelf self = new OtpSelf("testConnection", ConnectionFactory
+        final OtpSelf self = new OtpSelf("testConnection@" + ConnectionFactory.getLocalhostName(), ConnectionFactory
                 .getInstance().getCookie());
-        final PeerNode remote = new PeerNode(ConnectionFactory.getInstance()
-                .getNodes().get(0).getNode().node());
+        final PeerNode remote = new PeerNode(scalarisNode);
         final Date d0 = new Date();
         TimeUnit.MILLISECONDS.sleep(10);
         final Connection c = new Connection(self, new DefaultConnectionPolicy(remote));
@@ -138,9 +149,9 @@ public class ConnectionTest {
         TimeUnit.MILLISECONDS.sleep(10);
 
         // wrong cookie:
-        self = new OtpSelf("testFailedConnection",
+        self = new OtpSelf("testFailedConnection@" + ConnectionFactory.getLocalhostName(),
                 ConnectionFactory.getInstance().getCookie() + "someWrongCookieValue");
-        remote = new PeerNode(ConnectionFactory.getInstance().getNodes().get(0).getNode().node());
+        remote = new PeerNode(scalarisNode);
         connectionPolicy = new DefaultConnectionPolicy(remote);
         connectionPolicy.setMaxRetries(0);
         try {
@@ -170,9 +181,9 @@ public class ConnectionTest {
         TimeUnit.MILLISECONDS.sleep(10);
 
         // unknown host name:
-        self = new OtpSelf("testFailedConnection",
+        self = new OtpSelf("testFailedConnection@" + ConnectionFactory.getLocalhostName(),
                 ConnectionFactory.getInstance().getCookie());
-        remote = new PeerNode(ConnectionFactory.getInstance().getNodes().get(0).getNode().node() + "noneExistingHost");
+        remote = new PeerNode(scalarisNode + "noneExistingHost");
         connectionPolicy = new DefaultConnectionPolicy(remote);
         connectionPolicy.setMaxRetries(0);
         try {
@@ -202,9 +213,9 @@ public class ConnectionTest {
         TimeUnit.MILLISECONDS.sleep(10);
 
         // non-existing node name:
-        self = new OtpSelf("testFailedConnection",
+        self = new OtpSelf("testFailedConnection@" + ConnectionFactory.getLocalhostName(),
                 ConnectionFactory.getInstance().getCookie());
-        remote = new PeerNode("noneExistingNode" + ConnectionFactory.getInstance().getNodes().get(0).getNode().node());
+        remote = new PeerNode("noneExistingNode" + scalarisNode);
         connectionPolicy = new DefaultConnectionPolicy(remote);
         connectionPolicy.setMaxRetries(0);
         try {
@@ -255,10 +266,9 @@ public class ConnectionTest {
     public final void testDoRPCStringStringOtpErlangList()
             throws ConnectionException, OtpErlangExit, OtpAuthException,
             IOException, OtpErlangRangeException {
-        final OtpSelf self = new OtpSelf("testDoRPCStringStringOtpErlangList",
+        final OtpSelf self = new OtpSelf("testDoRPCStringStringOtpErlangList@" + ConnectionFactory.getLocalhostName(),
                 ConnectionFactory.getInstance().getCookie());
-        final PeerNode remote = new PeerNode(ConnectionFactory.getInstance()
-                .getNodes().get(0).getNode().node());
+        final PeerNode remote = new PeerNode(scalarisNode);
         final Connection c = new Connection(self, remote);
 
         final OtpErlangObject raw_result = c.doRPC("lists", "sum", new OtpErlangList(
@@ -295,18 +305,15 @@ public class ConnectionTest {
      *             if the value is too large to be represented as an int
      * @throws InterruptedException if the sleep is interrupted
      */
-    @Test
+    @Test(expected=ConnectionException.class)
     public final void testDoRPCStringStringOtpErlangList_fail()
             throws ConnectionException, OtpErlangExit, OtpAuthException,
             IOException, OtpErlangRangeException, InterruptedException {
-        final OtpSelf self = new OtpSelf("testDoRPCStringStringOtpErlangList",
+        final OtpSelf self = new OtpSelf("testDoRPCStringStringOtpErlangList@" + ConnectionFactory.getLocalhostName(),
                 ConnectionFactory.getInstance().getCookie());
-        final PeerNode remote = new PeerNode(ConnectionFactory.getInstance()
-                .getNodes().get(0).getNode().node());
+        final PeerNode remote = new PeerNode(scalarisNode);
         final DefaultConnectionPolicy connectionPolicy = new DefaultConnectionPolicy(remote);
         connectionPolicy.setMaxRetries(0);
-        final Date d0 = new Date();
-        Date d1;
         TimeUnit.MILLISECONDS.sleep(10);
         final Connection c = new Connection(self, connectionPolicy);
 
@@ -320,12 +327,11 @@ public class ConnectionTest {
             c.close();
             // this should have failed!
             fail();
-        } catch (final Exception e) {
+        } catch (final ConnectionException e) {
+            assertEquals(0, remote.getFailureCount());
+            assertNull(remote.getLastFailedConnect());
+            throw e;
         }
-        assertEquals(1, remote.getFailureCount());
-        d1 = remote.getLastFailedConnect();
-        assertNotNull(d1);
-        assertTrue(d0.getTime() < d1.getTime());
     }
 
     /**
@@ -350,10 +356,9 @@ public class ConnectionTest {
     public final void testDoRPCStringStringOtpErlangObjectArray()
             throws ConnectionException, OtpErlangExit, OtpAuthException,
             IOException, OtpErlangRangeException {
-        final OtpSelf self = new OtpSelf("testDoRPCStringStringOtpErlangObjectArray",
+        final OtpSelf self = new OtpSelf("testDoRPCStringStringOtpErlangObjectArray@" + ConnectionFactory.getLocalhostName(),
                 ConnectionFactory.getInstance().getCookie());
-        final PeerNode remote = new PeerNode(ConnectionFactory.getInstance()
-                .getNodes().get(0).getNode().node());
+        final PeerNode remote = new PeerNode(scalarisNode);
         final Connection c = new Connection(self, remote);
 
         final OtpErlangObject raw_result = c.doRPC("lists", "sum",
@@ -391,18 +396,15 @@ public class ConnectionTest {
      *             if the value is too large to be represented as an int
      * @throws InterruptedException if the sleep is interrupted
      */
-    @Test
+    @Test(expected=ConnectionException.class)
     public final void testDoRPCStringStringOtpErlangObjectArray_fail()
             throws ConnectionException, OtpErlangExit, OtpAuthException,
             IOException, OtpErlangRangeException, InterruptedException {
-        final OtpSelf self = new OtpSelf("testDoRPCStringStringOtpErlangList",
+        final OtpSelf self = new OtpSelf("testDoRPCStringStringOtpErlangList@" + ConnectionFactory.getLocalhostName(),
                 ConnectionFactory.getInstance().getCookie());
-        final PeerNode remote = new PeerNode(ConnectionFactory.getInstance()
-                .getNodes().get(0).getNode().node());
+        final PeerNode remote = new PeerNode(scalarisNode);
         final DefaultConnectionPolicy connectionPolicy = new DefaultConnectionPolicy(remote);
         connectionPolicy.setMaxRetries(0);
-        final Date d0 = new Date();
-        Date d1;
         TimeUnit.MILLISECONDS.sleep(10);
         final Connection c = new Connection(self, connectionPolicy);
 
@@ -416,12 +418,11 @@ public class ConnectionTest {
             c.close();
             // this should have failed!
             fail();
-        } catch (final Exception e) {
+        } catch (final ConnectionException e) {
+            assertEquals(0, remote.getFailureCount());
+            assertNull(remote.getLastFailedConnect());
+            throw e;
         }
-        assertEquals(1, remote.getFailureCount());
-        d1 = remote.getLastFailedConnect();
-        assertNotNull(d1);
-        assertTrue(d0.getTime() < d1.getTime());
     }
 
 }

@@ -1,5 +1,5 @@
 /**
- *  Copyright 2011 Zuse Institute Berlin
+ *  Copyright 2011-2013 Zuse Institute Berlin
  *
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -16,14 +16,15 @@
 package de.zib.scalaris.examples.wikipedia.data.xml;
 
 import java.util.Calendar;
-import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.TreeMap;
 
 import org.xml.sax.Attributes;
 import org.xml.sax.helpers.DefaultHandler;
 
+import de.zib.scalaris.examples.wikipedia.bliki.MyWikiModel;
 import de.zib.scalaris.examples.wikipedia.data.Page;
 import de.zib.scalaris.examples.wikipedia.data.Revision;
 
@@ -201,13 +202,16 @@ public class XmlPage extends DefaultHandler {
             } else if (localName.equals("revision")) {
                 inRevision = true;
                 // check whether all revisions of this page should be skipped
-                if (checkSkipRevisions != null && checkSkipRevisions.skipRevisions(title)) {
+                if (!skipRevisions && checkSkipRevisions != null
+                        && checkSkipRevisions.skipRevisions(title)) {
                     skipRevisions = true;
                 }
                 if (!skipRevisions) {
                     currentRevision.reset();
                     currentRevision.startRevision(uri, localName, qName, attributes);
                 }
+            } else if (localName.equals("ns")) {
+            } else if (localName.equals("sha1")) {
             } else {
                 System.err.println("unknown page tag: " + localName);
             }
@@ -261,26 +265,18 @@ public class XmlPage extends DefaultHandler {
          * <restrictions>edit=sysop:move=sysop</restrictions>
          * <restrictions>sysop</restrictions>
          */
-        LinkedHashMap<String, String> restrictions_map = new LinkedHashMap<String, String>();
-        if (!restrictions.isEmpty()) {
-            String[] restrictions_array = restrictions.split(":");
-            for (int i = 0; i < restrictions_array.length; ++i) {
-                String[] restriction = restrictions_array[i].split("=");
-                if (restriction.length == 2) {
-                    restrictions_map.put(restriction[0], restriction[1]);
-                } else if (restriction.length == 1) {
-                    restrictions_map.put("all", restriction[0]);
-                } else {
-                    System.err.println("Unknown restriction: " + restrictions_array[i]);
-                }
-            }
-        }
+        Map<String, String> restrictions_map = Page
+                .restrictionsFromString(restrictions);
         // get current revision (the largest one):
         Revision curRev = null;
         if (!revisions.isEmpty()) {
             curRev = revisions.lastEntry().getValue();
             curRev.setUnpackedText(lastRevText);
         }
+        // NOTE: We cannot rely on the page info from the XML dump since our
+        //       current revision may be different to the latest available one!
+        // -> update redirect with info from curRev
+        redirect = MyWikiModel.MATCH_WIKI_REDIRECT.matcher(lastRevText).matches();
         final_page = new Page(title,
                 Integer.parseInt(id), redirect, restrictions_map, curRev);
     }
@@ -339,6 +335,10 @@ public class XmlPage extends DefaultHandler {
             } else if (localName.equals("restrictions")) {
                 restrictions = currentString.toString();
             } else if (localName.equals("redirect")) {
+                // nothing to do
+            } else if (localName.equals("ns")) {
+                // nothing to do
+            } else if (localName.equals("sha1")) {
                 // nothing to do
             }
         }

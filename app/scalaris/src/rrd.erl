@@ -12,9 +12,9 @@
 %   See the License for the specific language governing permissions and
 %   limitations under the License.
 
-%%% @author Thorsten Schuett <schuett@zib.de>
-%%% @doc    Round-Robin-Database (RRD) clone.
-%%% @end
+%% @author Thorsten Schuett <schuett@zib.de>
+%% @doc    Round-Robin-Database (RRD) clone.
+%% @end
 %% @version $Id$
 -module(rrd).
 -author('schuett@zib.de').
@@ -23,14 +23,13 @@
 -include("scalaris.hrl").
 -include("record_helpers.hrl").
 
--ifdef(with_export_type_support).
 -export_type([rrd/0, data_type/0,
               gauge_type/0, counter_type/0, timing_type/0, event_type/1,
               timeseries_type/0, internal_time/0, timespan/0]).
--endif.
 
 % external API with transparent time handling
--export([create/3, add_now/2, check_timeslot_now/1,
+-export([create/3,
+         add_now/2, check_timeslot_now/1,
          merge/2,
          dump/1, dump_with/2, dump_with/3]).
 
@@ -39,30 +38,35 @@
 
 % internal API for the monitor process
 -export([get_slot_start/2, reduce_timeslots/2, add_nonexisting_timeslots/2,
-         get_type/1, get_slot_length/1, get_current_time/1,
-         get_value/2, get_value_by_offset/2,
+         get_type/1, get_count/1, get_slot_length/1, get_current_time/1,
+         get_value/2, get_value_by_offset/2, get_all_values/2,
          add_with/4, timing_with_hist_merge_fun/3]).
 
 % misc
--export([timestamp2us/1, us2timestamp/1, check_config/0]).
+-export([check_config/0]).
 
 % gauge: record newest value of a time slot,
 % counter: sum up all values of a time slot,
 % event: record every event (incl. timestamp) in a time slot,
+% histogram: record all values in a time slot using an approximative histogram
 % timing: record time spans, store {sum(x), sum(x^2), count(x), min(x), max(x)}
 % timing_with_hist: record time spans, store {sum(x), sum(x^2), count(x), min(x), max(x), histogram(x)}
--type timeseries_type() :: gauge | counter | event | {timing | timing_with_hist, us | ms | s | count}.
+-type timeseries_type() :: gauge | counter | event |
+                           {histogram, Size::non_neg_integer()} |
+                           {histogram_rt, Size::non_neg_integer(), BaseKey::histogram_rt:base_key()} |
+                           {timing | timing_with_hist, us | ms | s | count | percent}.
 -type fill_policy_type() :: set_undefined | keep_last_value.
--type time() :: util:time().
+-type time() :: erlang_timestamp().
 -type internal_time() :: non_neg_integer(). % default: micro seconds since Epoch
 -type timespan() :: pos_integer().
 -type update_fun(T, NewV) :: fun((Time::internal_time(), Old::T | undefined, NewV) -> T).
 
 -type gauge_type() :: number().
 -type counter_type() :: number().
+-type histogram_type() :: histogram:histogram() | histogram_rt:histogram().
 -type timing_type() :: {Sum::number(), Sum2::number(), Count::pos_integer(), Min::number(), Max::number(), Hist::histogram:histogram()}.
 -type event_type(T) :: [{internal_time(), T}].
--type data_type() :: gauge_type() | counter_type() | timing_type() | event_type(term()).
+-type data_type() :: gauge_type() | counter_type() | histogram_type() | timing_type() | event_type(term()).
 
 -record(rrd, {slot_length   = ?required(rrd, slot_length)   :: timespan(),
               count         = ?required(rrd, count)         :: pos_integer(),
@@ -72,7 +76,7 @@
               % current slot starts at current_time and lasts for step_size
               % time units
               current_time  = ?required(rrd, current_time)  :: internal_time(),
-              data          = ?required(rrd, data)          :: array:array(),
+              data          = ?required(rrd, data)          :: array:array(data_type() | undefined),
               fill_policy   = ?required(rrd, fill_policy)   :: fill_policy_type()
             }).
 
@@ -104,7 +108,7 @@ check_timeslot_now(DB) ->
 -spec dump(rrd()) -> [{From::time(), To::time(), data_type()}].
 dump(DB) ->
     dump_with(DB, fun(_DB, From, To, X) ->
-                          {us2timestamp(From), us2timestamp(To), X}
+                          {util:us2timestamp(From), util:us2timestamp(To), X}
                   end).
 
 -type dump_fun_existing(T) :: fun((rrd(), From::internal_time(), To::internal_time(), Value::data_type()) -> T).
@@ -147,14 +151,14 @@ merge(DB1 = #rrd{type = Type}, DB2 = #rrd{type = Type}) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
-% Internal API (allows to specify timestamps explicitly)
+% External API without transparent time handling and some internal API
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %@doc StepSize in milliseconds
 -spec create(SlotLength::timespan(), Count::pos_integer(), Type::timeseries_type(),
              StartTime::time() | internal_time()) -> rrd().
 create(SlotLength, Count, Type, {_, _, _} = StartTime) ->
-    create(SlotLength, Count, Type, timestamp2us(StartTime));
+    create(SlotLength, Count, Type, util:timestamp2us(StartTime));
 create(SlotLength, Count, Type, StartTime) ->
     #rrd{slot_length = SlotLength, count = Count, type = Type, current_index = 0,
          current_time = StartTime, data = array:new(Count),
@@ -164,62 +168,66 @@ create(SlotLength, Count, Type, StartTime) ->
 %      accepts any value.
 -spec add(Time::time() | internal_time(), Value::term(), rrd()) -> rrd().
 add({_, _, _} = ExternalTime, Value, DB) ->
-    add(timestamp2us(ExternalTime), Value, DB);
+    add_with(util:timestamp2us(ExternalTime), Value, DB, select_fun(DB));
 add(Time, Value, DB) ->
+    add_with(Time, Value, DB, select_fun(DB)).
+
+-spec select_fun(DB::rrd()) -> update_fun(data_type(), term()).
+select_fun(DB) ->
     case DB#rrd.type of
-        gauge ->
-            add_with(Time, Value, DB, fun gauge_update_fun/3);
-        counter ->
-            add_with(Time, Value, DB, fun counter_update_fun/3);
-        event ->
-            add_with(Time, Value, DB, fun event_update_fun/3);
-        {timing, _} ->
-            add_with(Time, Value, DB, fun timing_update_fun/3);
-        {timing_with_hist, _} ->
-            add_with(Time, Value, DB, fun timing_with_hist_update_fun/3)
+        gauge -> fun gauge_update_fun/3;
+        counter -> fun counter_update_fun/3;
+        event -> fun event_update_fun/3;
+        {histogram, Size} ->
+            fun(Time, OldValue, Value) ->
+                    histogram_update_fun(Time, OldValue, Value, Size)
+            end;
+        {histogram_rt, Size, BaseKey} ->
+            fun(Time, OldValue, Value) ->
+                    histogram_rt_update_fun(Time, OldValue, Value, Size, BaseKey)
+            end;
+        {timing, _} -> fun timing_update_fun/3;
+        {timing_with_hist, _} -> fun timing_with_hist_update_fun/3
     end.
 
 % @doc Advances the stored timeslots (if necessary) to the given time.
 -spec check_timeslot(Time::time() | internal_time(), rrd()) -> rrd().
 check_timeslot({_, _, _} = ExternalTime, DB) ->
-    check_timeslot(timestamp2us(ExternalTime), DB);
+    add_with(util:timestamp2us(ExternalTime), undefined, DB, fun keep_old_update_fun/3);
 check_timeslot(Time, DB) ->
     add_with(Time, undefined, DB, fun keep_old_update_fun/3).
 
 -spec add_with(Time::internal_time(), NewV, rrd(), update_fun(data_type(), NewV)) -> rrd().
-add_with(Time, Value, DB, F) ->
-    SlotLength = DB#rrd.slot_length,
-    CurrentTime = DB#rrd.current_time,
+add_with(Time, Value, DB = #rrd{slot_length = SlotLength,
+                                current_time = CurrentTime,
+                                current_index = CurrentIndex,
+                                data = Data}, F) ->
     case is_current_slot(Time, CurrentTime, SlotLength) of
         true ->
-            CurrentIndex = DB#rrd.current_index,
-            update_with(DB, CurrentIndex, Time, Value, F);
+            OldValue = array:get(CurrentIndex, Data),
+            DB#rrd{data = array:set(CurrentIndex, F(Time, OldValue, Value), Data)};
         _ ->
             case is_future_slot(Time, CurrentTime, SlotLength) of
                 true ->
                     Count = DB#rrd.count,
-                    CurrentIndex = DB#rrd.current_index,
                     FillPolicy = DB#rrd.fill_policy,
                     Delta = (Time - CurrentTime) div SlotLength,
-                            NewIndex = (CurrentIndex + Delta) rem Count,
+                    NewIndex = (CurrentIndex + Delta) rem Count,
                     FilledData =
-                        case Delta > Count of
-                            true when FillPolicy =:= set_undefined ->
-                                % need to wipe all data clean so that old data
-                                % is not falsely presented for new time slots
-                                % as an optimisation, simply create a new array here
-                                array:new(Count);
-                            true ->
-                                % fill everything:
-                                fill(DB#rrd.data, FillPolicy, Count,
+                        if Delta =< Count ->
+                                fill(Data, FillPolicy, Count,
                                      (CurrentIndex + 1) rem Count,
-                                     CurrentIndex,
-                                     array:get(CurrentIndex, DB#rrd.data));
-                            _ ->
-                                fill(DB#rrd.data, FillPolicy, Count,
-                                     (CurrentIndex + 1) rem Count,
-                                     NewIndex,
-                                     array:get(CurrentIndex, DB#rrd.data))
+                                     NewIndex, CurrentIndex);
+                           FillPolicy =:= set_undefined ->
+                               % need to wipe all data clean so that old data
+                               % is not falsely presented for new time slots
+                               % as an optimisation, simply create a new array here
+                               array:new(Count);
+                           true ->
+                               % fill everything:
+                               fill(Data, FillPolicy, Count,
+                                    (CurrentIndex + 1) rem Count,
+                                    CurrentIndex, CurrentIndex)
                         end,
                     DB#rrd{data = array:set(NewIndex, F(Time, undefined, Value), FilledData),
                            current_index = NewIndex,
@@ -229,29 +237,27 @@ add_with(Time, Value, DB, F) ->
             end
     end.
 
--spec update_with(rrd(), CurrentIndex::non_neg_integer(), Time::internal_time(), NewV, update_fun(data_type(), NewV)) -> rrd().
-update_with(DB, CurrentIndex, Time, NewValue, F) ->
-    case array:get(CurrentIndex, DB#rrd.data) of
-        undefined ->
-            DB#rrd{data = array:set(CurrentIndex, F(Time, undefined, NewValue), DB#rrd.data)};
-        OldValue ->
-            DB#rrd{data = array:set(CurrentIndex, F(Time, OldValue, NewValue), DB#rrd.data)}
-    end.
-
--spec fill(array:array(), fill_policy_type(), pos_integer(), non_neg_integer(), non_neg_integer(), data_type() | undefined) -> array:array().
-fill(Data, _FillPolicy, _Count, CurrentIndex, CurrentIndex, _LastValue) ->
-    Data;
-fill(Data, FillPolicy, Count, CurrentGapIndex, CurrentIndex, LastValue) ->
+-spec fill(Array, fill_policy_type(), Count::pos_integer(),
+           StartIndex::non_neg_integer(), StopIndex::non_neg_integer(),
+           IndexLastValue::non_neg_integer()) -> Array
+        when is_subtype(Array, array:array(data_type() | undefined)).
+fill(Data, FillPolicy, Count, StartIndex, StopIndex, IndexLastValue) ->
     case FillPolicy of
         set_undefined ->
-            fill(array:set(CurrentGapIndex, undefined, Data), FillPolicy, Count,
-                 (CurrentGapIndex + 1) rem Count,
-                 CurrentIndex, LastValue);
+            fill(Data, Count, StartIndex, StopIndex, undefined);
         keep_last_value ->
-            fill(array:set(CurrentGapIndex, LastValue, Data), FillPolicy, Count,
-                 (CurrentGapIndex + 1) rem Count,
-                 CurrentIndex, LastValue)
+            fill(Data, Count, StartIndex, StopIndex, array:get(IndexLastValue, Data))
     end.
+
+-spec fill(Array, Count::pos_integer(), StartIndex::non_neg_integer(),
+           StopIndex::non_neg_integer(), NewValue::data_type() | undefined) -> Array
+        when is_subtype(Array, array:array(data_type() | undefined)).
+fill(Data, _Count, StopIndex, StopIndex, _NewValue) ->
+    Data;
+fill(Data, Count, CurrentGapIndex, StopIndex, NewValue) ->
+    fill(array:set(CurrentGapIndex, NewValue, Data), Count,
+         (CurrentGapIndex + 1) rem Count,
+         StopIndex, NewValue).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
@@ -312,6 +318,9 @@ get_slot_length(DB) -> DB#rrd.slot_length.
 -spec get_type(DB::rrd()) -> timeseries_type().
 get_type(DB) -> DB#rrd.type.
 
+-spec get_count(DB::rrd()) -> pos_integer().
+get_count(DB) -> DB#rrd.count.
+
 -spec get_current_time(DB::rrd()) -> internal_time().
 get_current_time(DB) ->
     DB#rrd.current_time.
@@ -319,7 +328,7 @@ get_current_time(DB) ->
 %% @doc Gets the value at the given time or 'undefined' if there is no value.
 -spec get_value(DB::rrd(), Time::time() | internal_time()) -> undefined | data_type().
 get_value(DB, {_, _, _} = Time) ->
-    get_value(DB, timestamp2us(Time));
+    get_value(DB, util:timestamp2us(Time));
 get_value(DB, InternalTime) when is_integer(InternalTime) ->
     case time2slotidx(InternalTime, DB#rrd.current_time, DB#rrd.slot_length,
                       DB#rrd.current_index, DB#rrd.count) of
@@ -335,9 +344,21 @@ get_value(DB, InternalTime) when is_integer(InternalTime) ->
 -spec get_value_by_offset(DB::rrd(), SlotOffset::non_neg_integer()) -> undefined | data_type().
 get_value_by_offset(DB, 0) ->
     array:get(DB#rrd.current_index, DB#rrd.data); % minor optimization
-get_value_by_offset(DB, SlotOffset) ->
-    Index = (DB#rrd.current_index + SlotOffset) rem DB#rrd.count,
-    array:get(Index, DB#rrd.data).
+get_value_by_offset(DB, SlotOffset) when SlotOffset < DB#rrd.count ->
+    Count = DB#rrd.count,
+    Index = (DB#rrd.current_index + Count - SlotOffset) rem Count,
+    array:get(Index, DB#rrd.data);
+get_value_by_offset(DB, SlotOffset) when SlotOffset >= DB#rrd.count ->
+    % rare use case
+    get_value_by_offset(DB, SlotOffset rem DB#rrd.count).
+
+%% @doc Gets all values as list from newest to oldest (desc) or from
+%%      oldest to newest (asc). Values may be undefined.
+-spec get_all_values(asc | desc, DB::rrd()) -> [undefined | data_type()].
+get_all_values(desc, DB) ->
+    [get_value_by_offset(DB, Offset) || Offset <- lists:seq(0, DB#rrd.count-1)];
+get_all_values(asc, DB) ->
+    [get_value_by_offset(DB, Offset) || Offset <- lists:seq(DB#rrd.count-1, 0, -1)].
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
@@ -356,13 +377,13 @@ is_future_slot(Time, CurrentTime, StepSize) ->
                    StepSize::timespan(), CurrentSlot::non_neg_integer(),
                    SlotCount::pos_integer()) -> non_neg_integer()| future | past.
 time2slotidx(Time, CurrentTime, StepSize, CurrentSlot, SlotCount) ->
-    case is_future_slot(Time, CurrentTime, StepSize) of
-        true -> future;
+    case is_current_slot(Time, CurrentTime, StepSize) of
+        true -> CurrentSlot;
         _ ->
-            case is_current_slot(Time, CurrentTime, StepSize) of
-                true -> CurrentSlot;
+            case is_future_slot(Time, CurrentTime, StepSize) of
+                true -> future;
                 _ ->
-                    SlotOffset = SlotCount + util:floor((Time - CurrentTime) / StepSize),
+                    SlotOffset = SlotCount + (Time - CurrentTime) div StepSize,
                     if SlotOffset > 0 -> (CurrentSlot + SlotOffset) rem SlotCount;
                        true           -> past
                     end
@@ -417,6 +438,24 @@ counter_update_fun(_Time, Old, New) -> Old + New.
         -> event_type(T | NewV).
 event_update_fun(Time, undefined, New) -> [{Time, New}];
 event_update_fun(Time, Old, New) -> lists:append(Old, [{Time, New}]).
+
+-spec histogram_update_fun(Time::internal_time(), Old::histogram_type() | undefined, NewV::number(), Size::non_neg_integer())
+        -> histogram:histogram().
+histogram_update_fun(_Time, undefined, New, Size) ->
+    Hist = histogram:create(Size),
+    histogram:add(New, Hist);
+histogram_update_fun(_Time, Hist, New, _Size) ->
+    histogram:add(New, Hist).
+
+-spec histogram_rt_update_fun(Time::internal_time(), Old::histogram_type() | undefined, NewV::no_op | number(), Size::non_neg_integer(), BaseKey::histogram_rt:base_key())
+        -> histogram_rt:histogram().
+histogram_rt_update_fun(Time, undefined, New, Size, BaseKey) ->
+    Hist = histogram_rt:create(Size, BaseKey),
+    histogram_rt_update_fun(Time, Hist, New, Size, BaseKey);
+histogram_rt_update_fun(_Time, Hist, no_op, _Size, _BaseKey) ->
+    Hist;
+histogram_rt_update_fun(_Time, Hist, New, _Size, _BaseKey) ->
+    histogram_rt:add(New, Hist).
 
 -spec timing_update_fun(Time::internal_time(), Old::timing_type() | undefined, New::number())
         -> timing_type().
@@ -482,25 +521,6 @@ timing_with_hist_merge_fun(_Time, {Sum, Sum2, Count, Min, Max, Hist},
                   {NewSum, NewSum2, NewCount, NewMin, NewMax, NewHist}) ->
     {Sum + NewSum, Sum2 + NewSum2, Count + NewCount,
      erlang:min(Min, NewMin), erlang:max(Max, NewMax), histogram:merge(Hist, NewHist)}.
-
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%
-% time calculations
-%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% @doc convert os:timestamp() to microsecs
--spec timestamp2us(time()) -> internal_time().
-timestamp2us({MegaSecs, Secs, MicroSecs}) ->
-    (MegaSecs*1000000 + Secs)*1000000 + MicroSecs.
-
--spec us2timestamp(internal_time()) -> time().
-us2timestamp(Time) ->
-    MicroSecs = Time rem 1000000,
-    Time2 = (Time - MicroSecs) div 1000000,
-    Secs = Time2 rem 1000000,
-    MegaSecs = (Time2 - Secs) div 1000000,
-    {MegaSecs, Secs, MicroSecs}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %

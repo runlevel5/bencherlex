@@ -15,15 +15,15 @@
 %% @author Nico Kruber <kruber@zib.de>
 %% @doc    TODO: Add description to lb_common
 %% @end
-%% @version $Id: lb_common.erl 1445 2011-02-23 11:34:29Z kruber@zib.de $
+%% @version $Id$
 -module(lb_common).
 -author('kruber@zib.de').
--vsn('$Id: lb_common.erl 1445 2011-02-23 11:34:29Z kruber@zib.de $ ').
+-vsn('$Id$').
 
 -include("scalaris.hrl").
 
 -export([calculateStddev/2, bestStddev/2, bestStddev/3,
-         split_by_load/2, split_my_range/2]).
+         split_by_key/2, split_my_range/2]).
 
 
 % Avg2 = average of load ^2
@@ -33,9 +33,8 @@ calculateStddev(Avg, Avg2) ->
 
 -spec default_sort_fun(Op1::{lb_op:lb_op(), integer()},
                        Op2::{lb_op:lb_op(), integer()}) -> boolean().
-default_sort_fun({Op1, Op1Change}, {Op2, Op2Change}) ->
-    Op1Change =< Op2Change orelse
-        ((Op1Change =:= Op2Change) andalso Op1 =< Op2).
+default_sort_fun({_Op1, Op1Change}, {_Op2, Op2Change}) ->
+    Op1Change =< Op2Change.
 
 % MinSum2Change = minimal required change of sum(load ^2)
 -spec bestStddev(Ops::[lb_op:lb_op()], MinSum2Change::integer() | plus_infinity)
@@ -49,16 +48,16 @@ bestStddev(Ops, MinSum2Change) ->
                                 -> boolean()))
         -> [lb_op:lb_op()].
 bestStddev(Ops, MinSum2Change, SortFun) ->
-%%     ct:pal("[ ~.0p ] bestStddev(~.0p, ~.0p)~n", [self(), Ops, MinSum2Change]),
+%%     log:pal("[ ~.0p ] bestStddev(~.0p, ~.0p)~n", [self(), Ops, MinSum2Change]),
     OpsWithSum2Change =
         [{Op, Sum2Change} || Op <- Ops,
                              not lb_op:is_no_op(Op),
                              Sum2Change <- [calc_sum2Change(Op)],
                              MinSum2Change =:= plus_infinity orelse
                                  Sum2Change < MinSum2Change],
-%%     ct:pal("[ ~.0p ] OpsWithSum2Change: ~.0p~n", [self(), OpsWithSum2Change]),
+%%     log:pal("[ ~.0p ] OpsWithSum2Change: ~.0p~n", [self(), OpsWithSum2Change]),
     OpsWithSum2Change_sort = lists:sort(SortFun, OpsWithSum2Change),
-%%     ct:pal("[ ~.0p ] OpsWithSum2Change_sort: ~.0p~n", [self(), OpsWithSum2Change_sort]),
+%%     log:pal("[ ~.0p ] OpsWithSum2Change_sort: ~.0p~n", [self(), OpsWithSum2Change_sort]),
     [Op || {Op, _Sum2Change} <- OpsWithSum2Change_sort].
 
 %% @doc Calculates the change of the sum of the square of the nodes' loads
@@ -79,23 +78,17 @@ calc_sum2Change(Op) ->
         _ -> Sum2ChangeOp1
     end.
 
-%% @doc Returns the SplitKey that takes (at most) TargetLoad keys from the
-%%      current node.
-%%      Precond: Load is larger than or equal to 2.
--spec split_by_load(DhtNodeState::dht_node_state:state(), TargetLoad::pos_integer())
+%% @doc Returns the given SplitKey and the load that would be split off by
+%%      using this key.
+-spec split_by_key(DhtNodeState::dht_node_state:state(), SelectedKey::?RT:key())
         -> {SplitKey::?RT:key(), TargetLoadNew::non_neg_integer()}.
-split_by_load(DhtNodeState, TargetLoad) ->
+split_by_key(DhtNodeState, SelectedKey) ->
+    MyPredId = dht_node_state:get(DhtNodeState, pred_id),
     DB = dht_node_state:get(DhtNodeState, db),
-    Neighbors = dht_node_state:get(DhtNodeState, neighbors),
-%%     ct:pal("[ ~.0p ] data: ~.0p", [self(), ?DB:get_data(DB)]),
-    {SplitKey, TargetLoadNew} =
-        ?DB:get_split_key(DB, node:id(nodelist:pred(Neighbors)), TargetLoad, forward),
-    _ = case intervals:in(SplitKey, nodelist:node_range(Neighbors)) of
-            false -> erlang:throw('no key in range');
-            _     -> ok
-        end,
-%%     ct:pal("[ ~.0p ]  TN: ~.0p, SK: ~.0p~n", [self(), TargetLoadNew, SplitKey]),
-    {SplitKey, TargetLoadNew}.
+    Interval = node:mk_interval_between_ids(MyPredId, SelectedKey),
+    TargetLoadNew = db_dht:get_load(DB, Interval),
+%%     log:pal("[ ~.0p ]  TN: ~.0p, SK: ~.0p~n", [self(), TargetLoadNew, SelectedKey]),
+    {SelectedKey, TargetLoadNew}.
 
 %% @doc Returns the SplitKey that splits the current node's address range in
 %%      two (almost) equal halves.
@@ -104,12 +97,13 @@ split_by_load(DhtNodeState, TargetLoad) ->
 split_my_range(DhtNodeState, SelectedKey) ->
     MyNodeId = dht_node_state:get(DhtNodeState, node_id),
     MyPredId = dht_node_state:get(DhtNodeState, pred_id),
+    % note: MyNodeId cannot be ?PLUS_INFINITY so this split key is valid
     SplitKey = try ?RT:get_split_key(MyPredId, MyNodeId, {1, 2})
                catch throw:not_supported -> SelectedKey
                end,
-%%     ct:pal("[ ~.0p ] Pred: ~.0p, My: ~.0p,~nSplit: ~.0p, Selected: ~.0p~n",
+%%     log:pal("[ ~.0p ] Pred: ~.0p, My: ~.0p,~nSplit: ~.0p, Selected: ~.0p~n",
 %%            [self(), MyPredId, MyNodeId, SplitKey, SelectedKey]),
     Interval = node:mk_interval_between_ids(MyPredId, SplitKey),
     DB = dht_node_state:get(DhtNodeState, db),
-    TargetLoadNew = ?DB:get_load(DB, Interval),
+    TargetLoadNew = db_dht:get_load(DB, Interval),
     {SplitKey, TargetLoadNew}.

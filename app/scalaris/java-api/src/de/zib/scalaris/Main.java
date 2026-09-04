@@ -15,9 +15,16 @@
  */
 package de.zib.scalaris;
 
+import java.lang.management.ManagementFactory;
+import java.text.DecimalFormat;
 import java.util.Comparator;
 import java.util.HashSet;
-import java.util.List;
+import javax.management.InstanceAlreadyExistsException;
+import javax.management.MBeanRegistrationException;
+import javax.management.MBeanServer;
+import javax.management.MalformedObjectNameException;
+import javax.management.NotCompliantMBeanException;
+import javax.management.ObjectName;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -27,6 +34,11 @@ import org.apache.commons.cli.Option;
 import org.apache.commons.cli.OptionGroup;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
+
+import de.zib.scalaris.Monitor.GetNodeInfoResult;
+import de.zib.scalaris.Monitor.GetNodePerformanceResult;
+import de.zib.scalaris.Monitor.GetServiceInfoResult;
+import de.zib.scalaris.Monitor.GetServicePerformanceResult;
 
 /**
  * Class to test basic functionality of the package and to use scalaris
@@ -55,6 +67,7 @@ public class Main {
      *                                              (default: all benchmarks, 500
      *                                              operations, 10 threads per
      *                                              Scalaris node)
+     *  -m,--monitor <node>                         print monitoring information
      *  -r,--read <key>                             read an item
      *  -w,--write <key> <value>                    write an item
      *     --test-and-set <key> <old> <new>         atomic test and set, i.e.
@@ -69,11 +82,9 @@ public class Main {
      *                                              re-creating an item the
      *                                              version before the delete can
      *                                              re-appear.
-     *  -p,--publish <topic> <message>              publish a new message for the
-     *                                              given topic
-     *  -s,--subscribe <topic> <url>                subscribe to a topic
-     *  -u,--unsubscribe <topic> <url>              unsubscribe from a topic
-     *  -g,--getsubscribers <topic>                 get subscribers of a topic
+     *  -jmx,--jmxservice <node>                    starts a service exposing
+     *                                              Scalaris monitoring values
+     *                                              via JMX
      * </code>
      * </pre>
      *
@@ -94,6 +105,7 @@ public class Main {
             line = parser.parse(options, args);
         } catch (final ParseException e) {
             printException("Parsing failed", e, false);
+            return; // will not be reached since printException exits
         }
 
         if (line.hasOption("verbose")) {
@@ -105,8 +117,8 @@ public class Main {
             final String[] optionValues = line.getOptionValues("minibench");
             int nrOperations = 500;
             int threadsPerNode = 10;
-            final HashSet<Integer> benchmarks = new HashSet<Integer>(10);
-            boolean all = false;
+            final HashSet<Integer> benchmarks = new HashSet<Integer>(18);
+            boolean all = true;
             if (optionValues != null) {
                 checkArguments(optionValues, 0, options, "b");
                 if (optionValues.length >= 1) {
@@ -116,6 +128,7 @@ public class Main {
                     threadsPerNode = Integer.parseInt(optionValues[1]);
                 }
                 if (optionValues.length >= 3) {
+                    all = false;
                     for (int i = 2; i < Math.min(20, optionValues.length); ++i) {
                         final String benchmarks_str = optionValues[i];
                         if (benchmarks_str.equals("all")) {
@@ -125,8 +138,6 @@ public class Main {
                         }
                     }
                 }
-            } else {
-                all = true;
             }
             if (all) {
                 for (int i = 1; i <= 18; ++i) {
@@ -143,8 +154,6 @@ public class Main {
                 System.out.println("read(" + key + ") == " + value);
             } catch (final ConnectionException e) {
                 printException("read failed with connection error", e, verbose);
-            } catch (final TimeoutException e) {
-                printException("read failed with timeout", e, verbose);
             } catch (final NotFoundException e) {
                 printException("read failed with not found", e, verbose);
             } catch (final UnknownException e) {
@@ -161,8 +170,6 @@ public class Main {
                 System.out.println("write(" + key + ", " + value + "): ok");
             } catch (final ConnectionException e) {
                 printException("write failed with connection error", e, verbose);
-            } catch (final TimeoutException e) {
-                printException("write failed with timeout", e, verbose);
             } catch (final AbortException e) {
                 printException("write failed with abort", e, verbose);
             } catch (final UnknownException e) {
@@ -180,8 +187,6 @@ public class Main {
                 System.out.println("testAndSet(" + key + ", " + oldValue + ", " + newValue + "): ok");
             } catch (final ConnectionException e) {
                 printException("testAndSet failed with connection error", e, verbose);
-            } catch (final TimeoutException e) {
-                printException("testAndSet failed with timeout", e, verbose);
             } catch (final AbortException e) {
                 printException("testAndSet failed with abort", e, verbose);
             } catch (final UnknownException e) {
@@ -190,75 +195,6 @@ public class Main {
                 printException("testAndSet failed with not found", e, verbose);
             } catch (final KeyChangedException e) {
                 printException("testAndSet failed with key changed (current value: " + e.getOldValue().toString() + ")", e, verbose);
-            }
-        } else if (line.hasOption("p")) { // publish
-            final String[] optionValues = line.getOptionValues("publish");
-            checkArguments(optionValues, 2, options, "p");
-            final String topic = optionValues[0];
-            final String content = optionValues[1];
-            if (content == null) {
-                // parsing methods of commons.cli only checks the first argument :(
-                printException("Parsing failed", new ParseException("missing content for option p"), verbose);
-            }
-            try {
-                final PubSub sc = new PubSub();
-                sc.publish(topic, content);
-                System.out.println("publish(" + topic + ", " + content + "): ok");
-            } catch (final ConnectionException e) {
-                printException("publish failed with connection error", e, verbose);
-            } catch (final UnknownException e) {
-                printException("publish failed with unknown", e, verbose);
-            }
-        } else if (line.hasOption("s")) { // subscribe
-            final String[] optionValues = line.getOptionValues("subscribe");
-            checkArguments(optionValues, 2, options, "s");
-            final String topic = optionValues[0];
-            final String url = optionValues[1];
-            try {
-                final PubSub sc = new PubSub();
-                sc.subscribe(topic, url);
-                System.out.println("subscribe(" + topic + ", " + url + "): ok");
-            } catch (final ConnectionException e) {
-                printException("subscribe failed with connection error", e, verbose);
-            } catch (final TimeoutException e) {
-                printException("subscribe failed with timeout", e, verbose);
-            } catch (final AbortException e) {
-                printException("write failed with abort", e, verbose);
-            } catch (final UnknownException e) {
-                printException("subscribe failed with unknown", e, verbose);
-            }
-        } else if (line.hasOption("u")) { // unsubscribe
-            final String[] optionValues = line.getOptionValues("unsubscribe");
-            checkArguments(optionValues, 2, options, "u");
-            final String topic = optionValues[0];
-            final String url = optionValues[1];
-            try {
-                final PubSub sc = new PubSub();
-                sc.unsubscribe(topic, url);
-                System.out.println("unsubscribe(" + topic + ", " + url + "): ok");
-            } catch (final ConnectionException e) {
-                printException("unsubscribe failed with connection error", e, verbose);
-            } catch (final TimeoutException e) {
-                printException("unsubscribe failed with timeout", e, verbose);
-            } catch (final NotFoundException e) {
-                printException("unsubscribe failed with not found", e, verbose);
-            } catch (final AbortException e) {
-                printException("write failed with abort", e, verbose);
-            } catch (final UnknownException e) {
-                printException("unsubscribe failed with unknown", e, verbose);
-            }
-        } else if (line.hasOption("g")) { // getsubscribers
-            final String topic = line.getOptionValue("getsubscribers");
-            checkArguments(topic, options, "g");
-            try {
-                final PubSub sc = new PubSub();
-                final List<String> subscribers = sc.getSubscribers(topic).stringListValue();
-                System.out.println("getSubscribers(" + topic + ") == "
-                        + subscribers);
-            } catch (final ConnectionException e) {
-                printException("getSubscribers failed with connection error", e, verbose);
-            } catch (final UnknownException e) {
-                printException("getSubscribers failed with unknown error", e, verbose);
             }
         } else if (line.hasOption("d")) { // delete
             final String[] optionValues = line.getOptionValues("delete");
@@ -278,8 +214,7 @@ public class Main {
             }
             try {
                 final ReplicatedDHT sc = new ReplicatedDHT();
-                sc.delete(key, timeout);
-                final DeleteResult deleteResult = sc.getLastDeleteResult();
+                final DeleteResult deleteResult = sc.delete(key, timeout);
                 System.out.println("delete(" + key + ", " + timeout + "): "
                         + deleteResult.ok + " ok, "
                         + deleteResult.locks_set + " locks_set, "
@@ -293,6 +228,44 @@ public class Main {
             }
         } else if (line.hasOption("lh")) { // get local host name
             System.out.println(ConnectionFactory.getLocalhostName());
+        } else if (line.hasOption("monitor")) { // print monitoring data
+            final String node = line.getOptionValue("monitor");
+            checkArguments(node, options, "monitor");
+            try {
+                final Monitor monitor = new Monitor(node);
+                final GetNodeInfoResult nodeInfo = monitor.getNodeInfo();
+                final GetNodePerformanceResult nodePerf = monitor.getNodePerformance();
+                final GetServiceInfoResult srvInfo = monitor.getServiceInfo();
+                final GetServicePerformanceResult srvPerf = monitor.getServicePerformance();
+
+                final Double nodePerfCurLatAvg = Monitor.getCurrentPerfValue(nodePerf.latencyAvg);
+                final Double nodePerfCurLatStddev = Monitor.getCurrentPerfValue(nodePerf.latencyStddev);
+                final Double srvPerfCurLatAvg = Monitor.getCurrentPerfValue(srvPerf.latencyAvg);
+                final Double srcPerfCurLatStddev = Monitor.getCurrentPerfValue(srvPerf.latencyStddev);
+
+                final DecimalFormat df = new DecimalFormat("0.##");
+                System.out.println("== Node Info ==");
+                System.out.println("Scalaris version: " + nodeInfo.scalarisVersion);
+                System.out.println("Erlang   version: " + nodeInfo.erlangVersion);
+                System.out.println("# of DHT nodes  : " + nodeInfo.dhtNodes);
+                System.out.println("== Service Info (from mgmt_server) ==");
+                System.out.println("Total # of nodes: " + srvInfo.nodes);
+                System.out.println("Total load      : " + srvInfo.totalLoad);
+                System.out.println("== Node Performance ==");
+                System.out.println("Current latency : " + (nodePerfCurLatAvg == null ? "n/a" : df.format(nodePerfCurLatAvg)));
+                System.out.println("Current stddev  : " + (nodePerfCurLatStddev == null ? "n/a" : df.format(nodePerfCurLatStddev)));
+                System.out.println("== Service Performance ==");
+                System.out.println("Current latency : " + (srvPerfCurLatAvg == null ? "n/a" : df.format(srvPerfCurLatAvg)));
+                System.out.println("Current stddev  : " + (srcPerfCurLatStddev == null ? "n/a" : df.format(srcPerfCurLatStddev)));
+            } catch (final ConnectionException e) {
+                printException("monitor failed with connection error", e, verbose);
+            } catch (final UnknownException e) {
+                printException("monitor failed with unknown error", e, verbose);
+            }
+        } else if (line.hasOption("jmx")) { // start JMX monitoring service
+            final String node = line.getOptionValue("jmx");
+            checkArguments(node, options, "jmx");
+            startJmxService(node, verbose);
         } else {
             // print help if no other option was given
 //        if (line.hasOption("help")) {
@@ -307,28 +280,24 @@ public class Main {
                         return 3;
                     } else if (option.getLongOpt().equals("minibench")) {
                         return 4;
-                    } else if (option.getLongOpt().equals("read")) {
+                    } else if (option.getLongOpt().equals("monitor")) {
                         return 5;
-                    } else if (option.getLongOpt().equals("write")) {
+                    } else if (option.getLongOpt().equals("read")) {
                         return 6;
-                    } else if (option.getLongOpt().equals("test-and-set")) {
+                    } else if (option.getLongOpt().equals("write")) {
                         return 7;
-                    } else if (option.getLongOpt().equals("add-del-on-list")) {
+                    } else if (option.getLongOpt().equals("test-and-set")) {
                         return 8;
-                    } else if (option.getLongOpt().equals("add-on-nr")) {
+                    } else if (option.getLongOpt().equals("add-del-on-list")) {
                         return 9;
-                    } else if (option.getLongOpt().equals("delete")) {
+                    } else if (option.getLongOpt().equals("add-on-nr")) {
                         return 10;
-                    } else if (option.getLongOpt().equals("publish")) {
+                    } else if (option.getLongOpt().equals("delete")) {
                         return 11;
-                    } else if (option.getLongOpt().equals("subscribe")) {
+                    } else if (option.getLongOpt().equals("jmxservice")) {
                         return 12;
-                    } else if (option.getLongOpt().equals("unsubscribe")) {
-                        return 13;
-                    } else if (option.getLongOpt().equals("getsubscribers")) {
-                        return 14;
                     } else {
-                        return 0;
+                        return 13;
                     }
                 }
 
@@ -348,6 +317,44 @@ public class Main {
             if (!line.hasOption("help")) {
                 System.exit(1);
             }
+        }
+    }
+
+    /**
+     * Registers some MBeans to monitor Scalaris via JMX and then waits forever
+     * until interrupted.
+     *
+     * @param node
+     *            the node name of the Erlang VM to connect to
+     * @param verbose
+     *            whether verbose information should be printed in case of
+     *            connection failures
+     */
+    private static void startJmxService(final String node, final boolean verbose) {
+        try {
+            final MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
+            final ObjectName nodeMonitorName = new ObjectName("de.zib.scalaris:type=MonitorNode");
+            final de.zib.scalaris.jmx.MonitorNode nodeMonitorMbean = new de.zib.scalaris.jmx.MonitorNode(node);
+            final ObjectName serviceMonitorName = new ObjectName("de.zib.scalaris:type=MonitorService");
+            final de.zib.scalaris.jmx.MonitorService serviceMonitorMbean = new de.zib.scalaris.jmx.MonitorService(node);
+            mbs.registerMBean(nodeMonitorMbean, nodeMonitorName);
+            mbs.registerMBean(serviceMonitorMbean, serviceMonitorName);
+            System.out.println("Waiting forever...");
+            Thread.sleep(Long.MAX_VALUE);
+        } catch (final InterruptedException e) {
+            System.out.println("stopped service");
+        } catch (final MalformedObjectNameException e) {
+            throw new RuntimeException(e);
+        } catch (final NullPointerException e) {
+            throw new RuntimeException(e);
+        } catch (final ConnectionException e) {
+            printException("JMX service failed with connection error", e, verbose);
+        } catch (final InstanceAlreadyExistsException e) {
+            throw new RuntimeException(e);
+        } catch (final MBeanRegistrationException e) {
+            throw new RuntimeException(e);
+        } catch (final NotCompliantMBeanException e) {
+            throw new RuntimeException(e);
         }
     }
 
@@ -389,30 +396,6 @@ public class Main {
         test_and_set.setOptionalArg(true);
         group.addOption(test_and_set);
 
-        final Option publish = new Option("p", "publish", true, "publish a new message for the given topic");
-        publish.setArgName("topic> <message");
-        publish.setArgs(2);
-        publish.setOptionalArg(true);
-        group.addOption(publish);
-
-        final Option subscribe = new Option("s", "subscribe", true, "subscribe to a topic");
-        subscribe.setArgName("topic> <url");
-        subscribe.setArgs(2);
-        subscribe.setOptionalArg(true);
-        group.addOption(subscribe);
-
-        final Option unsubscribe = new Option("u", "unsubscribe", true, "unsubscribe from a topic");
-        unsubscribe.setArgName("topic> <url");
-        unsubscribe.setArgs(2);
-        unsubscribe.setOptionalArg(true);
-        group.addOption(unsubscribe);
-
-        final Option getSubscribers = new Option("g", "getsubscribers", true, "get subscribers of a topic");
-        getSubscribers.setArgName("topic");
-        getSubscribers.setArgs(1);
-        getSubscribers.setOptionalArg(true);
-        group.addOption(getSubscribers);
-
         final Option delete = new Option("d", "delete", true,
                 "delete an item (default timeout: 2000ms)\n" +
                 "WARNING: This function can lead to inconsistent data (e.g. " +
@@ -429,9 +412,22 @@ public class Main {
         bench.setOptionalArg(true);
         group.addOption(bench);
 
+        final Option monitor = new Option("m", "monitor", true, "print monitoring information");
+        monitor.setArgName("node");
+        monitor.setArgs(1);
+        monitor.setOptionalArg(true);
+        group.addOption(monitor);
+
+        final Option jmx = new Option("jmx", "jmxservice", true, "starts a service exposing Scalaris monitoring values via JMX");
+        jmx.setArgName("node");
+        jmx.setArgs(1);
+        jmx.setOptionalArg(true);
+        group.addOption(jmx);
+
         options.addOptionGroup(group);
 
         options.addOption(new Option("lh", "localhost", false, "gets the local host's name as known to Java (for debugging purposes)"));
+
 
         return options;
     }

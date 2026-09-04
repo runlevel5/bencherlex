@@ -1,5 +1,5 @@
 /**
- *  Copyright 2011 Zuse Institute Berlin
+ *  Copyright 2011-2013 Zuse Institute Berlin
  *
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -15,6 +15,8 @@
  */
 package de.zib.scalaris.examples.wikipedia.plugin;
 
+import javax.servlet.ServletConfig;
+
 import de.zib.scalaris.examples.wikipedia.WikiServletContext;
 
 /**
@@ -28,7 +30,10 @@ public interface WikiPlugin {
     /**
      * Initialises the plugin.
      * 
-     * @param servlet the servlet using the plugin
+     * @param servlet
+     *            the servlet using the plugin
+     * @param config
+     *            servlet config object
      */
-    public void init(WikiServletContext servlet);
+    public void init(WikiServletContext servlet, ServletConfig config);
 }

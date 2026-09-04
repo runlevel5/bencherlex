@@ -17,12 +17,12 @@
 %%         one that reduces the standard deviation the most.
 %%         Uses randomly sampled IDs.
 %% @end
-%% @version $Id: lb_psv_simple.erl 2639 2012-01-03 15:00:45Z kruber@zib.de $
+%% @version $Id$
 -module(lb_psv_simple).
 -author('kruber@zib.de').
--vsn('$Id: lb_psv_simple.erl 2639 2012-01-03 15:00:45Z kruber@zib.de $ ').
+-vsn('$Id$').
 
-%-define(TRACE(X,Y), ct:pal(X,Y)).
+%-define(TRACE(X,Y), log:pal(X,Y)).
 -define(TRACE(X,Y), ok).
 -define(TRACE_SEND(Pid, Msg), ?TRACE("[ ~.0p ] to ~.0p: ~.0p)~n", [self(), Pid, Msg])).
 -define(TRACE1(Msg, State), ?TRACE("[ ~.0p ]~n  Msg: ~.0p~n  State: ~.0p)~n", [self(), Msg, State])).
@@ -30,9 +30,7 @@
 -behaviour(lb_psv_beh).
 -include("lb_psv_beh.hrl").
 
--ifdef(with_export_type_support).
 -export_type([custom_message/0]).
--endif.
 
 -type custom_message() :: none().
 
@@ -75,11 +73,9 @@ create_join(DhtNodeState, SelectedKey, SourcePid, Conn) ->
                                         "sending no_op...", [self(), MyNodeId]),
                             lb_op:no_op();
                         _ ->
-                            MyPredId = dht_node_state:get(DhtNodeState, pred_id),
                             MyLoad = dht_node_state:get(DhtNodeState, load),
-                            DB = dht_node_state:get(DhtNodeState, db),
-                            Interval = node:mk_interval_between_ids(MyPredId, SelectedKey),
-                            OtherLoadNew = ?DB:get_load(DB, Interval),
+                            {SelectedKey, OtherLoadNew} =
+                                lb_common:split_by_key(DhtNodeState, SelectedKey),
                             MyLoadNew = MyLoad - OtherLoadNew,
                             MyNodeDetails = node_details:set(
                                               node_details:set(node_details:new(), node, MyNode), load, MyLoad),
@@ -87,7 +83,7 @@ create_join(DhtNodeState, SelectedKey, SourcePid, Conn) ->
                             OtherNodeDetails = node_details:set(node_details:new(), load, 0),
                             OtherNodeDetailsNew = node_details:set(
                                                     node_details:set(node_details:new(), new_key, SelectedKey), load, OtherLoadNew),
-                            lb_op:slide_op(OtherNodeDetails, MyNodeDetails,
+                            lb_op:slide_op(comm:this(), OtherNodeDetails, MyNodeDetails,
                                            OtherNodeDetailsNew, MyNodeDetailsNew)
                     end
                 catch
@@ -114,7 +110,7 @@ create_join(DhtNodeState, SelectedKey, SourcePid, Conn) ->
 %%      of the standard deviation is at the front.
 %%      Note: this is executed at the joining node.
 -spec sort_candidates(Ops::[lb_op:lb_op()]) -> [lb_op:lb_op()].
-sort_candidates(Ops) -> lb_common:bestStddev(Ops, plus_infinity).
+sort_candidates(Ops) -> lb_common:bestStddev(util:shuffle(Ops), plus_infinity).
 
 -spec process_join_msg(comm:message(), State::any(),
         DhtNodeState::dht_node_state:state()) -> unknown_event.
@@ -125,10 +121,10 @@ process_join_msg(_Msg, _State, _DhtNodeState) ->
 %%      algorithm exist and are valid.
 -spec check_config() -> boolean().
 check_config() ->
-    config:cfg_is_integer(lb_psv_simple_samples) and
-    config:cfg_is_greater_than_equal(lb_psv_simple_samples, 1).
+    config:cfg_is_integer(lb_psv_samples) and
+    config:cfg_is_greater_than_equal(lb_psv_samples, 1).
 
 %% @doc Gets the number of nodes to sample (set in the config files).
 -spec conf_get_number_of_samples() -> pos_integer().
 conf_get_number_of_samples() ->
-    config:read(lb_psv_simple_samples).
+    config:read(lb_psv_samples).

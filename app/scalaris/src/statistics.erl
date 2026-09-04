@@ -1,4 +1,4 @@
-% @copyright 2007-2011 Zuse Institute Berlin
+% @copyright 2007-2018 Zuse Institute Berlin
 
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
@@ -14,59 +14,81 @@
 
 %% @author Thorsten Schuett <schuett@zib.de>
 %% @doc Statistics Module for mgmt server
-%% @version $Id: statistics.erl 2695 2012-01-11 16:13:54Z kruber@zib.de $
+%% @version $Id$
 -module(statistics).
 -author('schuett@zib.de').
--vsn('$Id: statistics.erl 2695 2012-01-11 16:13:54Z kruber@zib.de $').
+-vsn('$Id$').
 
 -export([get_ring_details/0, get_ring_details_neighbors/1,
-         get_total_load/1, get_average_load/1, get_load_std_deviation/1,
+         get_total_load/2, get_average_load/2, get_load_std_deviation/2,
          get_average_rt_size/1, get_rt_size_std_deviation/1,
          get_memory_usage/1, get_max_memory_usage/1,
-         getMonitorStats/3]).
+         getTimingMonitorStats/3, getGaugeMonitorStats/4]).
 
 -include("scalaris.hrl").
 
--ifdef(with_export_type_support).
 -export_type([ring/0, ring_element/0]).
--endif.
 
 -type ring_element() :: {ok, Details::node_details:node_details()} | {failed, comm:mypid()}.
 -type ring() :: [ring_element()].
+-type load() :: load | load2 | load3.
+-type load_type() :: node_details:load() | node_details:load2() | node_details:load3().
 
--spec get_total_load(Ring::ring()) -> node_details:load().
-get_total_load(Ring) ->
-    lists:foldl(fun (X, Sum) -> X + Sum end, 0, lists:map(fun get_load/1, Ring)).
+-spec get_total_load(Which::load(), Ring::ring()) -> load_type().
+get_total_load(Which, Ring) ->
+    lists:foldl(fun (X, Sum) -> X + Sum end, 0,
+                lists:map(fun(Node) -> get_load(Which, Node) end, Ring)).
 
--spec get_average_load(Ring::ring()) -> float().
-get_average_load(Ring) ->
+-spec get_average_load(Which::load(), Ring::ring()) -> float().
+get_average_load(Which, Ring) ->
     FilteredRing = lists:filter(fun (X) -> is_valid(X) end, Ring),
-    get_total_load(FilteredRing) / length(FilteredRing).
+    case length(FilteredRing) of
+        0 -> 0.0;
+        _ ->
+            get_total_load(Which, FilteredRing) / length(FilteredRing)
+    end.
 
 -spec get_memory_usage(Ring::ring()) -> float().
 get_memory_usage(Ring) ->
     FilteredRing = lists:filter(fun (X) -> is_valid(X) end, Ring),
-    lists:foldl(fun (X, Sum) -> X + Sum end, 0,
-                lists:map(fun get_memory/1, FilteredRing)) / length(FilteredRing).
+    case length(FilteredRing) of
+        0 -> 0.0;
+        _ ->
+            lists:foldl(fun (X, Sum) -> X + Sum end, 0,
+                        lists:map(fun get_memory/1, FilteredRing))
+                / length(FilteredRing)
+    end.
 
 -spec get_max_memory_usage(Ring::ring()) -> node_details:memory().
 get_max_memory_usage(Ring) ->
     lists:foldl(fun (X, Sum) -> erlang:max(X, Sum) end, 0,
                 lists:map(fun get_memory/1, Ring)).
 
--spec get_load_std_deviation(Ring::ring()) -> float().
-get_load_std_deviation(Ring) ->
+-spec get_load_std_deviation(Which::load(), Ring::ring()) -> float().
+get_load_std_deviation(Which, Ring) ->
     FilteredRing = lists:filter(fun (X) -> is_valid(X) end, Ring),
-    Average = get_average_load(FilteredRing),
-    math:sqrt(lists:foldl(fun (Load, Acc) ->
-                                   Acc + (Load - Average) * (Load - Average)
-                          end, 0,
-                          lists:map(fun get_load/1, FilteredRing)) / length(FilteredRing)).
+    case length(FilteredRing) of
+        0 -> 0.0;
+        _ ->
+            Average = get_average_load(Which, FilteredRing),
+            math:sqrt(lists:foldl(fun (Load, Acc) ->
+                                          Acc + (Load - Average)
+                                              * (Load - Average)
+                                  end, 0,
+                                  lists:map(fun(Node) ->
+                                                    get_load(Which, Node)
+                                            end,
+                                            FilteredRing))
+                      / length(FilteredRing))
+    end.
 
--spec get_load(ring_element()) -> node_details:load().
-get_load({ok, Details}) ->
-    node_details:get(Details, load);
-get_load({failed, _}) ->
+-spec get_load(Which::load(), ring_element()) -> node_details:load().
+get_load(Which, {ok, Details}) ->
+    case node_details:get(Details, Which) of
+        unknown -> 0;
+        Val -> Val
+    end;
+get_load(_Which, {failed, _}) ->
     0.
 
 -spec get_memory(ring_element()) -> node_details:memory().
@@ -81,12 +103,20 @@ get_memory({failed, _}) ->
 %%      within 2s.
 -spec get_ring_details() -> ring().
 get_ring_details() ->
-    mgmt_server:node_list(),
-    Nodes = receive
-                {get_list_response, N} -> N
-            after 2000 ->
-                log:log(error,"[ ST ] Timeout getting node list from mgmt server"),
-                throw('mgmt_server_timeout')
+    mgmt_server:node_list(true),
+    Nodes = begin
+                trace_mpath:thread_yield(),
+                receive
+                ?SCALARIS_RECV({get_list_response, N}, N);
+                ?SCALARIS_RECV({send_error, _, {get_list, _}, Reason},
+                               begin
+                                 log:log(error,"[ ST ] Mgmt server unavailable: ~p", [Reason]),
+                                 throw('mgmt_server_timeout')
+                               end)
+                after 2000 ->
+                        log:log(error,"[ ST ] Timeout getting node list from mgmt server"),
+                        throw('mgmt_server_timeout')
+                end
             end,
     lists:sort(fun compare_node_details/2, get_ring_details(Nodes)).
 
@@ -118,16 +148,18 @@ get_ring_details_neighbors(RecursionLvl, Ring, Nodes) ->
         true -> NewRing;
         _ -> % gather nodes for the next recursion:
             NextNodes =
-                lists:append(
-                  [begin
-                     case RingE of
-                         {ok, Details} ->
-                             [node:pidX(Node) || Node <- node_details:get(Details, predlist)] ++
-                             [node:pidX(Node) || Node <- node_details:get(Details, succlist)];
-                         {failed, _Pid} ->
-                             []
-                     end
-                 end || RingE <- NewRing]),
+                lists:flatmap(
+                  fun(RingE) ->
+                          case RingE of
+                              {ok, Details} ->
+                                  PredList = node_details:get(Details, predlist),
+                                  SuccList = node_details:get(Details, succlist),
+                                  [node:pidX(Node) || Node <- PredList] ++
+                                      [node:pidX(Node) || Node <- SuccList];
+                              {failed, _Pid} ->
+                                  []
+                          end
+                  end, NewRing),
             get_ring_details_neighbors(RecursionLvl - 1, NewRing, NextNodes)
     end.
 
@@ -135,11 +167,12 @@ get_ring_details_neighbors(RecursionLvl, Ring, Nodes) ->
 %%      See compare_node_details/2 for a definition of the order.
 -spec get_ring_details(Nodes::[comm:mypid()]) -> ring().
 get_ring_details(Nodes) ->
+    UUID = uid:get_global_uid(),
     _ = [begin
-             SourcePid = comm:this_with_cookie(Pid),
+             SourcePid = comm:reply_as(comm:this(), 2, {ok, '_', Pid, UUID}),
              comm:send(Pid, {get_node_details, SourcePid})
          end || Pid <- Nodes],
-    get_node_details(Nodes, [], 0).
+    get_node_details(Nodes, UUID, [], 0).
 
 %% @doc Defines an order of ring_element() terms so that {failed, Pid} terms
 %%      are considered the smallest but sorted by their pids.
@@ -155,9 +188,9 @@ compare_node_details({failed, _}, {ok, _}) ->
 compare_node_details({ok, _}, {failed, _}) ->
     false.
 
--spec get_node_details(Pids::[comm:mypid()], ring(), TimeInMS::non_neg_integer()) -> ring().
-get_node_details([], Ring, _TimeInS) -> Ring;
-get_node_details(Pids, Ring, TimeInMS) ->
+-spec get_node_details(Pids::[comm:mypid()], uid:global_uid(), ring(),
+                       TimeInMS::non_neg_integer()) -> ring().
+get_node_details([_|_] = Pids, UUID, Ring, TimeInMS) ->
     Continue =
         if
             TimeInMS =:= 2000 ->
@@ -170,18 +203,27 @@ get_node_details(Pids, Ring, TimeInMS) ->
     end,
     case Continue of
         continue ->
+            trace_mpath:thread_yield(),
             receive
-                {{get_node_details_response, Details}, Pid} ->
-                    get_node_details(lists:delete(Pid, Pids),
+                ?SCALARIS_RECV(
+                    {ok, {get_node_details_response, Details}, Pid, UUID}, %% ->
+                    get_node_details(lists:delete(Pid, Pids), UUID,
                                      [{ok, Details} | Ring],
                                      TimeInMS)
+                  );
+                % clean up old / unrelated messages
+                ?SCALARIS_RECV(
+                    {ok, {get_node_details_response, _Details}, _Pid, _OldUUID}, %% ->
+                    get_node_details(Pids, UUID, Ring, TimeInMS)
+                  )
             after
                 10 ->
-                    get_node_details(Pids, Ring, TimeInMS + 10)
+                    get_node_details(Pids, UUID, Ring, TimeInMS + 10)
             end;
         _ -> Failed = [{failed, Pid} || Pid <- Pids],
              lists:append(Failed, Ring)
-    end.
+    end;
+get_node_details([], _UUID, Ring, _TimeInMS) -> Ring.
 
 %%%-------------------------------RT----------------------------------
 
@@ -192,16 +234,26 @@ get_total_rt_size(Ring) ->
 -spec get_average_rt_size(Ring::ring()) -> float().
 get_average_rt_size(Ring) ->
     FilteredRing = lists:filter(fun (X) -> is_valid(X) end, Ring),
-    get_total_rt_size(FilteredRing) / length(FilteredRing).
+    case length(FilteredRing) of
+        0 -> 0.0;
+        _ ->
+            get_total_rt_size(FilteredRing) / length(FilteredRing)
+    end.
 
 -spec get_rt_size_std_deviation(Ring::ring()) -> float().
 get_rt_size_std_deviation(Ring) ->
     FilteredRing = lists:filter(fun (X) -> is_valid(X) end, Ring),
-    Average = get_average_rt_size(FilteredRing),
-    math:sqrt(lists:foldl(fun (RTSize, Acc) ->
-                                   Acc + (RTSize - Average) * (RTSize - Average)
-                          end, 0,
-                          lists:map(fun get_rt/1, FilteredRing)) / length(FilteredRing)).
+    case length(FilteredRing) of
+        0 -> 0.0;
+        _ ->
+            Average = get_average_rt_size(FilteredRing),
+            math:sqrt(lists:foldl(fun (RTSize, Acc) ->
+                                          Acc + (RTSize - Average)
+                                              * (RTSize - Average)
+                                  end, 0,
+                                  lists:map(fun get_rt/1, FilteredRing))
+                      / length(FilteredRing))
+    end.
 
 -spec get_rt(ring_element()) -> node_details:rt_size().
 get_rt({ok, Details}) ->
@@ -222,11 +274,8 @@ is_valid({failed, _}) ->
 
 -spec getMonitorData(Monitor::pid(), [{Process::atom(), Key::monitor:key()}]) -> [{Process::atom(), Key::monitor:key(), rrd:rrd()}].
 getMonitorData(Monitor, Keys) ->
-    comm:send_local(Monitor, {get_rrds, Keys, comm:this()}),
-    receive
-        {get_rrds_response, DataL} -> [Data || Data = {_Process, _Key, Value} <- DataL,
-                                               Value =/= undefined]
-    end.
+    [Data || Data = {_Process, _Key, Value} <- monitor:get_rrds(Monitor, Keys),
+             Value =/= undefined].
 
 -spec monitor_timing_dump_fun_exists(rrd:rrd(), From_us::rrd:internal_time(), To_us::rrd:internal_time(), Value::term())
         -> {TimestampMs::integer(), Count::non_neg_integer(), CountPerS::float(),
@@ -257,7 +306,9 @@ get_utc_local_diff_s() ->
                 calendar:now_to_local_time(SampleTime)),
     Local_s - UTC_s.
 
--spec getMonitorStats
+%% @doc Gets monitor stats from 'timing' and 'timing_with_hist' values in an
+%%      easy format for the web interface.
+-spec getTimingMonitorStats
         (Monitor::pid(), [{Process::atom(), Key::monitor:key()}], list)
         -> [{Process::atom(), Key::monitor:key(),
              {CountD::time_list(non_neg_integer()),
@@ -272,7 +323,7 @@ get_utc_local_diff_s() ->
               MinD::tuple_list(float()), MaxD::tuple_list(float()),
               StddevD::tuple_list(float()),
               HistD::tuple_list(tuple_list(pos_integer()))}}].
-getMonitorStats(Monitor, Keys, Type) ->
+getTimingMonitorStats(Monitor, Keys, Type) ->
     UtcToLocalDiff_ms = get_utc_local_diff_s() * 1000,
     [begin
          Dump = rrd:dump_with(DB, fun monitor_timing_dump_fun_exists/4,
@@ -305,5 +356,44 @@ getMonitorStats(Monitor, Keys, Type) ->
                         [AvgAcc | AvgD], [MinAcc | MinD], [MaxAcc | MaxD],
                         [StddevAcc | StddevD], [HistAcc | HistD]}
                end, {[], [], [], [], [], [], []}, Dump),
+         {Process, Key, Value}
+     end || {Process, Key, DB} <- getMonitorData(Monitor, Keys)].
+
+-spec monitor_gauge_dump_fun_exists(rrd:rrd(), From_us::rrd:internal_time(), To_us::rrd:internal_time(), Value)
+        -> {TimestampMs::integer(), Value}.
+monitor_gauge_dump_fun_exists(_DB, _From_us, To_us, Value) ->
+    {round(To_us / 1000), Value}.
+
+-spec monitor_gauge_dump_fun_notexists(rrd:rrd(), From_us::rrd:internal_time(), To_us::rrd:internal_time())
+        -> {keep, {TimestampMs::integer(), Value::0}}.
+monitor_gauge_dump_fun_notexists(_DB, _From_us, To_us) ->
+    {keep, {round(To_us / 1000), 0}}.
+
+%% @doc Gets monitor stats from 'gauge' values in an easy format for the web
+%%      interface. Scales the original values by dividing them by Div.
+-spec getGaugeMonitorStats
+        (Monitor::pid(), [{Process::atom(), Key::monitor:key()}], list, Div::number())
+        -> [{Process::atom(), Key::monitor:key(),
+             ValueD::time_list(non_neg_integer())}];
+        (Monitor::pid(), [{Process::atom(), Key::monitor:key()}], tuple, Div::number())
+        -> [{Process::atom(), Key::monitor:key(),
+             ValueD::tuple_list(non_neg_integer())}].
+getGaugeMonitorStats(Monitor, Keys, Type, Div) ->
+    UtcToLocalDiff_ms = get_utc_local_diff_s() * 1000,
+    [begin
+         Dump = rrd:dump_with(DB, fun monitor_gauge_dump_fun_exists/4,
+                              fun monitor_gauge_dump_fun_notexists/3),
+         Value =
+             lists:foldr(
+               fun({TimeUTC, ValueX}, ValueD) ->
+                       Time = TimeUTC + UtcToLocalDiff_ms,
+                       case Type of
+                           list ->
+                               ValueAcc = [Time, ValueX / Div];
+                           tuple ->
+                               ValueAcc = {Time, ValueX / Div}
+                       end,
+                       [ValueAcc | ValueD]
+               end, [], Dump),
          {Process, Key, Value}
      end || {Process, Key, DB} <- getMonitorData(Monitor, Keys)].

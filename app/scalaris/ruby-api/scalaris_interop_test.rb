@@ -14,7 +14,7 @@
 #    limitations under the License.
 
 begin
-  require "#{File.dirname(__FILE__)}/scalaris"
+  require "#{File.expand_path(File.dirname(__FILE__))}/scalaris"
 rescue LoadError => e
   raise unless e.message =~ /scalaris/
   require "scalaris"
@@ -23,10 +23,7 @@ end
 def read_or_write(sc, key, value, mode, binary = false)
   begin
     if (mode == :read)
-      puts 'read(' + key.to_s + ')'
-      puts '  expected: ' + value.inspect
       actual = sc.read(key)
-      puts '  read raw: ' + actual.inspect
       # if the expected value is a list, the returned value could by (mistakenly) a string if it is a list of integers
       # -> convert such a string to a list
       if value.is_a?(Array)
@@ -37,14 +34,22 @@ def read_or_write(sc, key, value, mode, binary = false)
             return 1
         end
       end
-      puts '   read rb: ' + actual.inspect
       if (actual == value)
-        puts 'ok'
-        return 0
+        out = $stdout
+        result = 0
+        result_str = 'ok'
       else
-        puts 'fail'
-        return 1
+        out = $stderr
+        result = 1
+        result_str = 'fail'
       end
+
+      out.puts 'read(' + key.to_s + ')'
+      out.puts '  expected: ' + value.inspect
+      out.puts '  read raw: ' + actual.inspect
+      out.puts '   read rb: ' + actual.inspect
+      out.puts result_str
+      return result
     elsif (mode == :write)
       puts 'write(' + key.to_s + ', ' + value.to_s + ')'
       sc.write(key, value, binary)
@@ -163,9 +168,12 @@ def read_write_list(basekey, sc, mode)
   failed += read_or_write(sc, basekey + "_list_0_1_2_3", [0, 1, 2, 3], mode)
   failed += read_or_write(sc, basekey + "_list_0_123_456_65000", [0, 123, 456, 65000], mode)
   failed += read_or_write(sc, basekey + "_list_0_123_456_0x10ffff", [0, 123, 456, 0x10ffff], mode)
-  failed += read_or_write(sc, basekey + "_list_0_foo_1.5_false", [0, 'foo', 1.5, false], mode)
+  list4 = [0, 'foo', 1.5, false]
+  failed += read_or_write(sc, basekey + "_list_0_foo_1.5_false", list4, mode)
   # note: binary not supported in lists
   #failed += read_or_write(sc, basekey + "_list_0_foo_1.5_<<0123>>", [0, 'foo', 1.5, bytearray([0, 1, 2, 3])], mode)
+  failed += read_or_write(sc, basekey + "_list_0_foo_1.5_false_list4", [0, 'foo', 1.5, false, list4], mode)
+  failed += read_or_write(sc, basekey + "_list_0_foo_1.5_false_list4_map_x=0_y=1", [0, 'foo', 1.5, false, list4, {'x' => 0, 'y' => 1}], mode)
   
   return failed
 end
@@ -196,7 +204,7 @@ elsif (ARGV[0] == "write")
   basekey = ARGV[1]
   basekey += '_json_ruby'
   mode = :write
-  puts 'Python-JSON-API: writing values'
+  puts 'Ruby-JSON-API: writing values'
 else
   puts 'unknown commands: ' + ARGV.to_s
   exit 1
@@ -216,7 +224,7 @@ failed += read_write_list(basekey, sc, mode)
 failed += read_write_map(basekey, sc, mode)
 puts ''
 
-if (failed > 0):
+if (failed > 0)
   puts failed.to_s + ' number of ' + mode.to_s + 's failed.'
   puts ''
   exit 1

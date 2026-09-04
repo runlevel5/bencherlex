@@ -1,4 +1,4 @@
-%  @copyright 2010-2011 Zuse Institute Berlin
+%  @copyright 2010-2015 Zuse Institute Berlin
 
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
@@ -15,16 +15,12 @@
 %% @author Nico Kruber <kruber@zib.de>
 %% @doc    TODO: Add description to rm_SUITE
 %% @end
-%% @version $Id: rm_SUITE.erl 2225 2011-09-14 14:05:53Z kruber@zib.de $
+%% @version $Id$
 -module(rm_SUITE).
 -author('kruber@zib.de').
--vsn('$Id: rm_SUITE.erl 2225 2011-09-14 14:05:53Z kruber@zib.de $ ').
+-vsn('$Id$').
 
--export([all/0, change_id_and_check/2, check_subscr_node_update/2,
-         end_per_suite/1, end_per_testcase/2, init_per_suite/1,
-         init_per_testcase/2, prop_update_id/2, prop_update_id2/1, suite/0,
-         tester_update_id/1, tester_update_id2_1/1, tester_update_id2_2/1,
-         tester_update_id2_3/1, tester_update_id2_4/1]).
+-compile(export_all).
 
 -include("unittest.hrl").
 -include("scalaris.hrl").
@@ -39,16 +35,13 @@ suite() ->
     ].
 
 init_per_suite(Config) ->
-    unittest_helper:init_per_suite(Config).
+    Config.
 
-end_per_suite(Config) ->
-    _ = unittest_helper:end_per_suite(Config),
+end_per_suite(_Config) ->
     ok.
 
 init_per_testcase(_TestCase, Config) ->
-    % stop ring from previous test case (it may have run into a timeout)
-    unittest_helper:stop_ring(),
-    Config.
+    [{stop_ring, true} | Config].
 
 end_per_testcase(_TestCase, _Config) ->
     ok.
@@ -88,11 +81,11 @@ change_id_and_check(OldId, NewId) ->
 %%     ct:pal("ct: ~p -> ~p~n", [node:id(OldNode), NewId]),
     
     comm:send(DhtNode, {rm, subscribe, self(), rm_SUITE,
-                        fun(OldN, NewN, _IsSlide) -> OldN =/= NewN end,
-                        fun(Pid, Tag, OldNeighbors, NewNeighbors) ->
+                        fun(OldN, NewN, _Reason) -> OldN =/= NewN end,
+                        fun(Pid, Tag, OldNeighbors, NewNeighbors, _Reason) ->
                                 comm:send_local(Pid, {rm_changed, Tag, OldNeighbors, NewNeighbors})
                         end, inf}),
-    comm:send(DhtNode, {rm, update_id, NewId}),
+    comm:send(DhtNode, {rm, update_my_id, NewId}),
     comm:send(DhtNode, {rm, unsubscribe, self(), rm_SUITE}),
     
     % check that the new ID has been set:
@@ -105,7 +98,7 @@ change_id_and_check(OldId, NewId) ->
             case node:id(OldNode) =/= NewId andalso
                      ((NewNode =:= Pred) andalso (NewNode =:= Succ) % 1-element ring
                      orelse % two nodes:
-                          Pred =:= Succ
+                          ((Pred =:= Succ) andalso (node:id(Pred) =/= NewId))
                      orelse % at least three nodes:
                           intervals:in(NewId,
                                        intervals:new('(', node:id(Pred), node:id(Succ), ')'))) of
@@ -157,25 +150,45 @@ prop_update_id2(NewId) ->
     change_id_and_check(unknown, NewId).
 
 tester_update_id2_1(Config) ->
-    {priv_dir, PrivDir} = lists:keyfind(priv_dir, 1, Config),
-    Ring = unittest_helper:make_ring_with_ids(fun() -> util:random_subset(1, ?RT:get_replica_keys(?RT:hash_key("0"))) end, [{config, [{log_path, PrivDir}]}]),
+    Config2 = unittest_helper:start_minimal_procs(Config, [], true),
+    {priv_dir, PrivDir} = lists:keyfind(priv_dir, 1, Config2),
+    RandomSubset = util:random_subset(1, ?RT:get_replica_keys(?RT:hash_key("0"))),
+    _ = unittest_helper:stop_minimal_procs(Config2),
+    Ring = unittest_helper:make_ring_with_ids(
+             RandomSubset,
+             [{config, [{log_path, PrivDir}]}]),
     tester:test(rm_SUITE, prop_update_id2, 1, 1000),
     unittest_helper:stop_ring(Ring).
 
 tester_update_id2_2(Config) ->
-    {priv_dir, PrivDir} = lists:keyfind(priv_dir, 1, Config),
-    Ring = unittest_helper:make_ring_with_ids(fun() -> util:random_subset(2, ?RT:get_replica_keys(?RT:hash_key("0"))) end, [{config, [{log_path, PrivDir}]}]),
+    Config2 = unittest_helper:start_minimal_procs(Config, [], true),
+    {priv_dir, PrivDir} = lists:keyfind(priv_dir, 1, Config2),
+    RandomSubset = util:random_subset(2, ?RT:get_replica_keys(?RT:hash_key("0"))),
+    _ = unittest_helper:stop_minimal_procs(Config2),
+    Ring = unittest_helper:make_ring_with_ids(
+             RandomSubset,
+             [{config, [{log_path, PrivDir}]}]),
     tester:test(rm_SUITE, prop_update_id2, 1, 100),
     unittest_helper:stop_ring(Ring).
 
 tester_update_id2_3(Config) ->
-    {priv_dir, PrivDir} = lists:keyfind(priv_dir, 1, Config),
-    Ring = unittest_helper:make_ring_with_ids(fun() -> util:random_subset(2, ?RT:get_replica_keys(?RT:hash_key("0"))) end, [{config, [{log_path, PrivDir}]}]),
+    Config2 = unittest_helper:start_minimal_procs(Config, [], true),
+    {priv_dir, PrivDir} = lists:keyfind(priv_dir, 1, Config2),
+    RandomSubset = util:random_subset(3, ?RT:get_replica_keys(?RT:hash_key("0"))),
+    _ = unittest_helper:stop_minimal_procs(Config2),
+    Ring = unittest_helper:make_ring_with_ids(
+             RandomSubset,
+             [{config, [{log_path, PrivDir}]}]),
     tester:test(rm_SUITE, prop_update_id2, 1, 100),
     unittest_helper:stop_ring(Ring).
 
 tester_update_id2_4(Config) ->
-    {priv_dir, PrivDir} = lists:keyfind(priv_dir, 1, Config),
-    Ring = unittest_helper:make_ring_with_ids(fun() -> util:random_subset(2, ?RT:get_replica_keys(?RT:hash_key("0"))) end, [{config, [{log_path, PrivDir}]}]),
+    Config2 = unittest_helper:start_minimal_procs(Config, [], true),
+    {priv_dir, PrivDir} = lists:keyfind(priv_dir, 1, Config2),
+    RandomSubset = util:random_subset(4, ?RT:get_replica_keys(?RT:hash_key("0"))),
+    _ = unittest_helper:stop_minimal_procs(Config2),
+    Ring = unittest_helper:make_ring_with_ids(
+             RandomSubset,
+             [{config, [{log_path, PrivDir}]}]),
     tester:test(rm_SUITE, prop_update_id2, 1, 100),
     unittest_helper:stop_ring(Ring).

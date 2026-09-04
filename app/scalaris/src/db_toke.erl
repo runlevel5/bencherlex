@@ -1,4 +1,4 @@
-%  @copyright 2010-2011 Zuse Institute Berlin
+% @copyright 2013-2014 Zuse Institute Berlin,
 
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
@@ -12,385 +12,299 @@
 %   See the License for the specific language governing permissions and
 %   limitations under the License.
 
-%% @author Nico Kruber <kruber@zib.de>
-%% @doc In-process Database using toke
+%% @author Jan Fajerski <fajerski@zib.de>
+%% @doc    DB back-end using tokyo cabinet via toke.
+%%         Two keys K and L are considered equal if they match, i.e. K =:= L
+%%
+%%         To use this backend you have to install
+%%         Tokyo Cabinet [http://fallabs.com/tokyocabinet] and
+%%         Toke [http://hg.opensource.lshift.net/toke/] (a simple Erlang
+%%         wrapper for Tokyo Cabinets hash API tchdb*).
+%%         For development Tokyo Cabinet V1.4.48-1 and the at-the-time
+%%         latest commit to the toke-repository (f178e55bb6b5) was used.
+%%
+%%         After building and installing Tokyo Cabinet and toke
+%%         rerun configure with --enable-toke. configure assumes that you
+%%         installed toke in your erlang's lib directory, i.e.
+%%         `<erlang_dir>/lib/toke' or `<erlang_dir>/lib/toke-<version>'. If you
+%%         used a different directory, e.g. /home/scalaris/apps/toke, you have
+%%         to provide the path to configure:
+%%
+%%         `./configure --enable-toke=/home/scalaris/apps/toke/'
+%%
+%%         Rerun make and you can use db_toke.
 %% @end
+%% @version $Id$
 -module(db_toke).
--author('kruber@zib.de').
--vsn('$Id: db_toke.erl 2639 2012-01-03 15:00:45Z kruber@zib.de $').
+-author('fajerski@zib.de').
+-vsn('$Id$').
 
 -include("scalaris.hrl").
 
--behaviour(db_beh).
+-behaviour(db_backend_beh).
 
--type db_t() :: {{DB::pid(), FileName::string()}, SubscrTable::tid() | atom()}.
+-define(TRACE(_X, _Y), ok).
+%% -define(TRACE(X, Y), ct:pal(X, Y)).
 
-% Note: must include db_beh.hrl AFTER the type definitions for erlang < R13B04
-% to work.
--include("db_beh.hrl").
+-define(IN(E), erlang:term_to_binary(E, [{minor_version, 1}])).
+-define(OUT(E), erlang:binary_to_term(E)).
 
--define(CKETS, ets).
+%% primitives
+-export([new/1, open/1, close/1, close_and_delete/1,
+         put/2, get/2, delete/2]).
+%% db info
+-export([get_persisted_tables/0, get_name/1, get_load/1, 
+         is_available/0, supports_feature/1]).
 
--include("db_common.hrl").
+%% iteration
+-export([foldl/3, foldl/4, foldl/5]).
+-export([foldr/3, foldr/4, foldr/5]).
+-export([foldl_unordered/3]).
+-export([tab2list/1]).
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% public functions
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+-type db() :: {DB::pid(), DBName::nonempty_string()}.
+-type key() :: db_backend_beh:key(). %% '$end_of_table' is not allowed as key() or else iterations won't work!
+-type entry() :: db_backend_beh:entry().
 
-%% @doc Initializes a new database (will launch a process for it).
--spec new_() -> db_t().
-new_() ->
-    Dir = util:make_filename(atom_to_list(node())),
-    FullDir = lists:flatten([config:read(db_directory), "/", Dir]),
-    _ = case file:make_dir(FullDir) of
-            ok -> ok;
-            {error, eexist} -> ok;
-            {error, Error} -> exit({db_toke, 'cannot create dir', FullDir, Error})
-        end,
-    {_Now_Ms, _Now_s, Now_us} = Now = erlang:timestamp(),
-    {{Year, Month, Day}, {Hour, Minute, Second}} = calendar:now_to_local_time(Now),
-    %% The unique integer keeps two databases created in the same microsecond
-    %% apart.
-    FileBaseName = util:make_filename(
-                     io_lib:format("db_~B~B~B-~B~B~B\.~B.~B.tch",
-                                   [Year, Month, Day, Hour, Minute, Second, Now_us,
-                                    erlang:unique_integer([positive])])),
-    FullFileName = lists:flatten([FullDir, "/", FileBaseName]),
-    new_db(FullFileName, [read, write, create, truncate]).
+-export_type([db/0]).
 
-%% @doc Re-opens an existing database (will launch a process for it).
-%%      BEWARE: use with caution in order to preserve consistency!
--spec open_(DBName::db_name()) -> db_t().
-open_(FileName) ->
-    new_db(FileName, [read, write]).
+%% @doc Creates new DB handle named DBName.
+-spec new(DBName::nonempty_string()) -> db().
+new(DBName) ->
+    new_db(DBName, [read, write, create, truncate]).
 
--spec new_db(FileName::string(),
+%% @doc Open a previously existing database.
+-spec open(DBName::nonempty_string()) -> db().
+open(DBName) ->
+    new_db(DBName, [read, write]).
+
+-spec new_db(DBName::nonempty_string(),
              TokeOptions::[read | write | create | truncate | no_lock |
-                           lock_no_block | sync_on_transaction]) -> db_t().
-new_db(FileName, TokeOptions) ->
+                           lock_no_block | sync_on_transaction]) -> db().
+new_db(DBName, TokeOptions) ->
+    FullDir = [config:read(db_directory), "/", atom_to_list(node())],
+    _ = case file:make_dir(FullDir) of
+        ok -> ok;
+        {error, eexist} -> ok;
+        {error, Error0} -> erlang:exit({?MODULE, 'cannot create dir', FullDir, Error0})
+    end,
+    FileBaseName = util:make_filename(io_lib:format("~s.tch", [DBName])),
+    FullFileName = lists:flatten([FullDir, "/", FileBaseName]),
     DB = case toke_drv:start_link() of
-             {ok, Pid} -> Pid;
-             ignore ->
-                 log:log(error, "[ Node ~w:db_toke ] process start returned 'ignore'", [self()]),
-                 erlang:error({toke_failed, drv_start_ignore});
-             {error, Error} ->
-                 log:log(error, "[ Node ~w:db_toke ] ~.0p", [self(), Error]),
-                 erlang:error({toke_failed, Error})
-         end,
+        {ok, Pid} -> Pid;
+        ignore ->
+            log:log(error, "[ Node ~w:~w ] process start returned
+                    'ignore'", [self(), ?MODULE]),
+            erlang:error({toke_failed, drv_start_ignore});
+        {error, Error} ->
+            log:log(error, "[ Node ~w:~w ] ~.0p", [self(), ?MODULE, Error]),
+            erlang:error({toke_failed, Error})
+    end,
     case toke_drv:new(DB) of
         ok ->
-            RandomName = randoms:getRandomString(),
-            SubscrName = "db_" ++ RandomName ++ ":subscribers",
-            case toke_drv:open(DB, FileName, TokeOptions) of
-                ok     -> {{DB, FileName},
-                           ets:new(list_to_atom(SubscrName), [ordered_set, private])};
-                Error2 -> log:log(error, "[ Node ~w:db_toke ] ~.0p", [self(), Error2]),
-                          erlang:error({toke_failed, Error2})
+            case toke_drv:open(DB, FullFileName, TokeOptions) of
+                ok -> {DB, DBName};
+                Error2 ->
+                    log:log(error, "[ Node ~w:~w ] ~.0p", [self(), ?MODULE, Error2]),
+                    erlang:error({toke_failed, Error2})
             end;
         Error1 ->
-            log:log(error, "[ Node ~w:db_toke ] ~.0p", [self(), Error1]),
+            log:log(error, "[ Node ~w:~w ] ~.0p", [self(), ?MODULE, Error1]),
             erlang:error({toke_failed, Error1})
     end.
 
-%% @doc Deletes all contents of the given DB.
--spec close_(DB::db_t(), Delete::boolean()) -> any().
-close_(State = {{DB, FileName}, _Subscr}, Delete) ->
-    _ = call_subscribers(State, close_db),
+%% @doc Closes the DB named DBName
+-spec close(DB::db()) -> true.
+close({DB, _DBName}) ->
     toke_drv:close(DB),
     toke_drv:delete(DB),
-    toke_drv:stop(DB),
-    case Delete of
-        true ->
-            case file:delete(FileName) of
-                ok -> ok;
-                {error, Reason} -> log:log(error, "[ Node ~w:db_toke ] deleting ~.0p failed: ~.0p",
-                                           [self(), FileName, Reason])
-            end;
-        _ -> ok
+    toke_drv:stop(DB).
+
+%% @doc Closes and deletes the DB named DBName
+-spec close_and_delete(DB::db()) -> true.
+close_and_delete({_DB, DBName} = State) ->
+    close(State),
+    FileName = [config:read(db_directory), "/", atom_to_list(node()), "/",
+                DBName, ".tch"],
+    case file:delete(FileName) of
+        ok -> ok;
+        {error, Reason} ->
+            log:log(error, "[ Node ~w:~w ] deleting ~.0p failed: ~.0p",
+                    [self(), ?MODULE, FileName, Reason])
     end.
 
-%% @doc Returns the name of the DB, i.e. the path to its file, which can be
-%%      used with open/1.
--spec get_name_(DB::db_t()) -> db_name().
-get_name_({{_DB, FileName}, _Subscr}) ->
-    FileName.
-
-%% @doc Gets an entry from the DB. If there is no entry with the given key,
-%%      an empty entry will be returned. The first component of the result
-%%      tuple states whether the value really exists in the DB.
--spec get_entry2_(DB::db_t(), Key::?RT:key()) -> {Exists::boolean(), db_entry:entry()}.
-get_entry2_({{DB, _FileName}, _Subscr}, Key) ->
-    case toke_drv:get(DB, erlang:term_to_binary(Key, [{minor_version, 1}])) of
-        not_found -> {false, db_entry:new(Key)};
-        Entry     -> {true, erlang:binary_to_term(Entry)}
+%% @doc Gets a list of persisted tables.
+-spec get_persisted_tables() -> [nonempty_string()].
+get_persisted_tables() ->
+    FullDir = [config:read(db_directory), "/", atom_to_list(node())],
+    case file:list_dir(FullDir) of
+        {ok, Files} ->
+            [lists:sublist(File, length(File) - 4)
+            || File <- Files, lists:suffix(".tch", File)];
+        {error, enoent} -> []
     end.
 
-%% @doc Inserts a complete entry into the DB.
--spec set_entry_(DB::db_t(), Entry::db_entry:entry()) -> NewDB::db_t().
-set_entry_(State = {{DB, _FileName}, _Subscr}, Entry) ->
-    case db_entry:is_null(Entry) of
-        true -> delete_entry_(State, Entry);
-        _    -> 
-            Key = db_entry:get_key(Entry),
-            ok = toke_drv:insert(DB, erlang:term_to_binary(Key, [{minor_version, 1}]),
-                                 erlang:term_to_binary(Entry, [{minor_version, 1}])),
-            call_subscribers(State, {write, Entry})
-    end.
 
-%% @doc Updates an existing (!) entry in the DB.
--spec update_entry_(DB::db_t(), Entry::db_entry:entry()) -> NewDB::db_t().
-update_entry_(State, Entry) ->
-    set_entry_(State, Entry).
-
-%% @doc Removes all values with the given key from the DB.
--spec delete_entry_at_key_(DB::db_t(), ?RT:key()) -> NewDB::db_t().
-delete_entry_at_key_(State, Key) ->
-    delete_entry_at_key_(State, Key, erlang:term_to_binary(Key, [{minor_version, 1}])).
-
-delete_entry_at_key_(State = {{DB, _FileName}, _Subscr}, Key, Key_) ->
-    toke_drv:delete(DB, Key_),
-    call_subscribers(State, {delete, Key}).
-
-%% @doc Returns the number of stored keys.
--spec get_load_(DB::db_t()) -> Load::integer().
-get_load_({{DB, _FileName}, _Subscr}) ->
-    % TODO: not really efficient (maybe store the load in the DB?)
-    toke_drv:fold(fun (_K, _V, Load) -> Load + 1 end, 0, DB).
-
-%% @doc Returns the number of stored keys in the given interval.
--spec get_load_(DB::db_t(), Interval::intervals:interval()) -> Load::integer().
-get_load_(State = {{DB, _FileName}, _Subscr}, Interval) ->
-    IsEmpty = intervals:is_empty(Interval),
-    IsAll = intervals:is_all(Interval),
-    if
-        IsEmpty -> 0;
-        IsAll   -> get_load_(State);
-        true    ->
-            toke_drv:fold(fun(Key_, _V, Load) ->
-                                  Key = erlang:binary_to_term(Key_),
-                                  case intervals:in(Key, Interval) of
-                                      true -> Load + 1;
-                                      _    -> Load
-                                  end
-                          end, 0, DB)
-    end.
-
-%% @doc Adds all db_entry objects in the Data list.
--spec add_data_(DB::db_t(), db_as_list()) -> NewDB::db_t().
-add_data_(State = {{DB, _FileName}, _Subscr}, Data) ->
-    % -> do not use set_entry (no further checks for changed keys necessary)
-    _ = lists:foldl(
-          fun(DBEntry, _) ->
-              ok = toke_drv:insert(DB,
-                                   erlang:term_to_binary(db_entry:get_key(DBEntry), [{minor_version, 1}]),
-                                   erlang:term_to_binary(DBEntry, [{minor_version, 1}])),
-              call_subscribers(State, {write, DBEntry})
-          end, ok, Data),
+%% @doc Saves arbitrary tuple Entry in DB DBName and returns the new DB.
+%%      The key is expected to be the first element of Entry.
+-spec put(DB::db(), Entry::entry()) -> db().
+put({DB, _DBName} = State, Entry) ->
+    toke_drv:insert(DB, ?IN(element(1, Entry)), ?IN(Entry)),
     State.
 
-%% @doc Splits the database into a database (first element) which contains all
-%%      keys in MyNewInterval and a list of the other values (second element).
-%%      Note: removes all keys not in MyNewInterval from the list of changed
-%%      keys!
--spec split_data_(DB::db_t(), MyNewInterval::intervals:interval()) ->
-         {NewDB::db_t(), db_as_list()}.
-split_data_(State = {{DB, _FileName}, _Subscr}, MyNewInterval) ->
-    % first collect all toke keys to remove from my db (can not delete while doing fold!)
-    F = fun(_K, DBEntry_, HisList) ->
-                DBEntry = erlang:binary_to_term(DBEntry_),
-                case intervals:in(db_entry:get_key(DBEntry), MyNewInterval) of
-                    true -> HisList;
-                    _    -> [DBEntry | HisList]
-                end
-        end,
-    HisList = toke_drv:fold(F, [], DB),
-    % delete empty entries from HisList and remove all entries in HisList from the DB
-    HisListFilt =
-        lists:foldl(
-          fun(DBEntry, L) ->
-                  Key = db_entry:get_key(DBEntry),
-                  toke_drv:delete(DB, erlang:term_to_binary(Key, [{minor_version, 1}])),
-                  _ = call_subscribers(State, {split, Key}),
-                  case db_entry:is_empty(DBEntry) of
-                      false -> [DBEntry | L];
-                      _     -> L
-                  end
-          end, [], HisList),
-    {State, HisListFilt}.
-
-%% @doc Gets all custom objects (created by ValueFun(DBEntry)) from the DB for
-%%      which FilterFun returns true.
--spec get_entries_(DB::db_t(),
-                   FilterFun::fun((DBEntry::db_entry:entry()) -> boolean()),
-                   ValueFun::fun((DBEntry::db_entry:entry()) -> Value))
-        -> [Value].
-get_entries_({{DB, _FileName}, _Subscr}, FilterFun, ValueFun) ->
-    F = fun (_Key, DBEntry_, Data) ->
-                 DBEntry = erlang:binary_to_term(DBEntry_),
-                 case FilterFun(DBEntry) of
-                     true -> [ValueFun(DBEntry) | Data];
-                     _    -> Data
-                 end
-        end,
-    toke_drv:fold(F, [], DB).
-
-%% @doc Returns all ValueFun(DBEntry) objects of the given DB which are in the
-%%      given interval and satisfy FilterFun but at most ChunkSize elements.
-%%      See get_chunk/3 for more details.
--spec get_chunk_(DB::db_t(), Interval::intervals:interval(),
-                 FilterFun::fun((db_entry:entry()) -> boolean()),
-                 ValueFun::fun((db_entry:entry()) -> V), ChunkSize::pos_integer() | all)
-        -> {intervals:interval(), [V]}.
-get_chunk_(State, Interval, FilterFun, ValueFun, ChunkSize) ->
-    AddDataFun = fun(_Key_, _Key, DBEntry_, Data) ->
-                         DBEntry = erlang:binary_to_term(DBEntry_),
-                         case FilterFun(DBEntry) of
-                             true -> [ValueFun(DBEntry) | Data];
-                             _    -> Data
-                         end
-                 end,
-    get_chunk_helper(State, Interval, AddDataFun, fun db_entry:get_key/1, ChunkSize).
-
--spec get_chunk_helper(DB::db_t(), Interval::intervals:interval(),
-                       AddDataFun::fun((Key_::binary(), Key::?RT:key(), db_entry:entry(), [T]) -> [T]),
-                       GetKeyFromDataFun::fun((T) -> ?RT:key()), ChunkSize::pos_integer() | all)
-        -> {intervals:interval(), [T]}.
-get_chunk_helper({{DB, _FileName}, _Subscr}, Interval, AddDataFun, GetKeyFromDataFun, ChunkSize) ->
-    {BeginBr, Begin, _End, _EndBr} = intervals:get_bounds(Interval),
-    % try to find the first existing key in the interval, starting at Begin:
-    MInfToBegin = intervals:minus(intervals:all(),
-                                  intervals:new(BeginBr, Begin, ?PLUS_INFINITY, ')')),
-    % note: N is a helper for filtering out unnecessary items every once in a while
-    F = fun (Key_, DBEntry_, {N, Data} = Acc) ->
-                 Key = erlang:binary_to_term(Key_),
-                 case intervals:in(Key, Interval) of
-                     true when ChunkSize =:= all ->
-                         % note: no need to count items here
-                         {0, AddDataFun(Key_, Key, DBEntry_, Data)};
-                     true ->
-                         Data1 = AddDataFun(Key_, Key, DBEntry_, Data),
-                         % filter out unnecessary items every (2 * ChunkSize) elements
-                         case N rem 2 * ChunkSize of
-                             0 ->
-                                 {0, get_chunk_helper_filter(Data1, MInfToBegin, GetKeyFromDataFun, ChunkSize)};
-                             _ ->
-                                 {N + 1, Data1}
-                         end;
-                     _    -> Acc
-                 end
-        end,
-    {_, Data} = toke_drv:fold(F, {0, []}, DB),
-    SortedData = get_chunk_helper_sort(Data, MInfToBegin, GetKeyFromDataFun),
-    case ChunkSize of
-        all -> {intervals:empty(), SortedData};
-        _   -> {Chunk, Rest} = util:safe_split(ChunkSize, SortedData),
-               case Rest of
-                   []      -> {intervals:empty(), Chunk};
-                   [H | _] ->
-                       Next = GetKeyFromDataFun(H),
-                       NextToIntBegin =
-                           case BeginBr of
-                               '(' -> intervals:new('[', Next, Begin, ']');
-                               '[' -> intervals:new('[', Next, Begin, ')')
-                           end,
-                       {intervals:intersection(Interval, NextToIntBegin), Chunk}
-               end
+%% @doc Returns the entry that corresponds to Key or {} if no such tuple exists.
+-spec get(DB::db(), Key::key()) -> entry() | {}.
+get({DB, _DBName}, Key) ->
+    case toke_drv:get(DB, ?IN(Key)) of
+        not_found -> {};
+        Entry -> ?OUT(Entry)
     end.
 
--spec get_chunk_helper_sort(Data::[T], MInfToBegin::intervals:interval(),
-                            GetKeyFromDataFun::fun((T) -> ?RT:key())) -> SortedData::[T].
-get_chunk_helper_sort(Data, MInfToBegin, GetKeyFromDataFun) ->
-    {SecondPart, FirstPart} =
-        lists:partition(fun(E) ->
-                                intervals:in(GetKeyFromDataFun(E), MInfToBegin)
-                        end, Data),
-    lists:append(lists:usort(FirstPart), lists:usort(SecondPart)).
+%% @doc Deletes the tuple saved under Key and returns the new DB.
+%%      If such a tuple does not exists nothing is changed.
+-spec delete(DB::db(), Key::key()) -> db().
+delete({DB, _DBName} = State, Key) ->
+    toke_drv:delete(DB, ?IN(Key)),
+    State.
 
--spec get_chunk_helper_filter(Data::[T], MInfToBegin::intervals:interval(),
-                              GetKeyFromDataFun::fun((T) -> ?RT:key()),
-                              ChunkSize::pos_integer()) -> SortedData::[T].
-get_chunk_helper_filter(Data, MInfToBegin, GetKeyFromDataFun, ChunkSize) ->
-    SortedData = get_chunk_helper_sort(Data, MInfToBegin, GetKeyFromDataFun),
-    % note: leave one extra to be able to find the next available key
-    {Chunk, _Rest} = util:safe_split(ChunkSize + 1, SortedData),
-    Chunk.
+%% @doc Returns the name of the DB specified in @see new/1.
+-spec get_name(DB::db()) -> nonempty_string().
+get_name({_DB, DBName}) ->
+    DBName.
 
-%% @doc Deletes all objects in the given Range or (if a function is provided)
-%%      for which the FilterFun returns true from the DB.
--spec delete_entries_(DB::db_t(),
-                      RangeOrFun::intervals:interval() |
-                                  fun((DBEntry::db_entry:entry()) -> boolean()))
-        -> NewDB::db_t().
-delete_entries_(State = {{DB, _FileName}, _Subscr}, FilterFun) when is_function(FilterFun) ->
-    % first collect all toke keys to delete (can not delete while doing fold!)
-    F = fun(KeyToke, DBEntry_, ToDelete) ->
-                DBEntry = erlang:binary_to_term(DBEntry_),
-                case FilterFun(DBEntry) of
-                    false -> ToDelete;
-                    _     -> [{KeyToke, db_entry:get_key(DBEntry)} | ToDelete]
-                end
-        end,
-    KeysToDelete = toke_drv:fold(F, [], DB),
-    % delete all entries with these keys
-    _ = lists:foldl(fun({KeyToke, Key}, _) ->
-                        toke_drv:delete(DB, KeyToke),
-                        call_subscribers(State, {delete, Key})
-                    end, ok, KeysToDelete),
-    State;
-delete_entries_(State, Interval) ->
-    {Elements, RestInterval} = intervals:get_elements(Interval),
-    case intervals:is_empty(RestInterval) of
-        true ->
-            lists:foldl(fun(Key, State1) -> delete_entry_at_key_(State1, Key) end, State, Elements);
-        _ ->
-            delete_entries_(State,
-                            fun(E) ->
-                                    intervals:in(db_entry:get_key(E), Interval)
-                            end)
+%% @doc Checks for modules required for this DB backend. Returns true if no 
+%%      modules are missing, or else a list of missing modules
+-spec is_available() -> boolean() | [atom()].
+is_available() ->
+    case code:which(toke_drv) of
+        non_existing -> [toke_drv];
+        _ -> true
     end.
 
--spec delete_chunk_(DB::db_t(), Interval::intervals:interval(), ChunkSize::pos_integer() | all)
-        -> {intervals:interval(), db_t()}.
-delete_chunk_(DB, Interval, ChunkSize) ->
-    AddDataFun = fun(Key_, Key, _DBEntry_, Data) -> [{Key, Key_} | Data] end,
-    {Next, Chunk} = get_chunk_helper(DB, Interval, AddDataFun, fun({K, _K_}) -> K end, ChunkSize),
-    DB2 = lists:foldl(fun({Key, Key_}, DB1) -> delete_entry_at_key_(DB1, Key, Key_) end, DB, Chunk),
-    {Next, DB2}.
+%% @doc Returns true if the DB support a specific feature (e.g. recovery), false otherwise.
+-spec supports_feature(Feature::atom()) -> boolean().
+supports_feature(recover) -> true;
+supports_feature(_) -> false.
 
-%% @doc Returns all DB entries.
--spec get_data_(DB::db_t()) -> db_as_list().
-get_data_({{DB, _FileName}, _Subscr}) ->
-    toke_drv:fold(fun (_K, DBEntry, Acc) ->
-                           [erlang:binary_to_term(DBEntry) | Acc]
-                  end, [], DB).
+%% @doc Returns the current load (i.e. number of stored tuples) of the DB.
+-spec get_load(DB::db()) -> non_neg_integer().
+get_load({DB, _DBName}) ->
+    %% TODO: not really efficient (maybe store the load in the DB?)
+    toke_drv:fold(fun (_K, _V, Load) -> Load + 1 end, 0, DB).
 
-%% @doc Returns the key that would remove not more than TargetLoad entries
-%%      from the DB when starting at the key directly after Begin.
-%%      Precond: a load larger than 0
-%%      Note: similar to get_chunk/2.
--spec get_split_key_(DB::db_t(), Begin::?RT:key(), TargetLoad::pos_integer(), forward | backward)
-        -> {?RT:key(), TakenLoad::pos_integer()}.
-get_split_key_(DB, Begin, TargetLoad, Direction) ->
-    % assert ChunkSize > 0, see ChunkSize type
-    case get_load_(DB) of
-        0 -> throw('empty_db');
-        _ ->
-            % first need to get all keys, then sort them and filter out the split key
-            F = fun (Key_, _DBEntry_, Data) -> [erlang:binary_to_term(Key_) | Data] end,
-            Keys = toke_drv:fold(F, [], DB),
-            % try to find the first existing key in the interval, starting at Begin (exclusive):
-            MInfToBegin = intervals:minus(intervals:all(),
-                                          intervals:new('(', Begin, ?PLUS_INFINITY, ')')),
-            {SecondPart, FirstPart} =
-                lists:partition(fun(E) -> intervals:in(E, MInfToBegin) end, Keys),
-            SortedKeys = lists:append(lists:usort(FirstPart), lists:usort(SecondPart)),
-            
-            case Direction of
-                forward  ->
-                    {Chunk, _Rest} = util:safe_split(TargetLoad, SortedKeys),
-                    {lists:last(Chunk), erlang:length(Chunk)};
-                backward ->
-                    {Chunk, _Rest} = util:safe_split(TargetLoad, lists:reverse(SortedKeys)),
-                    {hd(Chunk), erlang:length(Chunk)}
-            end
-    end.
+%% @doc Equivalent to toke_drv:fold(Fun, Acc0, DB).
+%%      Returns a potentially larger-than-memory dataset. Use with care.
+-spec foldl(DB::db(), Fun::fun((Key::key(), AccIn::A) -> AccOut::A), Acc0::A) -> Acc1::A.
+foldl(State, Fun, Acc) ->
+    foldl_helper(State, Fun, Acc, all, -1).
+
+%% @equiv foldl(DB, Fun, Acc0, Interval, get_load(DB))
+%% @doc   Returns a potentially larger-than-memory dataset. Use with care.
+-spec foldl(DB::db(), Fun::fun((Key::key(), AccIn::A) -> AccOut::A), Acc0::A,
+                               Interval::db_backend_beh:interval()) -> Acc1::A.
+foldl(State, Fun, Acc, Interval) ->
+    foldl_helper(State, Fun, Acc, Interval, -1).
+
+%% @doc foldl iterates over DB and applies Fun(Entry, AccIn) to every element
+%%      encountered in Interval. On the first call AccIn == Acc0. The iteration
+%%      stops as soon as MaxNum elements have been encountered.
+%%      Returns a potentially larger-than-memory dataset. Use with care.
+-spec foldl(DB::db(), Fun::fun((Key::key(), AccIn::A) -> AccOut::A), Acc0::A,
+                               Intervall::db_backend_beh:interval(), MaxNum::non_neg_integer()) -> Acc1::A.
+foldl(State, Fun, Acc, Interval, MaxNum) ->
+    %% HINT
+    %% Fun can only be applied in a second pass. It could do a delete (or other
+    %% write op) and toke can not handle writes whiles folding.
+    %% Since we reversed the order while accumulating reverse it by using lists
+    %% fold but "from the other side"
+    foldl_helper(State, Fun, Acc, Interval, MaxNum).
+
+%% @private this helper enables us to use -1 as MaxNum. MaxNum == -1 signals that all
+%%          data is to be retrieved.
+-spec foldl_helper(DB::db(), Fun::fun((Key::key(), AccIn::A) -> AccOut::A), Acc0::A,
+                               Intervall::db_backend_beh:interval(), MaxNum::integer()) -> Acc1::A.
+foldl_helper({DB, _DBName}, Fun, Acc, Interval, MaxNum) ->
+    Keys = get_all_keys(DB, Interval, MaxNum),
+    lists:foldr(Fun, Acc, Keys).
+
+%% @doc makes a foldr over the whole dataset.
+%%      Returns a potentially larger-than-memory dataset. Use with care.
+-spec foldr(DB::db(), Fun::fun((Key::key(), AccIn::A) -> AccOut::A), Acc0::A) -> Acc1::A.
+foldr(State, Fun, Acc) ->
+    foldr_helper(State, Fun, Acc, all, -1).
+
+%% @equiv foldr(DB, Fun, Acc0, Interval, get_load(DB))
+%% @doc   Returns a potentially larger-than-memory dataset. Use with care.
+-spec foldr(DB::db(), Fun::fun((Key::key(), AccIn::A) -> AccOut::A), Acc0::A,
+                               Interval::db_backend_beh:interval()) -> Acc1::A.
+foldr(State, Fun, Acc, Interval) ->
+    foldr_helper(State, Fun, Acc, Interval, -1).
+
+%% @doc foldr iterates over DB and applies Fun(Entry, AccIn) to every element
+%%      encountered in Interval. On the first call AccIn == Acc0. The iteration
+%%      stops as soon as MaxNum elements have been encountered.
+%%      Returns a potentially larger-than-memory dataset. Use with care.
+-spec foldr(DB::db(), Fun::fun((Key::key(), AccIn::A) -> AccOut::A), Acc0::A,
+                               Intervall::db_backend_beh:interval(), MaxNum::non_neg_integer()) -> Acc1::A.
+foldr(State, Fun, Acc, Interval, MaxNum) ->
+    foldr_helper(State, Fun, Acc, Interval, MaxNum).
+
+%% @private this helper enables us to use -1 as MaxNum. MaxNum == -1 signals that all
+%%          data is to be retrieved.
+-spec foldr_helper(DB::db(), Fun::fun((Key::key(), AccIn::A) -> AccOut::A), Acc0::A,
+                               Intervall::db_backend_beh:interval(), MaxNum::integer()) -> Acc1::A.
+foldr_helper({DB, _DBName}, Fun, Acc, Interval, MaxNum) ->
+    %% first only retrieve keys so we don't have to load the whole db into memory
+    Keys = get_all_keys(DB, Interval, -1),
+    CutData = case MaxNum of
+                  N when N < 0 ->
+                      Keys;
+                  _ ->
+                      lists:sublist(Keys, MaxNum)
+              end,
+    %% see HINT in foldl/5
+    %% now retrieve actual data
+    lists:foldl(Fun, Acc, CutData).
+
+%% @doc Works similar to foldl/3 but uses toke_drv:fold instead of our own implementation. 
+%% The order in which will be iterated over is unspecified, but using this fuction
+%% might be faster than foldl/3 if it does not matter.
+-spec foldl_unordered(DB::db(), Fun::fun((Entry::entry(), AccIn::A) -> AccOut::A), Acc0::A) -> Acc1::A.
+foldl_unordered(State, Fun, Acc) ->
+        %TODO Use native fold
+        foldl(State, fun(K, AccIn) -> Fun(get(State, K), AccIn) end, Acc).
+
+%% @private get_all_keys/3 retrieves all keys in DB that fall into Interval but
+%%          not more than MaxNum. If MaxNum == -1 all Keys are retrieved. If
+%%          MaxNum is positive it starts from the left in term order.
+-spec get_all_keys(pid(), db_backend_beh:interval(), -1 | non_neg_integer()) ->
+    [key()].
+get_all_keys(DB, Interval, MaxNum) ->
+    Keys = toke_drv:fold(fun(Key, _Entry, AccIn) ->
+                              [?OUT(Key) | AccIn]
+                         end, [], DB),
+    {_, In} = lists:foldl(fun(_, {0, _} = AccIn) ->
+                                  AccIn;
+                             (Key, {Max, KeyAcc} = AccIn) ->
+                          case is_in(Interval, Key) of
+                              true ->
+                                  {Max - 1, [Key | KeyAcc]};
+                              _ ->
+                                  AccIn
+                          end
+                end, {MaxNum, []}, lists:sort(Keys)),
+    In.
+
+
+is_in({Key}, OtherKey) -> Key =:= OtherKey;
+is_in(all, _Key) -> true;
+is_in({'(', L, R, ')'}, Key) -> Key > L andalso Key < R;
+is_in({'(', L, R, ']'}, Key) -> Key > L andalso ((Key < R) orelse (Key =:= R));
+is_in({'[', L, R, ')'}, Key) -> ((Key > L) orelse (Key =:= L)) andalso Key < R;
+is_in({'[', L, R, ']'}, Key) -> ((Key > L) orelse (Key =:= L)) andalso
+                                          ((Key < R) orelse (Key =:= R)).
+%% @doc Returns a list of all objects in the table Table_name.
+-spec tab2list(Table_name::db()) -> [Entries::entry()].
+tab2list(_Table_name) ->
+    %% Not implemented yet.
+    [].

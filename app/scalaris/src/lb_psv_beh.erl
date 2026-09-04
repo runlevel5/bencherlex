@@ -15,10 +15,10 @@
 %% @author Nico Kruber <kruber@zib.de>
 %% @doc    Passive load balancing algorithm behavior
 %% @end
-%% @version $Id: lb_psv_beh.erl 2639 2012-01-03 15:00:45Z kruber@zib.de $
+%% @version $Id$
 -module(lb_psv_beh).
 -author('kruber@zib.de').
--vsn('$Id: lb_psv_beh.erl 2639 2012-01-03 15:00:45Z kruber@zib.de $ ').
+-vsn('$Id$').
 
 % for behaviour
 -ifndef(have_callback_support).

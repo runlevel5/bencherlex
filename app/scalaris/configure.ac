@@ -1,4 +1,4 @@
-#   Copyright 2007-2011 Konrad-Zuse-Zentrum für Informationstechnik Berlin
+#   Copyright 2007-2019 Konrad-Zuse-Zentrum für Informationstechnik Berlin
 #
 #   Licensed under the Apache License, Version 2.0 (the "License");
 #   you may not use this file except in compliance with the License.
@@ -13,7 +13,96 @@
 #   limitations under the License.
 
 AC_PREREQ(2.65)
-AC_INIT(scalaris, 0.4.1, schuett@zib.de)
+AC_INIT(scalaris, 0.9.0+git, scalaris@googlegroups.com)
+AC_CONFIG_MACRO_DIR([m4])
+# we will never do automake, just pull in config.guess, config.sub, ... for boost
+AC_CONFIG_AUX_DIR([build-aux])
+AM_INIT_AUTOMAKE()
+
+EMAKEFILEDEFINES=
+EDOCMACROS=
+DIALYZER_FLAGS=
+
+AC_PATH_PROG(FALSE, false)
+AC_SUBST(FALSE)
+AC_PATH_PROG(TRUE, true)
+AC_SUBST(TRUE)
+AC_PROG_SED
+AC_PATH_PROG(DOXYGEN, doxygen)
+AC_SUBST(DOXYGEN)
+
+AC_PATH_PROG(AR, ar)
+AC_SUBST(AR)
+AC_PATH_PROG(LIBTOOL, libtool)
+AC_SUBST(LIBTOOL)
+
+###########################################################
+#
+# check for C++ and boost
+#
+###########################################################
+
+ENABLE_CPP=
+AC_ARG_ENABLE([cpp],
+              AS_HELP_STRING([--disable-cpp],
+                 [disable support for the C++ bindings]),
+              [ENABLE_CPP=$enableval],
+              [ENABLE_CPP=$enableval])
+
+enabled_cxx=0
+if test "x$ENABLE_CPP" != xno ; then
+  # C++ and boost checks
+  AX_CXX_COMPILE_STDCXX_14([noext],[optional])
+  if test "x$HAVE_CXX14" = "x1" ; then
+    have_boost_147=
+    AX_BOOST_BASE([1.47], [have_boost_147=yes], [have_boost_147=no])
+    AX_BOOST_SYSTEM
+    AX_BOOST_REGEX
+    AX_BOOST_ASIO
+    AX_BOOST_PROGRAM_OPTIONS
+    AX_BOOST_UNIT_TEST_FRAMEWORK
+
+    AX_CHECK_OPENSSL([ENABLE_SSL=yes])
+
+    if test "x$have_boost_147" = "xyes" -a "x$ax_cv_boost_system" = "xyes" -a "x$ax_cv_boost_regex" = "xyes"  -a "x$ax_cv_boost_program_options" = "xyes"  -a "x$ax_cv_boost_unit_test_framework" = "xyes" -a "x$ENABLE_SSL" = "xyes" ; then
+      enabled_cxx=1
+    fi
+  fi
+fi
+
+if test "x$enabled_cxx" = "x0" ; then
+  AC_MSG_NOTICE([c++ bindings disabled ('make cpp' will fail)])
+fi
+
+AX_CHECK_COMPILE_FLAG(-MJ foo)
+
+JSONFLAGS=""
+if test "x$ax_cv_check_cflags___MJ_foo" = "xyes"; then
+JSONFLAGS='-MJ $@.json'
+fi
+
+CXXSHELL=$SHELL
+if test -f /usr/local/bin/bash; then
+  CXXSHELL=/usr/local/bin/bash
+elif test -f /bin/bash; then
+  CXXSHELL=/bin/bash
+elif test -f /bin/zsh; then
+  CXXSHELL=/bin/zsh
+fi
+
+AC_PATH_PROG(CLANGFORMAT, clang-format, $ac_cv_path_TRUE)
+AC_PATH_PROG(CLANGTIDY, clang-tidy, $ac_cv_path_TRUE)
+
+AC_SUBST(OPENSSL_INCLUDES)
+AC_SUBST(OPENSSL_LDFLAGS)
+AC_SUBST(OPENSSL_LIBS)
+
+AC_SUBST(CXX)
+AC_SUBST(CXXFLAGS)
+AC_SUBST(CXXSHELL)
+AC_SUBST(JSONFLAGS)
+AC_SUBST(CLANGFORMAT)
+AC_SUBST(CLANGTIDY)
 
 ###########################################################
 #
@@ -24,14 +113,52 @@ AC_INIT(scalaris, 0.4.1, schuett@zib.de)
 ENABLE_TOKE=
 TOKEPREFIX=
 AC_ARG_ENABLE([toke],
-              AS_HELP_STRING([--disable-toke],
-                 [disable support for tokyo cabinet through toke]),
-              [TOKEPREFIX=no])
-AC_ARG_ENABLE([toke],
               AS_HELP_STRING([--enable-toke@<:@=DIR@:>@],
                  [enable support for tokyo cabinet through toke]),
               [ENABLE_TOKE=yes
                TOKEPREFIX=$enableval])
+
+###########################################################
+#
+# check hanoidb
+#
+###########################################################
+
+ENABLE_HANOIDB=
+HANOIDBPREFIX=
+AC_ARG_ENABLE([hanoidb],
+              AS_HELP_STRING([--enable-hanoidb@<:@=DIR@:>@],
+                 [enable support for hanoidb]),
+              [ENABLE_HANOIDB=yes
+               HANOIDBPREFIX=$enableval])
+
+###########################################################
+#
+# check bitcask
+#
+###########################################################
+
+ENABLE_BITCASK=
+BITCASKPREFIX=
+AC_ARG_ENABLE([bitcask],
+              AS_HELP_STRING([--enable-bitcask@<:@=DIR@:>@],
+                 [enable support for bitcask]),
+              [ENABLE_BITCASK=yes
+               BITCASKPREFIX=$enableval])
+
+###########################################################
+#
+# check erlang_js
+#
+###########################################################
+
+ENABLE_ERLANGJS=
+ERLANGJSPREFIX=
+AC_ARG_ENABLE([erlang-js],
+              AS_HELP_STRING([--enable-erlang-js@<:@=DIR@:>@],
+                 [enable support for erlang_js]),
+              [ENABLE_ERLANGJS=yes
+               ERLANGJSPREFIX=$enableval])
 
 ###########################################################
 #
@@ -45,12 +172,67 @@ AC_ARG_WITH([browser],
                [absolute path of the browser to use for 'make test-vts'])],
             [if test -n "$withval"; then
                BROWSER="$withval"
+               AS_IF([test ! -x "$BROWSER"],
+                 [AC_MSG_WARN(["$BROWSER" was not found or is not executable ('make test-vts' will likely fail)])])
              fi],
             [AC_PATH_PROG([BROWSER], [xdg-open])])
 AC_SUBST(BROWSER)
 
-AS_IF([test ! -x "$BROWSER"],
-      [AC_MSG_WARN(["$BROWSER" was not found or is not executable ('make test-vts' will likely fail)])])
+AS_IF([test "$BROWSER" = ""],
+      [AC_MSG_WARN([xdg-open was not found ('make test-vts' will likely fail)])])
+
+###########################################################
+#
+# check screen availability for 'scalarisctl -d --screen'
+#
+###########################################################
+AC_PATH_PROG(SCREEN, screen, [$FALSE])
+if test "$ac_cv_path_SCREEN" = "$FALSE" ; then
+  AC_MSG_NOTICE([screen not found - you won't be able to run scalaris deamonized with screen, i.e. 'scalarisctl -d --screen'])
+fi
+
+###########################################################
+#
+# check sudo, runuser availability for the init.d script
+#
+###########################################################
+
+AC_PATH_PROG(SUDO, sudo, [$FALSE])
+
+RUNUSER=""
+AC_ARG_ENABLE([runuser],
+              AS_HELP_STRING([--disable-runuser],
+                 [disable support for runuser (use sudo instead)]))
+AS_IF([test "$enable_runuser" != "no"],
+      [AC_PATH_PROG(RUNUSER, runuser, "", [$PATH$PATH_SEPARATOR/usr/sbin])])
+
+if test "$ac_cv_path_SUDO" = "$FALSE" -a "$ac_cv_path_RUNUSER" = ""; then
+  AC_MSG_NOTICE([sudo or runuser not found - you won't be able to use our init.d script])
+fi
+
+###########################################################
+#
+# check systemd support
+#
+###########################################################
+
+INSTALL_INIT=install-initd
+SYSTEMD_UNITDIR=
+AC_ARG_WITH([systemd],
+            [AS_HELP_STRING([--with-systemd[[=UNITDIR]]],
+                            [use systemd, optionally specify the directory for systemd service files])],
+            [if test -d "$withval"; then
+               SYSTEMD_UNITDIR="$withval"
+               INSTALL_INIT="install-systemd"
+             else
+               if test "$withval" = "yes"; then
+                 SYSTEMD_UNITDIR="\${prefix}/lib/systemd/system/"
+                 INSTALL_INIT="install-systemd"
+               fi
+             fi],
+            [])
+AC_SUBST(INSTALL_INIT)
+AC_SUBST(SYSTEMD_UNITDIR)
 
 ###########################################################
 #
@@ -66,10 +248,36 @@ AC_ARG_ENABLE([native],
 
 ###########################################################
 #
+# check wether to enable debugging, e.g. enable the ASSERT macro
+#
+###########################################################
+
+AC_ARG_ENABLE([debug],
+              AS_HELP_STRING([--enable-debug], [enable debugging mode]),
+              [AS_IF([test "no" != "$enableval"],
+                     [EMAKEFILEDEFINES="${EMAKEFILEDEFINES}, {d, enable_debug}"
+                      EDOCMACROS="${EDOCMACROS}, {enable_debug, true}"
+                      DIALYZER_FLAGS="${DIALYZER_FLAGS} -Denable_debug"])])
+
+###########################################################
+#
+# enable new transaction protocol
+#
+###########################################################
+
+AC_ARG_ENABLE([txnew],
+              AS_HELP_STRING([--enable-txnew], [enable new transaction protocol]),
+              [AS_IF([test "no" != "$enableval"],
+                     [EMAKEFILEDEFINES="${EMAKEFILEDEFINES}, {d, enable_txnew}"
+                      EDOCMACROS="${EDOCMACROS}, {enable_txnew, true}"
+                      DIALYZER_FLAGS="${DIALYZER_FLAGS} -Denable_txnew"])])
+
+###########################################################
+#
 # check erlang
 #
 ###########################################################
-AC_LANG_ERLANG
+AC_LANG([Erlang])
 
 AC_ERLANG_NEED_ERLC
 AC_ERLANG_NEED_ERL
@@ -92,22 +300,38 @@ AC_CACHE_CHECK([for Erlang/OTP ERTS version],
     ])
 AC_SUBST([ERLANG_ERTS_VER], [$erlang_cv_erts_ver])
 
-AC_PATH_PROG(EPMD, epmd, "/bin/false", "$PATH:$ERLANG_ROOT_DIR/bin:$ERLANG_ROOT_DIR/erts-$ERLANG_ERTS_VER/bin")
+# split erlang erts version:
+set `echo $erlang_cv_erts_ver | $SED 's/\./ /g'`
+ERTS_MAJOR=$1
+ERTS_MINOR=$2
+ERTS_MAINT=${3:-0}
 
-ERLANG_NATIVE_FLAGS=
-AS_IF([test "x$COMPILE_NATIVE" != xno], [ERLANG_NATIVE_FLAGS=", native"])
+# require Erlang >= R14B04, i.e. ERTS >= 5.8.5
+AS_IF([test $ERTS_MAJOR -gt 5 -o \
+       '(' $ERTS_MAJOR -eq 5 -a $ERTS_MINOR -gt 8 ')' -o \
+       '(' $ERTS_MAJOR -eq 5 -a $ERTS_MINOR -eq 8 -a $ERTS_MAINT -ge 5 ')'],
+      [],
+      [AC_MSG_FAILURE([Erlang >= R14B04 required])])
+
+AC_PATH_PROG(EPMD, epmd, [$FALSE], "$PATH:$ERLANG_ROOT_DIR/bin:$ERLANG_ROOT_DIR/erts-$ERLANG_ERTS_VER/bin")
+
+AS_IF([test "x$COMPILE_NATIVE" != xno], [EMAKEFILEDEFINES="${EMAKEFILEDEFINES}, native"])
 
 # required libs:
 ERLANG_UNAVAILABLE_LIBS=
 AC_ERLANG_CHECK_LIB(erts, , ERLANG_UNAVAILABLE_LIBS="$ERLANG_UNAVAILABLE_LIBS erts")
 
 AC_ERLANG_CHECK_LIB(kernel, , ERLANG_UNAVAILABLE_LIBS="$ERLANG_UNAVAILABLE_LIBS kernel")
+AC_CHECK_FILE($ERLANG_LIB_DIR_kernel/include/inet.hrl, ,
+              AC_MSG_FAILURE([kernel/include/inet.hrl not found - you won't be able to compile the erlang sources]))
 
 AC_ERLANG_CHECK_LIB(stdlib, , ERLANG_UNAVAILABLE_LIBS="$ERLANG_UNAVAILABLE_LIBS stdlib")
 
 AC_ERLANG_CHECK_LIB(compiler, , ERLANG_UNAVAILABLE_LIBS="$ERLANG_UNAVAILABLE_LIBS compiler")
 
 AC_ERLANG_CHECK_LIB(crypto, , ERLANG_UNAVAILABLE_LIBS="$ERLANG_UNAVAILABLE_LIBS crypto")
+
+AC_ERLANG_CHECK_LIB(os_mon, , ERLANG_UNAVAILABLE_LIBS="$ERLANG_UNAVAILABLE_LIBS os_mon")
 
 AC_ERLANG_CHECK_LIB(tools, , ERLANG_UNAVAILABLE_LIBS="$ERLANG_UNAVAILABLE_LIBS tools")
 
@@ -117,7 +341,7 @@ AC_ERLANG_CHECK_LIB(ssl, , ERLANG_UNAVAILABLE_LIBS="$ERLANG_UNAVAILABLE_LIBS ssl
 
 AC_ERLANG_CHECK_LIB(xmerl, , ERLANG_UNAVAILABLE_LIBS="$ERLANG_UNAVAILABLE_LIBS xmerl")
 
-AS_IF([test "x$ERLANG_UNAVAILABLE_LIBS" != x], AC_MSG_FAILURE([$ERLANG_UNAVAILABLE_LIBS not found - you won't be able compile the erlang sources]))
+AS_IF([test "x$ERLANG_UNAVAILABLE_LIBS" != x], AC_MSG_FAILURE([$ERLANG_UNAVAILABLE_LIBS not found - you won't be able to compile or run the erlang sources]))
 
 # libs for optional build tasks:
 AC_ERLANG_CHECK_LIB(common_test, , AC_MSG_NOTICE([erlang-common_test not found - you won't be able to run the unit tests without common_test]))
@@ -125,14 +349,28 @@ AC_ERLANG_CHECK_LIB(common_test, , AC_MSG_NOTICE([erlang-common_test not found -
 AC_ERLANG_CHECK_LIB(edoc, , AC_MSG_NOTICE([erlang-edoc not found - you won't be able to create the documentation or run 'make install']))
 
 AC_CHECK_FILE($ERLANG_LIB_DIR_common_test/priv/bin/run_test,
-              [AC_SUBST(RUN_TEST,[$ERLANG_LIB_DIR_common_test/priv/bin/run_test])],
+              [RUN_TEST_FILE=$ERLANG_LIB_DIR_common_test/priv/bin/run_test],
               [AC_CHECK_FILE($ac_cv_erlang_root_dir/bin/run_test,
-              [AC_SUBST(RUN_TEST,[$ac_cv_erlang_root_dir/bin/run_test])],
-              [AC_PATH_PROG([RUN_TEST],[run_test])
-               if test -z $ac_cv_path_RUN_TEST ; then
-                  AC_MSG_NOTICE([run_test not found - on erlang < R14 consider running install.sh in the common_test directory otherwise you won't be able to run the unit tests])
-               fi])])
+                       [RUN_TEST_FILE=$ac_cv_erlang_root_dir/bin/run_test],
+                       [AC_PATH_PROG([RUN_TEST_FILE],[run_test],"")])])
+AC_CHECK_FILE($ERLANG_LIB_DIR_common_test/priv/bin/ct_run,
+              [CT_RUN_FILE=$ERLANG_LIB_DIR_common_test/priv/bin/ct_run],
+              [AC_CHECK_FILE($ac_cv_erlang_root_dir/bin/ct_run,
+                       [CT_RUN_FILE=$ac_cv_erlang_root_dir/bin/ct_run],
+                       [AC_PATH_PROG([CT_RUN_FILE],[ct_run],"")])])
 
+AC_MSG_CHECKING([for unit-test runner])
+if test -n "$RUN_TEST_FILE"; then
+  AC_SUBST(RUN_TEST,"$RUN_TEST_FILE")
+  AC_MSG_RESULT([$RUN_TEST_FILE])
+elif test -n "$CT_RUN_FILE"; then
+  AC_SUBST(RUN_TEST,"$CT_RUN_FILE")
+  AC_MSG_RESULT([$CT_RUN_FILE])
+else
+  AC_MSG_RESULT([neither run_test nor ct_run found - on erlang < R14 consider running install.sh in the common_test directory otherwise you won't be able to run the unit tests])
+fi
+
+# toke
 ERLANG_TOKE_FLAGS=
 AS_IF([test "x$TOKEPREFIX" != xno],
             [
@@ -140,22 +378,10 @@ AS_IF([test "x$TOKEPREFIX" != xno],
             AS_IF([test "x$TOKEPREFIX" != x], [export ERL_LIBS="$TOKEPREFIX"])
             AC_ERLANG_CHECK_LIB(toke,
               [AC_CHECK_FILE($ERLANG_LIB_DIR_toke/priv/libtoke.so,
-                [HAVETOKE=", {d, have_toke}"
-                 HAVETOKE_EDOC=", {have_toke, true}"
-                 HAVETOKE_DIALYZER=" -Dhave_toke"
-                 ERLANG_TOKE_FLAGS="-pa $ERLANG_LIB_DIR_toke/ebin"
-                ],
-                [HAVETOKE=""
-                 HAVETOKE_EDOC=""
-                 HAVETOKE_DIALYZER=""
-                 ERLANG_TOKE_MESSAGE="toke library libtoke.so not found"
-                ])
+                [ERLANG_TOKE_FLAGS="-pa $ERLANG_LIB_DIR_toke/ebin"],
+                [ERLANG_TOKE_MESSAGE="toke library libtoke.so not found"])
               ],
-              [HAVETOKE=""
-               HAVETOKE_EDOC=""
-               HAVETOKE_DIALYZER=""
-               ERLANG_TOKE_MESSAGE="toke erlang library not found"
-              ])
+              [ERLANG_TOKE_MESSAGE="toke erlang library not found"])
             AS_IF([test "x$TOKEPREFIX" != x], [export ERL_LIBS=""])
             AS_IF([test "x$ERLANG_TOKE_MESSAGE" != x],
               [AS_IF([test "x$ENABLE_TOKE" != xyes],
@@ -165,99 +391,343 @@ AS_IF([test "x$TOKEPREFIX" != xno],
             ])
 AC_SUBST([ERLANG_TOKE_FLAGS])
 
-AC_RUN_IFELSE(
-       [AC_LANG_PROGRAM([-type(mytype()::gb_tree()).], [ok])],
-       [GBTREESISBUILTIN=""; GBTREESISBUILTIN_EDOC=""; GBTREESISBUILTIN_DIALYZER=""; AC_MSG_NOTICE([gb_tree() is a built-in type])],
-       [GBTREESISBUILTIN=", {d, types_not_builtin}"; GBTREESISBUILTIN_EDOC=", {types_not_builtin, true}"; GBTREESISBUILTIN_DIALYZER=" -Dtypes_not_builtin"; AC_MSG_NOTICE([gb_tree() is not built-in])])
+# hanoidb
+ERLANG_HANOIDB_FLAGS=
+AS_IF([test "x$HANOIDBPREFIX" != xno],
+            [
+            ERLANG_HANOIDB_MESSAGE=
+            AS_IF([test "x$HANOIDBPREFIX" != x], [export ERL_LIBS="$HANOIDBPREFIX"])
+            AC_ERLANG_CHECK_LIB(hanoidb,
+              [ERLANG_HANOIDB_FLAGS="-pa $ERLANG_LIB_DIR_hanoidb/ebin"],
+              [ERLANG_HANOIDB_MESSAGE="hanoidb erlang not found"])
+            AS_IF([test "x$HANOIDBPREFIX" != x], [export ERL_LIBS=""])
+            AS_IF([test "x$ERLANG_HANOIDB_MESSAGE" != x],
+              [AS_IF([test "x$ENABLE_HANOIDB" != xyes],
+                [ERLANG_HANOIDB_MESSAGE="$ERLANG_HANOIDB_MESSAGE, disabling hanoidb support..."
+                 AC_MSG_NOTICE($ERLANG_HANOIDB_MESSAGE)],
+                AC_MSG_FAILURE($ERLANG_HANOIDB_MESSAGE))])
+            ])
+AC_SUBST([ERLANG_HANOIDB_FLAGS])
 
-AC_RUN_IFELSE(
-       [AC_LANG_PROGRAM([-type(mytype()::term()).], [ok])],
-       [TERMISBUILTIN=""; TERMISBUILTIN_EDOC=""; TERMISBUILTIN_DIALYZER=""; AC_MSG_NOTICE([term() is a built-in type])],
-       [TERMISBUILTIN=", {d, term_not_builtin}"; TERMISBUILTIN_EDOC=", {term_not_builtin, true}"; TERMISBUILTIN_DIALYZER=" -Dterm_not_builtin"; AC_MSG_NOTICE([term() is not built-in])])
+# bitcask
+ERLANG_BITCASK_FLAGS=
+BITCASK_LIBS=
+AS_IF([test "x$BITCASKPREFIX" != xno],
+            [
+            ERLANG_BITCASK_MESSAGE=
+            AS_IF([test "x$BITCASKPREFIX" != x], [export ERL_LIBS="$BITCASKPREFIX"])
+            AC_ERLANG_CHECK_LIB(bitcask,
+              [
+                EMAKEFILEDEFINES="${EMAKEFILEDEFINES}, {d, have_bitcask}"
+                EDOCMACROS="${EDOCMACROS}, {have_bitcask, true}"
+                DIALYZER_FLAGS="${DIALYZER_FLAGS} -Dhave_bitcask"
+                ERLANG_BITCASK_FLAGS="-pa $ERLANG_LIB_DIR_bitcask/ebin"
+                BITCASK_LIBS="$ERLANG_LIB_DIR_bitcask"
+              ],
+              [ERLANG_BITCASK_MESSAGE="bitcask erlang not found"])
+            AS_IF([test "x$BITCASKPREFIX" != x], [export ERL_LIBS=""])
+            AS_IF([test "x$ERLANG_BITCASK_MESSAGE" != x],
+              [AS_IF([test "x$ENABLE_BITCASK" != xyes],
+                [ERLANG_BITCASK_MESSAGE="$ERLANG_BITCASK_MESSAGE, disabling bitcask support..."
+                 AC_MSG_NOTICE($ERLANG_BITCASK_MESSAGE)],
+                AC_MSG_FAILURE($ERLANG_BITCASK_MESSAGE))])
+            ])
+AC_SUBST([ERLANG_BITCASK_FLAGS])
+AC_SUBST([BITCASK_LIBS])
 
-AC_RUN_IFELSE(
-       [AC_LANG_PROGRAM([-type(mytype()::node()).], [ok])],
-       [NODEISBUILTIN=""; NODEISBUILTIN_EDOC=""; NODEISBUILTIN_DIALYZER=""; AC_MSG_NOTICE([node() is a built-in type])],
-       [NODEISBUILTIN=", {d, node_not_builtin}"; NODEISBUILTIN_EDOC=", {node_not_builtin, true}"; NODEISBUILTIN_DIALYZER=" -Dnode_not_builtin"; AC_MSG_NOTICE([node() is not built-in])])
+# erlang_js
+ERLANG_ERLANGJS_FLAGS=
+AS_IF([test "x$ERLANGJSPREFIX" != xno],
+            [
+            ERLANG_ERLANGJS_MESSAGE=
+            AS_IF([test "x$ERLANGJSPREFIX" != x], [export ERL_LIBS="$ERLANGJSPREFIX"])
+            AC_ERLANG_CHECK_LIB(erlang_js,
+              [AC_CHECK_FILE($ERLANG_LIB_DIR_erlang_js/priv/erlang_js_drv.so,
+                [ERLANG_ERLANGJS_FLAGS="-pa $ERLANG_LIB_DIR_erlang_js/ebin"],
+                [ERLANG_ERLANGJS_MESSAGE="erlang_js library erlang_js_drv.so not found"])
+              ],
+              [ERLANG_ERLANGJS_MESSAGE="erlang_js erlang library not found"])
+            AS_IF([test "x$ERLANGJSPREFIX" != x], [export ERL_LIBS=""])
+            AS_IF([test "x$ERLANG_ERLANGJS_MESSAGE" != x],
+              [AS_IF([test "x$ENABLE_ERLANGJS" != xyes],
+                [ERLANG_ERLANGJS_MESSAGE="$ERLANG_ERLANGJS_MESSAGE, disabling erlang_js support..."
+                 AC_MSG_NOTICE($ERLANG_ERLANGJS_MESSAGE)],
+                AC_MSG_FAILURE($ERLANG_ERLANGJS_MESSAGE))])
+            ])
+AC_SUBST([ERLANG_ERLANGJS_FLAGS])
 
-AC_RUN_IFELSE(
-       [AC_LANG_PROGRAM([-type(mytype()::module()).], [ok])],
-       [MODULEISBUILTIN=""; MODULEISBUILTIN_EDOC=""; MODULEISBUILTIN_DIALYZER=""; AC_MSG_NOTICE([module() is a built-in type])],
-       [MODULEISBUILTIN=", {d, module_not_builtin}"; MODULEISBUILTIN_EDOC=", {module_not_builtin, true}"; MODULEISBUILTIN_DIALYZER=" -Dmodule_not_builtin"; AC_MSG_NOTICE([module() is not built-in])])
+crypto_start=`"${ERL}" -noshell -eval 'io:format("~p~n", [[crypto:start()]]), erlang:halt().' | tail -1`
+AS_IF([test "${crypto_start}" = "ok"],
+      [AC_MSG_NOTICE([crypto:start() is available])],
+      [AC_MSG_FAILURE([cannot start the crypto subsystem])])
 
-AC_RUN_IFELSE(
-       [AC_LANG_PROGRAM([-type(mytype()::boolean()).], [ok])],
-       [BOOLEANISBUILTIN=""; BOOLEANISBUILTIN_EDOC=""; BOOLEANISBUILTIN_DIALYZER=""; AC_MSG_NOTICE([boolean() is a built-in type])],
-       [BOOLEANISBUILTIN=", {d, boolean_not_builtin}"; BOOLEANISBUILTIN_EDOC=", {boolean_not_builtin, true}"; BOOLEANISBUILTIN_DIALYZER=" -Dboolean_not_builtin"; AC_MSG_NOTICE([boolean() is not built-in])])
+crypto_rand_uniform=`"${ERL}" -noshell -eval 'error_logger:tty(false), code:load_file(crypto), io:format("~p~n", [[erlang:function_exported(crypto,rand_uniform,2)]]), erlang:halt().' | tail -1`
+AS_IF([test "${crypto_rand_uniform}" = "true"],
+      [EMAKEFILEDEFINES="${EMAKEFILEDEFINES}, {d, have_crypto_randuniform_support}"
+       EDOCMACROS="${EDOCMACROS}, {have_crypto_randuniform_support, true}"
+       DIALYZER_FLAGS="${DIALYZER_FLAGS} -Dhave_crypto_randuniform_support"
+       AC_MSG_NOTICE([crypto:rand_uniform/2 is available])],
+      [AC_MSG_NOTICE([crypto:rand_uniform/2 is not available])])
 
-AC_RUN_IFELSE(
-       [AC_LANG_PROGRAM([-type(mytype()::tid()).], [ok])],
-       [TIDISBUILTIN=""; TIDISBUILTIN_EDOC=""; TIDISBUILTIN_DIALYZER=""; AC_MSG_NOTICE([tid() is a built-in type])],
-       [TIDISBUILTIN=", {d, tid_not_builtin}"; TIDISBUILTIN_EDOC=", {tid_not_builtin, true}"; TIDISBUILTIN_DIALYZER=" -Dtid_not_builtin"; AC_MSG_NOTICE([tid() is not built-in])])
+crypto_hash=`"${ERL}" -noshell -eval 'error_logger:tty(false), code:load_file(crypto), io:format("~p~n", [[erlang:function_exported(crypto,hash,2)]]), erlang:halt().' | tail -1`
+AS_IF([test "${crypto_hash}" = "true"],
+      [EMAKEFILEDEFINES="${EMAKEFILEDEFINES}, {d, with_crypto_hash}"
+       EDOCMACROS="${EDOCMACROS}, {with_crypto_hash, true}"
+       DIALYZER_FLAGS="${DIALYZER_FLAGS} -Dwith_crypto_hash"
+       AC_MSG_NOTICE([crypto:hash/2 is available and usable])],
+      [AC_MSG_NOTICE([crypto:hash/2 is not available or not usable, falling back to crypto:md5/1 and crypto:sha1/1])])
 
-AC_RUN_IFELSE(
-       [AC_LANG_PROGRAM([-type(mytype()::{ok, mytype()} | ok).], [ok])],
-       [RECURSIVETYPESALLOWED=""; RECURSIVETYPESALLOWED_EDOC=""; RECURSIVETYPESALLOWED_DIALYZER=""; AC_MSG_NOTICE([recursive types are supported])],
-       [RECURSIVETYPESALLOWED=", {d, recursive_types_are_not_allowed}"; RECURSIVETYPESALLOWED_EDOC=", {recursive_types_are_not_allowed, true}"; RECURSIVETYPESALLOWED_DIALYZER=" -Drecursive_types_are_not_allowed"; AC_MSG_NOTICE([recursive types are not supported])])
+crypto_bytes_to_integer=`"${ERL}" -noshell -eval 'error_logger:tty(false), code:load_file(crypto), io:format("~p~n", [[erlang:function_exported(crypto,bytes_to_integer,1)]]), erlang:halt().' | tail -1`
+AS_IF([test "${crypto_bytes_to_integer}" = "true"],
+      [EMAKEFILEDEFINES="${EMAKEFILEDEFINES}, {d, with_crypto_bytes_to_integer}"
+       EDOCMACROS="${EDOCMACROS}, {with_crypto_bytes_to_integer, true}"
+       DIALYZER_FLAGS="${DIALYZER_FLAGS} -Dwith_crypto_bytes_to_integer"
+       AC_MSG_NOTICE([crypto:bytes_to_integer/1 is available and usable])],
+      [AC_MSG_NOTICE([crypto:bytes_to_integer/1 is not available or not usable, falling back to rand:uniform/2])])
 
-AC_RUN_IFELSE(
-       [AC_LANG_PROGRAM([-type(mytype()::{ok, mytype2()} | ok). -type(mytype2() :: ok).], [ok])],
-       [TYPEFORWARDDECLARATIONS=""; TYPEFORWARDDECLARATIONS_EDOC=""; TYPEFORWARDDECLARATIONS_DIALYZER=""; AC_MSG_NOTICE([type forward declarations are supported])],
-       [TYPEFORWARDDECLARATIONS=", {d, type_forward_declarations_are_not_allowed}"; TYPEFORWARDDECLARATIONS_EDOC=", {type_forward_declarations_are_not_allowed, true}"; TYPEFORWARDDECLARATIONS_DIALYZER=" -Dtype_forward_declarations_are_not_allowed"; AC_MSG_NOTICE([type forward declarations are not supported])])
+ct_line=`"${ERL}" -noshell -eval 'error_logger:tty(false), code:load_file(ct_line), io:format("~p~n", [[erlang:function_exported(ct_line,parse_transform,2)]]), erlang:halt().' | tail -1`
+AS_IF([test "${ct_line}" = "true"],
+      [EMAKEFILEDEFINES="${EMAKEFILEDEFINES}, {d, have_ctline_support}"
+       EDOCMACROS="${EDOCMACROS}, {have_ctline_support, true}"
+       DIALYZER_FLAGS="${DIALYZER_FLAGS} -Dhave_ctline_support"
+       AC_MSG_NOTICE([ct_line is available])],
+      [AC_MSG_NOTICE([ct_line is not available])])
 
-AC_RUN_IFELSE(
-       [AC_LANG_PROGRAM([[-export_type([mytype/0]). -type(mytype()::ok).]], [ok])],
-       [EXPORTTYPESUPPORT=", {d, with_export_type_support}"; EXPORTTYPESUPPORT_EDOC=", {with_export_type_support, true}"; EXPORTTYPESUPPORT_DIALYZER=" -Dwith_export_type_support"; DIALYZER_FLAGS="$DIALYZER_FLAGS -Dwith_export_type_support"; AC_MSG_NOTICE([export_type is supported])],
-       [EXPORTTYPESUPPORT=""; EXPORTTYPESUPPORT_EDOC=""; EXPORTTYPESUPPORT_DIALYZER=""; AC_MSG_NOTICE([export_type is not supported])])
-
-if test "x$RECURSIVETYPESALLOWED" != x -o "x$TYPEFORWARDDECLARATIONS" != x; then
-   AC_MSG_NOTICE([forward declarations or recursive types are not allowed])
-   FORWARDORRECURSIVE=", {d, forward_or_recursive_types_are_not_allowed}"
-   FORWARDORRECURSIVE_EDOC=", {forward_or_recursive_types_are_not_allowed, true}"
-   FORWARDORRECURSIVE_DIALYZER=" -Dforward_or_recursive_types_are_not_allowed"
-fi
-
-AC_RUN_IFELSE(
-       [AC_LANG_PROGRAM([], [crypto:start()])],
-       [AC_MSG_NOTICE([crypto:start() is available])],
-       [AC_MSG_FAILURE([cannot start the crypto subsystem])])
-
-AC_RUN_IFELSE(
-       [AC_LANG_PROGRAM([-type(mytype()::{ok, arity()}).], [ok])],
-       [AC_MSG_NOTICE([arity() is available])],
-       [AC_MSG_FAILURE([the type arity() is not available; you are probably using Erlang < R13 which is not supported anymore])])
-
-AC_RUN_IFELSE(
-       [AC_LANG_PROGRAM([], [httpc:set_option(max_sessions, 1)])],
-       [AC_MSG_NOTICE([httpc is available])],
-       [AC_MSG_NOTICE([httpc unavailable, using wrapper module]);EMAKEFILECOMPILECOMPAT=["{\"contrib/compat/httpc.erl\",[debug_info, nowarn_unused_function, nowarn_obsolete_guard, nowarn_unused_vars,{outdir, \"ebin\"}]}."]])
-
-AC_RUN_IFELSE(
-       [AC_LANG_PROGRAM([-compile({parse_transform, ct_line}).], [ok])],
-       [CTLINESUPPORT=", {d, have_ctline_support}"; CTLINESUPPORT_EDOC=", {have_ctline_support, true}"; CTLINESUPPORT_DIALYZER=" -Dhave_ctline_support"; AC_MSG_NOTICE([ct_line is available])],
-       [CTLINESUPPORT=""; CTLINESUPPORT_EDOC=""; CTLINESUPPORT_DIALYZER=""; AC_MSG_NOTICE([ct_line is not available])])
-
-$ERL -noshell -s ct_run script_start -s erlang halt --help | grep "ct_hooks" 2>/dev/null 1>/dev/null
-AS_IF(
-       [test $? -eq 0 ],
-       [CTHOOKS_FLAGS="-ct_hooks scalaris_cth"; CTHOOKS_EMAKEFILE=", {d, have_cthooks_support}"; CTHOOKS_EDOC=", {have_cthooks_support, true}"; CTHOOKS_DIALYZER=" -Dhave_cthooks_support"; AC_MSG_NOTICE([ct_hooks is available])],
-       [CTHOOKS_FLAGS=""; CTHOOKS_EMAKEFILE=""; CTHOOKS_EDOC=""; CTHOOKS_DIALYZER=""; AC_MSG_NOTICE([ct_hooks is not available])])
+rand_module=`"${ERL}" -noshell -eval 'error_logger:tty(false), code:load_file(rand), io:format("~p~n", [[erlang:function_exported(rand,uniform,0)]]), erlang:halt().' | tail -1`
+AS_IF([test "${rand_module}" = "true"],
+      [EMAKEFILEDEFINES="${EMAKEFILEDEFINES}, {d, with_rand}"
+       EDOCMACROS="${EDOCMACROS}, {with_rand, true}"
+       DIALYZER_FLAGS="${DIALYZER_FLAGS} -Dwith_rand"
+       AC_MSG_NOTICE([rand:uniform/0 is available and usable])],
+      [AC_MSG_NOTICE([rand:uniform/0 is not available or not usable, falling back to random:uniform/0])])
 
 AC_RUN_IFELSE(
        [AC_LANG_PROGRAM([-callback init() -> ok.], [ok])],
-       [CALLBACKSUPPORT=", {d, have_callback_support}"; CALLBACKSUPPORT_EDOC=", {have_callback_support, true}"; CALLBACKSUPPORT_DIALYZER=" -Dhave_callback_support"; AC_MSG_NOTICE([-callback is available])],
-       [CALLBACKSUPPORT=""; CALLBACKSUPPORT_EDOC=""; CALLBACKSUPPORT_DIALYZER=""; AC_MSG_NOTICE([-callback is not available])])
+       [EMAKEFILEDEFINES="${EMAKEFILEDEFINES}, {d, have_callback_support}"
+        EDOCMACROS="${EDOCMACROS}, {have_callback_support, true}"
+        DIALYZER_FLAGS="${DIALYZER_FLAGS} -Dhave_callback_support"
+        AC_MSG_NOTICE([-callback is available])],
+       [AC_MSG_NOTICE([-callback is not available])])
 
-EMAKEFILEDEFINES="${HAVETOKE}${GBTREESISBUILTIN}${TERMISBUILTIN}${NODEISBUILTIN}${MODULEISBUILTIN}${BOOLEANISBUILTIN}${TIDISBUILTIN}${RECURSIVETYPESALLOWED}${TYPEFORWARDDECLARATIONS}${FORWARDORRECURSIVE}${EXPORTTYPESUPPORT}${CTLINESUPPORT}${CTHOOKS_EMAKEFILE}${CALLBACKSUPPORT}${ERLANG_NATIVE_FLAGS}"
-EDOCMACROS="${HAVETOKE_EDOC}${GBTREESISBUILTIN_EDOC}${TERMISBUILTIN_EDOC}${NODEISBUILTIN_EDOC}${MODULEISBUILTIN_EDOC}${BOOLEANISBUILTIN_EDOC}${TIDISBUILTIN_EDOC}${RECURSIVETYPESALLOWED_EDOC}${TYPEFORWARDDECLARATIONS_EDOC}${FORWARDORRECURSIVE_EDOC}${EXPORTTYPESUPPORT_EDOC}${CTLINESUPPORT_EDOC}${CTHOOKS_EDOC}${CALLBACKSUPPORT_EDOC}"
+maps_module=`"${ERL}" -noshell -eval 'error_logger:tty(false), code:load_file(maps), io:format("~p~n", [[erlang:function_exported(maps,new,0)]]), erlang:halt().' | tail -1`
+AS_IF([test "${maps_module}" = "true"],
+      [EMAKEFILEDEFINES="${EMAKEFILEDEFINES}, {d, with_maps}"
+       EDOCMACROS="${EDOCMACROS}, {with_maps, true}"
+       DIALYZER_FLAGS="${DIALYZER_FLAGS} -Dwith_maps"
+       AC_MSG_NOTICE([maps are available and seem to be usable])],
+      [AC_MSG_NOTICE([maps are not available or not usable, falling back to gb_trees])])
+
+# creates forms specifying a minimal erlang module which spezifies a
+# type based on dict:dict() and checks if compilation of this module fails
+dict_type=`"${ERL}" -noshell -eval 'X = fun(S) -> element(2,erl_parse:parse_form(element(2,erl_scan:string(S)))) end, io:format("~p~n", [[element(1, compile:forms([X("-module(test)."), X("-type test() :: dict:dict().")]))]]), erlang:halt().' 2> /dev/null | tail -1`
+AS_IF([test "${dict_type}" = "ok"],
+      [EMAKEFILEDEFINES="${EMAKEFILEDEFINES}, {d, namespaced_dict}"
+       EDOCMACROS="${EDOCMACROS}, {namespaced_dict, true}"
+       DIALYZER_FLAGS="${DIALYZER_FLAGS} -Dnamespaced_dict"
+       AC_MSG_NOTICE([erlang dict type is defined as dict:dict()])],
+      [AC_MSG_NOTICE([erlang dict type is defined as dict()])])
+
+###########################################################
+#
+# check for file:send_file/5 for yaws
+#
+###########################################################
+YAWS_OPTIONS=
+HAVE_ERLANG_SENDFILE=false
+
+AC_MSG_CHECKING([for file:sendfile/5])
+file_sendfile=`"${ERL}" -noshell -eval 'code:ensure_loaded(file), io:format("~p~n",[[erlang:function_exported(file,sendfile,5)]]), erlang:halt().' | tail -1`
+if test "$file_sendfile" = true; then
+  AS_IF([test $ERTS_MAJOR -gt 5 -o \
+         '(' $ERTS_MAJOR -eq 5 -a $ERTS_MINOR -gt 9 ')' -o \
+         '(' $ERTS_MAJOR -eq 5 -a $ERTS_MINOR -eq 9 -a $ERTS_MAINT -ge 1 ')'],
+        [AC_MSG_RESULT([yes])
+         HAVE_ERLANG_SENDFILE=true],
+        [AC_MSG_RESULT([no])])
+else
+        AC_MSG_RESULT([no])
+fi
+
+AS_IF([test "$HAVE_ERLANG_SENDFILE" = true],
+      [YAWS_OPTIONS=", {d, 'HAVE_ERLANG_SENDFILE'}"
+       YAWS_OPTIONS_DIALYZER=" -DHAVE_ERLANG_SENDFILE"
+       AC_MSG_NOTICE([using file:sendfile/5 for yaws])],
+      [YAWS_OPTIONS=""
+       YAWS_OPTIONS_DIALYZER=""
+       AC_MSG_NOTICE([using fallback gen_tcp:send/2 for yaws])])
+
+AS_IF([test "${crypto_hash}" = "true"],
+      [YAWS_OPTIONS="${YAWS_OPTIONS}, {d, 'HAVE_CRYPTO_HASH'}"
+       YAWS_OPTIONS_DIALYZER="${YAWS_OPTIONS_DIALYZER} -DHAVE_CRYPTO_HASH"])
+
+###########################################################
+#
+# check for erlang:timestamp/0 for yaws
+#
+###########################################################
+erlang_timestamp=`"${ERL}" -noshell -eval 'io:format("~p~n", [[erlang:function_exported(erlang,timestamp,0)]]), erlang:halt().' | tail -1`
+AS_IF([test "${erlang_timestamp}" = "true"],
+      [AC_MSG_NOTICE([erlang:timestamp() is available])],
+      [YAWS_OPTIONS="${YAWS_OPTIONS}, {d, 'HAVE_ERLANG_NOW'}"
+       YAWS_OPTIONS_DIALYZER="${YAWS_OPTIONS_DIALYZER} -DHAVE_ERLANG_NOW"
+       AC_MSG_NOTICE([erlang:timestamp() is not available])])
+
+###########################################################
+#
+# check for ssl:getstat/2 for ssl
+#
+###########################################################
+## https://github.com/erlang/otp/commit/84fd2c325c9e38b5ea2307b6133c3d15b33a3241
+SSL_GETSTAT=false
+ssl_getstat=`"${ERL}" -noshell -eval 'code:ensure_loaded(ssl),io:format("~p~n", [[erlang:function_exported(ssl,getstat,2)]]), erlang:halt().' | tail -1`
+AS_IF([test "${ssl_getstat}" = "true"],
+      [EMAKEFILEDEFINES="${EMAKEFILEDEFINES}, {d, have_ssl_getstat}"
+       EDOCMACROS="${EDOCMACROS}, {have_ssl_getstat, true}"
+       DIALYZER_FLAGS="${DIALYZER_FLAGS} -Dhave_ssl_getstat"
+       SSL_GETSTAT=true
+       AC_MSG_NOTICE([ssl:getstat() is available])],
+      [AC_MSG_NOTICE([ssl:getstat() is not available])])
+
+###########################################################
+#
+# check for ssl:handshake/1 for ssl
+#
+###########################################################
+## https://github.com/erlang/otp/commit/8dcfffd4fb8520239b189357e81122d4fdacb42d
+SSL_HANDSHAKE=false
+ssl_handshake=`"${ERL}" -noshell -eval 'code:ensure_loaded(ssl),io:format("~p~n", [[erlang:function_exported(ssl,handshake,1)]]), erlang:halt().' | tail -1`
+AS_IF([test "${ssl_handshake}" = "true"],
+      [EMAKEFILEDEFINES="${EMAKEFILEDEFINES}, {d, have_ssl_handshake}"
+       EDOCMACROS="${EDOCMACROS}, {have_ssl_handshake, true}"
+       DIALYZER_FLAGS="${DIALYZER_FLAGS} -Dhave_ssl_handshake"
+       SSL_HANDSHAKE=true
+       AC_MSG_NOTICE([ssl:handshake() is available])],
+      [AC_MSG_NOTICE([ssl:handshake() is not available])])
+
+###########################################################
+#
+# check for new stacktrace syntax
+#
+###########################################################
+# http://erlang.org/eeps/eep-0047.md
+
+erlang_cv_new_stacktrace=0
+AC_LANG_PUSH([Erlang])[]dnl
+AC_RUN_IFELSE(
+[AC_LANG_PROGRAM([], [dnl
+try
+  5
+catch
+  C:E:Stk ->
+          Stk
+end])],
+[erlang_cv_new_stacktrace=true],
+[erlang_cv_new_stacktrace=false])
+AC_LANG_POP([Erlang])[]dnl
+
+AS_IF([test "${erlang_cv_new_stacktrace}" = "true"],
+      [EMAKEFILEDEFINES="${EMAKEFILEDEFINES}, {d, have_new_stacktrace}"
+       EDOCMACROS="${EDOCMACROS}, {have_new_stacktrace, true}"
+       DIALYZER_FLAGS="${DIALYZER_FLAGS} -Dhave_new_stacktrace"
+       AC_MSG_NOTICE([new stacktrace syntax is available])],
+      [AC_MSG_NOTICE([new stacktrace syntax is not available])])
+
+###########################################################
+#
+# check for socket:open/2 since 22.0
+#
+###########################################################
+# https://github.com/erlang/otp/commit/3ca71520bfb664f0ea809ffdf41505936e4d5e90
+SOCKET_OPEN=false
+socket_open=`"${ERL}" -noshell -eval 'code:ensure_loaded(socket),io:format("~p~n", [[erlang:function_exported(socket,open,2)]]), erlang:halt().' | tail -1`
+AS_IF([test "${socket_open}" = "true"],
+      [EMAKEFILEDEFINES="${EMAKEFILEDEFINES}, {d, have_socket_open}"
+       EDOCMACROS="${EDOCMACROS}, {have_socket_open, true}"
+       DIALYZER_FLAGS="${DIALYZER_FLAGS} -Dhave_socket_open"
+       SOCKET_OPEN=true
+       AC_MSG_NOTICE([socket:open/2 is available])],
+      [AC_MSG_NOTICE([socket:open/2 is not available])])
+
+###########################################################
+#
+# check for persistent_term:get/2 since 21.2.
+#
+###########################################################
+# https://github.com/erlang/otp/commit/805748eb668d5562fe17f3172cdae07a86166c3f
+PERSISTENT_TERM_GET=false
+persistent_term_get=`"${ERL}" -noshell -eval 'code:ensure_loaded(persistent_term),io:format("~p~n", [[erlang:function_exported(persistent_term,get,1)]]), erlang:halt().' | tail -1`
+AS_IF([test "${persistent_term_get}" = "true"],
+      [EMAKEFILEDEFINES="${EMAKEFILEDEFINES}, {d, have_persistent_term_get}"
+       EDOCMACROS="${EDOCMACROS}, {have_persistent_term_get, true}"
+       DIALYZER_FLAGS="${DIALYZER_FLAGS} -Dhave_persistent_term_get"
+       PERSISTENT_TERM_GET=true
+       AC_MSG_NOTICE([persistent_term:get/2 is available])],
+      [AC_MSG_NOTICE([persistent_term:get/2 is not available])])
+
+###########################################################
+#
+# check for counters:get/2 since 21.2.
+#
+###########################################################
+# https://github.com/erlang/otp/commit/fefb5d039e87ff7137e78b3d5f2eaf01e498ec4d
+COUNTERS_GET=false
+counters_get=`"${ERL}" -noshell -eval 'code:ensure_loaded(counters),io:format("~p~n", [[erlang:function_exported(counters,get,2)]]), erlang:halt().' | tail -1`
+AS_IF([test "${counters_get}" = "true"],
+      [EMAKEFILEDEFINES="${EMAKEFILEDEFINES}, {d, have_counters_get}"
+       EDOCMACROS="${EDOCMACROS}, {have_counters_get, true}"
+       DIALYZER_FLAGS="${DIALYZER_FLAGS} -Dhave_counters_get"
+       COUNTERS_GET=true
+       AC_MSG_NOTICE([counters:get/2 is available])],
+      [AC_MSG_NOTICE([counters:get/2 is not available])])
+
+###########################################################
+#
+# check for atomics:new/2 since 21.2.
+#
+###########################################################
+# https://github.com/erlang/otp/commit/1315c6457e49595fdd3f91693c0506964416c9f0
+ATOMICS_NEW=false
+atomics_new=`"${ERL}" -noshell -eval 'code:ensure_loaded(atomics),io:format("~p~n", [[erlang:function_exported(atomics,new,2)]]), erlang:halt().' | tail -1`
+AS_IF([test "${atomics_new}" = "true"],
+      [EMAKEFILEDEFINES="${EMAKEFILEDEFINES}, {d, have_atomics_new}"
+       EDOCMACROS="${EDOCMACROS}, {have_atomics_new, true}"
+       DIALYZER_FLAGS="${DIALYZER_FLAGS} -Dhave_atomics_new"
+       ATOMICS_NEW=true
+       AC_MSG_NOTICE([atomics:new/2 is available])],
+      [AC_MSG_NOTICE([atomics:new/2 is not available])])
+
+###########################################################
+#
+# all defines together...
+#
+###########################################################
+
+EMAKEFILEDEFINES="${EMAKEFILEDEFINES}"
 EDOCMACROS="${EDOCMACROS#, }"
-DIALYZER_FLAGS="${HAVETOKE_DIALYZER}${GBTREESISBUILTIN_DIALYZER}${TERMISBUILTIN_DIALYZER}${NODEISBUILTIN_DIALYZER}${MODULEISBUILTIN_DIALYZER}${BOOLEANISBUILTIN_DIALYZER}${TIDISBUILTIN_DIALYZER}${RECURSIVETYPESALLOWED_DIALYZER}${TYPEFORWARDDECLARATIONS_DIALYZER}${FORWARDORRECURSIVE_DIALYZER}${EXPORTTYPESUPPORT_DIALYZER}${CTLINESUPPORT_DIALYZER}${CTHOOKS_DIALYZER}${CALLBACKSUPPORT_DIALYZER}"
+DIALYZER_FLAGS="${DIALYZER_FLAGS## }${YAWS_OPTIONS_DIALYZER}"
 
 AC_SUBST(EMAKEFILEDEFINES)
-AC_SUBST(EMAKEFILECOMPILECOMPAT)
-AC_SUBST(DIALYZER_FLAGS)
-AC_SUBST(CTHOOKS_FLAGS)
 AC_SUBST(EDOCMACROS)
+AC_SUBST(DIALYZER_FLAGS)
+
+AC_SUBST(EMAKEFILECOMPILECOMPAT)
+AC_SUBST(YAWS_OPTIONS)
+
+###########################################################
+#
+# check for routing table type
+#
+###########################################################
+
+RT=rt_chord
+AC_ARG_WITH([rt],
+            [AS_HELP_STRING([--with-rt[[=RTFILE]]],
+                            [optionally specify the routing table type (default=rt_chord)])],
+            [if test "$withval"; then
+               RT="$withval"
+             fi],
+            [])
+AC_SUBST(RT)
 
 ###########################################################
 #
@@ -311,84 +781,201 @@ AC_SUBST(RUBYSITELIBDIR)
 
 ###########################################################
 #
-# check python
+# check python, python3
 #
 ###########################################################
-PYTHONSITELIBDIR=
-ENABLEPYTHONINSTALL=
-AM_PATH_PYTHON(,, [:])
-AS_IF([test "$PYTHON" != ":"],
-      [PYTHONSITELIBDIR=$am_cv_python_pythondir
-       ENABLEPYTHONINSTALL="install-python"])
-AC_SUBST(ENABLEPYTHONINSTALL)
-AC_SUBST(PYTHONSITELIBDIR)
+PYTHON2SITELIBDIR=
+ENABLEPYTHON2INSTALL=
+AC_CACHE_CHECK([for python 2.x >= 2.6], [ac_cv_path_PYTHON2],
+  [AC_PATH_PROGS_FEATURE_CHECK([PYTHON2], [python python2],
+    [[$ac_path_PYTHON2 -V 2>&1 | grep "^Python 2.[6789]" > /dev/null && \
+      PYTHON2SITELIBDIR=`$ac_path_PYTHON2 -c 'from distutils.sysconfig import get_python_lib; print(get_python_lib(0,0,prefix="${prefix}"))'  2>/dev/null` && \
+      ac_cv_path_PYTHON2=$ac_path_PYTHON2 ac_path_PYTHON2_found=:]],
+    [AC_MSG_RESULT([not found])])])
 
-###########################################################
-#
-# check python3
-#
-###########################################################
+AS_IF([test "$ac_cv_path_PYTHON2" != ""],
+      [PYTHON2=$ac_cv_path_PYTHON2
+       AC_MSG_CHECKING([for python 2.x sitelibdir])
+       AC_MSG_RESULT([$PYTHON2SITELIBDIR])
+       ENABLEPYTHON2INSTALL="install-python"],
+      [PYTHON2=$FALSE])
+AC_SUBST(PYTHON2)
+AC_SUBST(PYTHON2SITELIBDIR)
+AC_SUBST(ENABLEPYTHON2INSTALL)
 
-ENABLEPYTHON3INSTALL=
 PYTHON3SITELIBDIR=
-AC_ARG_WITH([python3-sitelibdir],
-            [AS_HELP_STRING([--with-python3-sitelibdir=SITELIBDIR],
-            [where to install python3 libraries])],
-            [if test -n "$withval"; then
-               PYTHON3SITELIBDIR="$withval"
-               ENABLEPYTHON3INSTALL="install-python3"
-             fi],
-            [])
-AC_SUBST(ENABLEPYTHON3INSTALL)
+ENABLEPYTHON3INSTALL=
+AC_CACHE_CHECK([for python 3.x], [ac_cv_path_PYTHON3],
+  [AC_PATH_PROGS_FEATURE_CHECK([PYTHON3], [python3 python],
+    [[$ac_path_PYTHON3 -V 2>&1 | grep "^Python 3." > /dev/null && \
+      PYTHON3SITELIBDIR=`$ac_path_PYTHON3 -c 'from distutils.sysconfig import get_python_lib; print(get_python_lib(0,0,prefix="${prefix}"))'  2>/dev/null` && \
+      ac_cv_path_PYTHON3=$ac_path_PYTHON3 ac_path_PYTHON3_found=:]],
+    [AC_MSG_RESULT([not found])])])
+
+PYTHON3=
+PYTHON3_2TO3=
+ENABLEPYTHON3=python3-not-found
+ENABLEPYTHON3INSTALL=
+AS_IF([test "$ac_cv_path_PYTHON3" != ""],
+      [PYTHON3=$ac_cv_path_PYTHON3
+       AC_MSG_CHECKING([for python 3.x sitelibdir])
+       AC_MSG_RESULT([$PYTHON3SITELIBDIR])
+       AC_PATH_PROG([PYTHON3_2TO3], [2to3], "")
+       AS_IF([test -x "$PYTHON3_2TO3"],
+             [ENABLEPYTHON3="python3-compile"
+              ENABLEPYTHON3INSTALL="install-python3"],
+             [AC_MSG_WARN([2to3 not found - you won't be able to build the Python3 API])])],
+      [PYTHON3=$FALSE])
+AC_SUBST(PYTHON3)
+AC_SUBST(PYTHON3_2TO3)
 AC_SUBST(PYTHON3SITELIBDIR)
-
-###########################################################
-#
-# check opennebula
-#
-###########################################################
-
-ENABLEONEINSTALL=
-ONEPREFIX=
-AC_ARG_ENABLE([opennebula],
-              AS_HELP_STRING([--disable-opennebula],
-                 [disable support for opennebula]),
-              [ONEPREFIX=no])
-AC_ARG_ENABLE([opennebula],
-              AS_HELP_STRING([--enable-opennebula@<:@=DIR@:>@],
-                 [enable support for opennebula]),
-              [ENABLEONEINSTALL="install-one"
-               ONEPREFIX=$enableval])
-AC_SUBST(ENABLEONEINSTALL)
+AC_SUBST(ENABLEPYTHON3)
+AC_SUBST(ENABLEPYTHON3INSTALL)
 
 ###########################################################
 #
 # check MACOSX vs. Linux for flexbisonparse driver
 #
 ###########################################################
+
+SAVECFLAGS=$CFLAGS
+CFLAGS="-I$ERLANG_ROOT_DIR/erts-$ERLANG_LIB_VER_erts/include $CFLAGS"
+AC_LANG_PUSH([C])
+AC_CHECK_HEADER([erl_nif.h], [], [])
+AC_LANG_POP([C])
+CFLAGS=$SAVECFLAGS
+
+#http://unix.stackexchange.com/questions/35183/how-do-i-identify-which-linux-distro-is-running
+
+LINUXVERSION="unknown linux"
+if test -f /etc/SuSE-release ; then
+  LINUXVERSION=`cat /etc/SuSE-release`
+elif test -f /etc/redhat-release ; then
+  LINUXVERSION=`cat /etc/redhat-release`
+elif test -f /etc/fedora-release ; then
+  LINUXVERSION=`cat /etc/fedora-release`
+elif test -f /etc/debian_release ; then
+  LINUXVERSION=`cat /etc/debian_release`
+elif test -f /etc/debian_version ; then
+  LINUXVERSION=`cat /etc/debian_version`
+elif test -f /etc/gentoo-release ; then
+  LINUXVERSION=`cat /etc/gentoo-release`
+elif test -f /etc/arch-release ; then
+  LINUXVERSION=`uname -a`
+fi
+
+OS=""
 case `uname -s` in
  linux*)
+     NIFFLAGS="-shared"
      DRIVER_OS=LINUX
+     OS=$LINUXVERSION
+     ARCHIVECMD="$ac_cv_path_AR rv"
      ;;
  Linux*)
+     NIFFLAGS="-shared"
      DRIVER_OS=LINUX
+     OS=$LINUXVERSION
+     ARCHIVECMD="$ac_cv_path_AR rv"
      ;;
  Darwin*)
+     NIFFLAGS="-flat_namespace -undefined dynamic_lookup"
      DRIVER_OS=MACOSX
+     OS="OSX `sw_vers -productVersion`"
+     ARCHIVECMD="$ac_cv_path_LIBTOOL -static -o"
      ;;
  darwin*)
+     NIFFLAGS="-flat_namespace -undefined dynamic_lookup"
      DRIVER_OS=MACOSX
+     OS="OSX `sw_vers -productVersion`"
+     ARCHIVECMD="$ac_cv_path_LIBTOOL -static -o"
      ;;
 esac
 
-echo "detected OS is: '$DRIVER_OS'"
+GIT=`command -v git`
+STAT=`command -v stat`
+SHA1SUM=`command -v sha1sum`
+SRC="download"
+CONFIGURESTATUS=""
+
+if test "x$GIT" != "x" -a -d .git; then
+  SRC=`git log --pretty=format:'%h' -n 1 .`
+  CONFIGURESTATUS=`git status -s configure | cut -d ' ' -f 2`
+elif test "x$GIT" != "x"; then
+  CONFIGURESTATUS=`git hash-object configure`
+elif test "x$DRIVER_OS" = "xMACOSX" ; then
+  # BSD
+  SIZE=`/usr/bin/stat -f "%z" configure`
+  CONFIGURESTATUS=`(/usr/bin/printf "blob $SIZE\0" ; /bin/cat configure) | /usr/bin/openssl sha1`
+elif test "x$STAT" != "x" -a "x$SHA1SUM" != "x" ; then
+  CONFIGURESTATUS=`(stat --printf="blob %s\0" configure; cat configure) | sha1sum -b | cut -d " " -f1`
+else
+  CONFIGURESTATUS=""
+fi
+
+echo "detected OS is: '$OS' $SRC $CONFIGURESTATUS"
 AC_SUBST(DRIVER_OS)
+AC_SUBST(NIFFLAGS)
+AC_SUBST(ARCHIVECMD)
 
 mkdir -p ~/.yaws 2> /dev/null
 
-AC_CONFIG_FILES([Emakefile Makefile bin/scalarisctl java-api/scalaris java-api/scalaris-java.conf])
+mkdir -p python3-api
+$SED -e "s|python-api|python3-api|g" \
+     -e "s|@PYTHONSITELIBDIR@|@PYTHON3SITELIBDIR@|g" \
+     -e "s|PYTHON2|PYTHON3|g" python-api/scalaris.in > python3-api/scalaris.in
+
+AC_CONFIG_FILES([Emakefile Makefile bin/scalarisctl bin/jsonclient include/rt.hrl cpp-api/Makefile java-api/scalaris java-api/scalaris-java.conf contrib/init.d/scalaris contrib/init.d/scalaris-monitor python-api/scalaris python3-api/scalaris ruby-api/scalaris])
 AC_OUTPUT
 
 chmod u+x bin/scalarisctl
+chmod u+x bin/jsonclient
 chmod u+x java-api/scalaris
+chmod u+x python-api/scalaris
+chmod u+x python3-api/scalaris
+chmod u+x ruby-api/scalaris
+chmod u+x contrib/init.d/scalaris
+chmod u+x contrib/init.d/scalaris-monitor
 
+echo "Erlang"
+if test "x$BITCASK_LIBS" = "x" ; then
+  echo "  Bitcask              : no"
+else
+  echo "  Bitcask              : yes"
+fi
+
+if test "x$ERLANG_HANOIDB_FLAGS" = "x" ; then
+  echo "  hanoidb              : no"
+else
+  echo "  hanoidb              : yes"
+fi
+
+if test "x$ERLANG_TOKE_FLAGS" = "x" ; then
+  echo "  toke                 : no"
+else
+  echo "  toke                 : yes"
+fi
+
+if test "x$SSL_GETSTAT" = "xfalse" ; then
+  echo "  ssl                  : no"
+else
+  echo "  ssl                  : yes"
+fi
+
+if test "x$enabled_cxx" = "x0" ; then
+  echo "C++ API                : no"
+else
+  echo "C++ API                : yes"
+fi
+
+if test "x$ENABLEPYTHON2INSTALL" = "xinstall-python" ; then
+  echo "Python API             : yes"
+else
+  echo "Python API             : no"
+fi
+
+if test "x$ENABLEPYTHON3" = "xpython3-compile" ; then
+  echo "Python3 API            : yes"
+else
+  echo "Python3 API            : no"
+fi

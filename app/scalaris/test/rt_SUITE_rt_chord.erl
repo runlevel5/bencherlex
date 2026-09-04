@@ -12,31 +12,37 @@
 %   See the License for the specific language governing permissions and
 %   limitations under the License.
 
-%%% @author Nico Kruber <kruber@zib.de>
-%%% @doc    Helper for rt_chord unit tests.
-%%% @end
+%% @author Nico Kruber <kruber@zib.de>
+%% @doc    Helper for rt_chord unit tests.
+%% @end
 %% @version $Id$
 -module(rt_SUITE_rt_chord).
 -author('kruber@zib.de').
 -vsn('$Id$').
 
--export([additional_tests/1, check_next_hop/4, check_split_key/4,
-         check_split_key_half/3, create_rt/2, number_to_key/1]).
+-compile(export_all).
 
 -include("unittest.hrl").
 -include("scalaris.hrl").
 
 number_to_key(N) -> N.
 
-create_rt(RT_Keys, [_Succ | _DHTNodes] = Nodes) ->
-    gb_trees:from_orddict(
-      [begin
-           Key = number_to_key(N),
-           {Key, node:new(lists:nth(Idx, Nodes), Key, 0)}
-       end || {N, Idx} <- RT_Keys]).
+create_rt(RT_Keys, [_Succ | _DHTNodes] = Nodes, Neighbors) ->
+    RT = gb_trees:from_orddict(
+           [begin
+                Key = number_to_key(N),
+                {Key, lists:nth(Idx, Nodes)}
+            end || {N, Idx} <- RT_Keys]),
+    Neighborlist = tl(nodelist:to_list(Neighbors)),
+    lists:foldl(fun(Node, AccIn) ->
+                        gb_trees:enter(node:id(Node), node:pidX(Node), AccIn)
+                end, RT, Neighborlist).
 
 check_next_hop(State, _Succ, N, NodeExp) ->
-    ?equals_w_note(?RT:next_hop(State, number_to_key(N)), NodeExp, io_lib:format("~B", [N])).
+    Neighbors = dht_node_state:get(State, neighbors),
+    ERT = dht_node_state:get(State, rt),
+    Node = ?RT:next_hop(Neighbors, ERT, number_to_key(N)),
+    ?equals_w_note(Node, NodeExp, io_lib:format("~B", [N])).
 
 -spec check_split_key_half(Begin::?RT:key(), End::?RT:key() | ?PLUS_INFINITY_TYPE, SplitKey::?RT:key()) -> true.
 check_split_key_half(Begin, End, SplitKey) ->
@@ -56,7 +62,7 @@ check_split_key(Begin, End, SplitKey, SplitFraction) ->
                           _ -> ?RT:get_range(Begin, SplitKey)
                       end,
     %%     ct:pal("BeginToSplitKeyRange: ~.0p, ~.0p", [BeginToSplitKey, SplitKey]),
-    
+
     ?equals_pattern_w_note(
         BeginToSplitKey,
         Range when Range == (FullRange * erlang:element(1, SplitFraction)) div erlang:element(2, SplitFraction),

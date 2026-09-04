@@ -1,5 +1,4 @@
-% @copyright 2009-2011 Zuse Institute Berlin,
-%            2009-2010 onScale solutions GmbH
+% @copyright 2009-2015 Zuse Institute Berlin,
 
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
@@ -17,10 +16,10 @@
 %% @doc Part of a generic Paxos-Consensus implementation
 %%           The role of a learner.
 %% @end
-%% @version $Id: learner.erl 2576 2011-12-16 18:01:34Z kruber@zib.de $
+%% @version $Id$
 -module(learner).
 -author('schintke@zib.de').
--vsn('$Id: learner.erl 2576 2011-12-16 18:01:34Z kruber@zib.de $').
+-vsn('$Id$').
 
 %-define(TRACE(X,Y), io:format(X,Y)).
 -define(TRACE(X,Y), ok).
@@ -34,6 +33,9 @@
 -export([start_link/2]).
 -export([on/2, init/1]).
 -export([check_config/0]).
+
+-include("gen_component.hrl").
+-include("learner_state.hrl").
 
 -type state() :: atom(). % table name
 
@@ -62,17 +64,19 @@ stop_paxosids(Learner, ListOfPaxosIDs) ->
 start_link(DHTNodeGroup, PidName) ->
     gen_component:start_link(?MODULE, fun ?MODULE:on/2,
                              [],
-                             [{pid_groups_join_as, DHTNodeGroup, PidName}]).
+                             [{pid_groups_join_as, DHTNodeGroup, PidName},
+                              {spawn_opts, [{fullsweep_after, 0},
+                                            {min_heap_size, 16383}]}]).
 
 %% initialize: return initial state.
 -spec init([]) -> atom().
 init([]) ->
     ?TRACE("Starting learner for DHT node: ~p~n", [pid_groups:my_groupname()]),
     %% For easier debugging, use a named table (generates an atom)
-    %%TableName = list_to_atom(pid_groups:my_groupname() ++ "_learner"),
+    %%TableName = erlang:list_to_atom(pid_groups:group_to_filename(pid_groups:my_groupname()) ++ "_learner"),
     %%pdb:new(TableName, [set, protected, named_table]),
     %% use random table name provided by ets to *not* generate an atom
-    TableName = pdb:new(?MODULE, [set, protected]),
+    TableName = pdb:new(?MODULE, [set]),
     _State = TableName.
 
 -spec on(comm:message(), state()) -> state().
@@ -80,32 +84,32 @@ on({learner_initialize, PaxosID, Majority, ProcessToInform, ClientCookie},
    ETSTableName = State) ->
     ?TRACE("learner:initialize for paxos id: ~p~n", [PaxosID]),
     case pdb:get(PaxosID, ETSTableName) of
-        undefined -> pdb:set(learner_state:new(PaxosID, Majority,
-                                               ProcessToInform, ClientCookie),
+        undefined -> pdb:set(state_new(PaxosID, Majority,
+                                       ProcessToInform, ClientCookie),
                             ETSTableName);
         StateForID ->
             %% set Majority and ProcessInfo and check whether finished already
-            case Majority =:= learner_state:get_majority(StateForID)
-                andalso ProcessToInform =:= learner_state:get_process_to_inform(StateForID)
+            case Majority =:= state_get_majority(StateForID)
+                andalso ProcessToInform =:= state_get_process_to_inform(StateForID)
             of
+                false ->
+                    TmpState = state_set_majority(StateForID, Majority),
+                    Tmp2State = state_set_process_to_inform(TmpState, ProcessToInform),
+                    NewState = state_set_client_cookie(Tmp2State, ClientCookie),
+                    case (Majority =< state_get_accepted_count(NewState)) of
+                        true -> decide(PaxosID, NewState);
+                        false -> ok
+                    end,
+                    pdb:set(NewState, ETSTableName);
                 true ->
                     log:log(error,
                             "duplicate learner initialize for id ~p",
-                            [PaxosID]);
-                false ->
-                    TmpState = learner_state:set_majority(StateForID, Majority),
-                    Tmp2State = learner_state:set_process_to_inform(TmpState, ProcessToInform),
-                    NewState = learner_state:set_client_cookie(Tmp2State, ClientCookie),
-                    pdb:set(NewState, ETSTableName),
-                    case (Majority =< learner_state:get_accepted_count(NewState)) of
-                        true -> decide(PaxosID, NewState);
-                        false -> ok
-                    end
+                            [PaxosID])
             end
     end,
     State;
 
-on({acceptor_accepted, PaxosID, Round, Value}, ETSTableName = State) ->
+on({?acceptor_accept, PaxosID, Round, Value}, ETSTableName = State) ->
     ?TRACE("learner:accepted for paxosid '~p' and round '~p' value '~p'~n",
            [PaxosID, Round, Value]),
     MyState = case pdb:get(PaxosID, ETSTableName) of
@@ -113,10 +117,10 @@ on({acceptor_accepted, PaxosID, Round, Value}, ETSTableName = State) ->
                       msg_delay:send_local(
                         config:read(learner_noinit_timeout) div 1000, self(),
                         {learner_deleteid_if_still_no_client, PaxosID}),
-                      learner_state:new(PaxosID, 128, none, no_cookie);
+                      state_new(PaxosID, 128, none, no_cookie);
                   StateForID -> StateForID
               end,
-    case learner_state:add_accepted_msg(MyState, Round, Value) of
+    case state_add_accepted_msg(MyState, Round, Value) of
         {majority_accepted, NewState} ->
             decide(PaxosID, NewState),
             pdb:set(NewState, ETSTableName);
@@ -133,7 +137,7 @@ on({learner_deleteid_if_still_no_client, PaxosID}, ETSTableName = State) ->
     case pdb:get(PaxosID, ETSTableName) of
         undefined -> ok;
         StateForId ->
-            case learner_state:get_process_to_inform(StateForId) of
+            case state_get_process_to_inform(StateForId) of
                 none ->
                     %% io:format("Deleting unhosted learner id~n"),
                     pdb:delete(PaxosID, ETSTableName);
@@ -147,11 +151,11 @@ on(_, _State) ->
 
 decide(PaxosID, State) ->
     ?TRACE("learner:decide for paxosid '~p' in round '~p' and value '~p'~n",
-           [PaxosID, learner_state:get_round(State), learner_state:get_value(State)]),
-    case learner_state:get_process_to_inform(State) of
+           [PaxosID, state_get_round(State), state_get_value(State)]),
+    case state_get_process_to_inform(State) of
         none -> ok; % will be informed later when learner is initialized
-        Pid -> msg_decide(Pid, learner_state:get_client_cookie(State),
-                          PaxosID, learner_state:get_value(State))
+        Pid -> msg_decide(Pid, state_get_client_cookie(State),
+                          PaxosID, state_get_value(State))
     end.
 
 %% @doc Checks whether config parameters exist and are valid.
@@ -160,4 +164,3 @@ check_config() ->
     config:cfg_is_integer(learner_noinit_timeout) and
     config:cfg_is_greater_than_equal(learner_noinit_timeout, 1000) and
     config:cfg_is_greater_than(learner_noinit_timeout, tx_timeout).
-

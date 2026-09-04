@@ -1,4 +1,5 @@
 \chapter{Download and Installation}
+\label{chapter.downloadinstall}
 
 \section{Requirements}
 \label{sec.requirements}
@@ -9,7 +10,7 @@ required which is not included in the \scalaris{} sources:
 \begin{itemize}
 \setlength{\itemsep}{0pt}
 \setlength{\parskip}{0pt}
-\item Erlang R13B01 or newer
+\item Erlang R14B04 or newer
 \item OpenSSL (required by Erlang's crypto module)
 \item GNU-like Make and autoconf (not required on Windows)
 \end{itemize}
@@ -40,16 +41,15 @@ programs are also required:
 \section{Download}
 
 The sources can be obtained from
-\url{http://code.google.com/p/scalaris}. RPM and DEB packages are available
+\url{https://github.com/scalaris-team/scalaris}. RPM and DEB packages are available
 from \url{http://download.opensuse.org/repositories/home:/scalaris/} for
 various Linux distributions.
 
 \subsection{Development Branch}
 
-You find the latest development version in the svn repository:
+You find the latest development version in the git repository:
 \begin{lstlisting}[language={}]
-# Non-members may check out a read-only working copy anonymously over HTTP.
-svn checkout http://scalaris.googlecode.com/svn/trunk/ scalaris-read-only
+git clone https://github.com/scalaris-team/scalaris.git scalaris
 \end{lstlisting}
 
 \subsection{Releases}
@@ -98,18 +98,12 @@ nodes. It seems to work but we make no guarantees.
 \end{itemize}
 
 \code{build.bat} will generate a \code{Emakefile} if there is none yet.
-If you have Erlang $<$ R13B04, you will need to adapt the \code{Emakefile}.
-There will be empty lines in the first three blocks ending with
-``\code{ ]\}.}'': add the following to these lines and try to compile again.
-It should work now.
-
-\begin{lstlisting}[language=erlang]
-, {d, type_forward_declarations_are_not_allowed}
-, {d, forward_or_recursive_types_are_not_allowed}
-\end{lstlisting}
+On certain older Erlang versions, you will need to adapt the \code{Emakefile}.
+Please refer to the \code{build.bat} and \code{configure.ac} for the available
+configuration parameters and their meaning.
 
 For the most recent description please see the FAQ at
-\url{http://code.google.com/p/scalaris/wiki/FAQ}.
+\url{http://scalaris.zib.de/faq.html}.
 
 \subsection{Java-API}
 
@@ -157,12 +151,12 @@ directly from the source directory. Note: \code{make install} will install
 and install it.
 On openSUSE, for example, do the following:
 
-\begin{lstlisting}{language=sh}
-export SCALARIS_SVN=http://scalaris.googlecode.com/svn/trunk
+\begin{lstlisting}[language=sh]
+export SCALARIS_GIT=https://raw.githubusercontent.com/scalaris-team/scalaris/master
 for package in main bindings; do
   mkdir -p ${package}
   cd ${package}
-  svn export ${SCALARIS_SVN}/contrib/packages/${package}/checkout.sh
+  wget ${SCALARIS_GIT}/contrib/packages/${package}/checkout.sh
   ./checkout.sh
   cp * /usr/src/packages/SOURCES/
   rpmbuild -ba scalaris*.spec
@@ -174,37 +168,35 @@ If any additional packages are required in order to build an RPM,
 \code{rpmbuild} will print an error.
 
 Your source and binary RPMs will be generated in
-\code{/usr/src/packages/SRPMS} and \code{RPMS}. We build RPM and DEB packages
-using the latest tagged version as well as checkouts from svn and provide them
-using the Open Build Service at
-\url{http://download.opensuse.org/repositories/home:/scalaris/}. Packages
-are available for
+\code{/usr/src/packages/SRPMS} and \code{RPMS}.
 
-\begin{itemize}
-\item Fedora 14, 15
-\item Mandriva 2010, 2010.1,
-\item openSUSE 11.3, 11.4, Factory, Tumbleweed
-\item SLE 10, 11, 11SP1,
-\item CentOS 5.5,
-\item RHEL 5.5, 6,
-\item Debian 5.0, 6.0 and
-\item Ubuntu 10.04, 10.10, 11.04.
-\end{itemize}
-
-An up-to-date list of available repositories can be found at
-\url{https://code.google.com/p/scalaris/wiki/FAQ#Prebuild_packages}.
+We build RPM and DEB packages for the newest stable Scalaris version as well as
+snapshots of the git master branch and provide them using the Open Build Service.
+The latest stable version is available at
+\url{http://download.opensuse.org/repositories/home:/scalaris/}.
+The latest git snapshot is available at
+\url{http://download.opensuse.org/repositories/home:/scalaris:/svn}.
 
 For those distributions which provide a recent-enough Erlang version, we build
 the packages using their Erlang package and recommend using the same version
 that came with the distribution. In this case we do not provide Erlang packages
 in our repository.
 
-Exceptions are made for openSUSE-based and RHEL-based distributions as well as
-Debian~5.0:
+Exceptions are made for (old) openSUSE-based and RHEL-based distributions:
 \begin{itemize}
-  \item For openSUSE, we provide the package from the \code{devel:languages:erlang}
-repository.
-  \item For RHEL-based distributions (CentOS~5, RHEL~5, RHEL~6) we included the Erlang
-package from the EPEL repository of RHEL~6.
-  \item For Debian~5.0 we included the Erlang package of Ubuntu 11.04.
+  \item For older openSUSE or SLE distributions, we provide Erlang R14B04.
+  \item For RHEL-based distributions (CentOS~5,6,7, RHEL~5,6,7) we included the Erlang
+package from the EPEL repository of RHEL~6 and RHEL~7, respectively.
 \end{itemize}
+
+\section{Testing the Installation}
+
+After installing \scalaris{} you can check your installation and perform
+some basic tests using
+
+\begin{lstlisting}[language=sh]
+%> scalarisctl checkinstallation
+\end{lstlisting}
+
+For further details on \code{scalarisctl} see
+Section~\sieheref{user.config.scalarisctl}.

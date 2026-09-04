@@ -1,5 +1,5 @@
 /**
- *  Copyright 2011 Zuse Institute Berlin
+ *  Copyright 2011-2013 Zuse Institute Berlin
  *
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -57,12 +57,14 @@ public class MyParsingWikiModel extends MyWikiModel {
      *            the template's name without the namespace
      * @param parameter
      *            the parameters of the template
+     * @param followRedirect
+     *            whether to follow a redirect or not (ignored)
      * 
      * @return the template's contents
      */
     @Override
     protected String retrievePage(String namespace, String articleName,
-            Map<String, String> templateParameters) {
+            Map<String, String> templateParameters, boolean followRedirect) {
         if (isTemplateNamespace(namespace)) {
             int index = articleName.indexOf(':');
             if (index > 0) {

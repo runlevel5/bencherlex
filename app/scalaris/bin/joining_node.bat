@@ -1,5 +1,5 @@
 @echo off
-:: Copyright 2010-2012 Zuse Institute Berlin
+:: Copyright 2010-2015 Zuse Institute Berlin
 ::
 ::    Licensed under the Apache License, Version 2.0 (the "License");
 ::    you may not use this file except in compliance with the License.
@@ -13,6 +13,8 @@
 ::    See the License for the specific language governing permissions and
 ::    limitations under the License.
 SETLOCAL
+
+for %%x in (%cmdcmdline%) do if %%~x==/c set DOUBLECLICKED=1
 
 :: Script to start a node, that joins a running Scalaris system.
 set SCRIPTDIR=%~dp0
@@ -66,9 +68,11 @@ pushd %BEAMDIR%
   -scalaris docroot "\"%DOCROOTDIR%\"" ^
   -scalaris config "\"%ETCDIR%\\scalaris.cfg\"" ^
   -scalaris local_config "\"%ETCDIR%\\scalaris.local.cfg\"" ^
-  -scalaris start_dht_node dht_node ^
+  -scalaris start_type joining ^
   -connect_all false -hidden -name %NODE_NAME% ^
   %SCALARIS_ADDITIONAL_PARAMETERS% ^
-  -s scalaris %params%
+  -s scalaris %ERL_SCHED_FLAGS% %params%
 popd
 @echo off
+
+if defined DOUBLECLICKED PAUSE

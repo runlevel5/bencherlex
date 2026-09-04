@@ -10,7 +10,7 @@ import com.ericsson.otp.erlang.OtpErlangList;
  * Stores the result of a delete operation.
  *
  * @author Nico Kruber, kruber@zib.de
- * @version 2.6
+ * @version 3.19
  * @since 2.2
  *
  * @see ReplicatedDHT#delete(String)
@@ -54,5 +54,30 @@ public class DeleteResult {
                 }
             }
         }
+    }
+
+    /**
+     * Checks whether the delete operation has successfully deleted all replicas
+     * (replicas which did not exist are counted as successfully deleted as
+     * well). If not, the delete needs to be executed again (see
+     * {@link ReplicatedDHT#delete(com.ericsson.otp.erlang.OtpErlangString, int)}.
+     *
+     * @param conn
+     *            a connection to Scalaris to find out the current replication
+     *            degree
+     * @return whether all replicas were deleted or not
+     *
+     * @throws ConnectionException
+     *             if the connection is not active or a communication error
+     *             occurs or an exit signal was received or the remote node
+     *             sends a message containing an invalid cookie
+     *
+     * @since 3.19
+     */
+    public boolean hasDeletedAll(final Connection conn) throws ConnectionException {
+        final RoutingTable rt = new RoutingTable(conn);
+        final int r = rt.getReplicationFactor();
+
+        return (ok + undef) == r;
     }
 }

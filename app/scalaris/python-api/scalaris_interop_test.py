@@ -1,5 +1,4 @@
-#!/usr/bin/python
-# Copyright 2011 Zuse Institute Berlin
+# Copyright 2011-2015 Zuse Institute Berlin
 #
 #    Licensed under the Apache License, Version 2.0 (the "License");
 #    you may not use this file except in compliance with the License.
@@ -19,25 +18,29 @@ import sys
 def read_or_write(sc, key, value, mode):
     try:
         if (mode == 'read'):
-            print 'read(' + key + ')'
-            print '  expected: ' + repr(value)
             actual = sc.read(key)
-            print '  read raw: ' + repr(actual)
             # if the expected value is a list, the returned value could by (mistakenly) a string if it is a list of integers
             # -> convert such a string to a list
             if (type(value).__name__=='list'):
                 try:
                     actual = scalaris.str_to_list(actual)
                 except:
-                    print 'fail'
-                    return 1
-            print '   read py: ' + repr(actual)
+                    pass # will fail the comparison anyway
             if (actual == value):
-                print 'ok'
-                return 0
+                out = sys.stdout
+                result = 0
+                result_str = 'ok'
             else:
-                print 'fail'
-                return 1
+                out = sys.stderr
+                result = 1
+                result_str = 'fail'
+
+            print >> out, 'read(' + key + ')'
+            print >> out, '  expected: ' + repr(value)
+            print >> out, '  read raw: ' + repr(actual)
+            print >> out, '   read py: ' + repr(actual)
+            print >> out, result_str
+            return result
         elif (mode == 'write'):
             print 'write(' + key + ', ' + repr(value) + ')'
             sc.write(key, value)
@@ -146,9 +149,12 @@ def read_write_list(basekey, sc, mode):
     failed += read_or_write(sc, basekey + "_list_0_1_2_3", [0, 1, 2, 3], mode)
     failed += read_or_write(sc, basekey + "_list_0_123_456_65000", [0, 123, 456, 65000], mode)
     failed += read_or_write(sc, basekey + "_list_0_123_456_0x10ffff", [0, 123, 456, 0x10ffff], mode)
-    failed += read_or_write(sc, basekey + "_list_0_foo_1.5_false", [0, 'foo', 1.5, False], mode)
+    list4 = [0, 'foo', 1.5, False]
+    failed += read_or_write(sc, basekey + "_list_0_foo_1.5_false", list4, mode)
     # note: binary not supported in lists
     #failed += read_or_write(sc, basekey + "_list_0_foo_1.5_<<0123>>", [0, 'foo', 1.5, bytearray([0, 1, 2, 3])], mode)
+    failed += read_or_write(sc, basekey + "_list_0_foo_1.5_false_list4", [0, 'foo', 1.5, False, list4], mode)
+    failed += read_or_write(sc, basekey + "_list_0_foo_1.5_false_list4_map_x=0_y=1", [0, 'foo', 1.5, False, list4, {'x': 0, 'y': 1}], mode)
     
     return failed
 

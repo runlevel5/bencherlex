@@ -1,5 +1,5 @@
-%  Copyright 2008, 2011 Zuse Institute Berlin
-%
+%  @copyright 2008, 2011 Zuse Institute Berlin
+
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
 %   You may obtain a copy of the License at
@@ -11,24 +11,19 @@
 %   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %   See the License for the specific language governing permissions and
 %   limitations under the License.
-%%%-------------------------------------------------------------------
-%%% File    : benchmark_SUITE.erl
-%%% Author  : Thorsten Schuett <schuett@zib.de>
-%%% Description : Runs the basic benchmarks from src/bench.erl
-%%%               The results are stored in several files in the main
-%%%               directory, so that the buildbot can fetch the data
-%%%               from there.
-%%%
-%%% Created :  18 Mar 2010 by Thorsten Schuett <schuett@zib.de>
-%%%-------------------------------------------------------------------
+
+%% @author Thorsten Schuett <schuett@zib.de>
+%% @doc    Runs the basic benchmarks from src/bench.erl
+%%         The results are stored in several files in the main directory, so
+%%         that the buildbot can fetch the data from there.
+%% @end
+%% @version $Id$
 -module(benchmark_SUITE).
 
 -author('schuett@zib.de').
--vsn('$Id: benchmark_SUITE.erl 1841 2011-06-23 13:42:27Z schintke $').
+-vsn('$Id$').
 
--export([all/0, end_per_suite/1, init_per_suite/1, run_increment_10_100/1,
-         run_increment_1_1000/1, run_read_10_10000/1, run_read_1_100000/1,
-         suite/0, write_result/2]).
+-compile(export_all).
 
 -include("unittest.hrl").
 
@@ -39,60 +34,57 @@ all() ->
 suite() -> [ {timetrap, {seconds, 120}} ].
 
 init_per_suite(Config) ->
-    Config2 = unittest_helper:init_per_suite(Config),
-    {priv_dir, PrivDir} = lists:keyfind(priv_dir, 1, Config2),
+    {priv_dir, PrivDir} = lists:keyfind(priv_dir, 1, Config),
     unittest_helper:make_ring(4, [{config, [{log_path, PrivDir}]}]),
-    Config2.
+    Config.
 
-end_per_suite(Config) ->
-    _ = unittest_helper:end_per_suite(Config),
+end_per_suite(_Config) ->
     ok.
 
 run_increment_1_1000(_Config) ->
     Threads    = 1,
     Iterations = 10000,
-    Start = erlang:timestamp(),
-    bench:increment(Threads, Iterations),
-    Stop = erlang:timestamp(),
-    RunTime = timer:now_diff(Stop, Start),
+    Start = os:timestamp(),
+    {ok, _} = bench:increment(Threads, Iterations),
+    Stop = os:timestamp(),
+    RunTime = erlang:max(1, timer:now_diff(Stop, Start)),
     write_result("result_increment_1_10000.txt", Threads * Iterations / RunTime * 1000000.0),
     ok.
 
 run_increment_10_100(_Config) ->
     Threads    = 10,
     Iterations = 1000,
-    Start = erlang:timestamp(),
-    bench:increment(Threads, Iterations),
-    Stop = erlang:timestamp(),
-    RunTime = timer:now_diff(Stop, Start),
+    Start = os:timestamp(),
+    {ok, _} = bench:increment(Threads, Iterations),
+    Stop = os:timestamp(),
+    RunTime = erlang:max(1, timer:now_diff(Stop, Start)),
     write_result("result_increment_10_1000.txt", Threads * Iterations / RunTime * 1000000.0),
     ok.
 
 run_read_1_100000(_Config) ->
     Threads    = 1,
     Iterations = 100000,
-    Start = erlang:timestamp(),
-    bench:quorum_read(Threads, Iterations),
-    Stop = erlang:timestamp(),
-    RunTime = timer:now_diff(Stop, Start),
+    Start = os:timestamp(),
+    {ok, _} = bench:quorum_read(Threads, Iterations),
+    Stop = os:timestamp(),
+    RunTime = erlang:max(1, timer:now_diff(Stop, Start)),
     write_result("result_read_1_100000.txt", Threads * Iterations / RunTime * 1000000.0),
     ok.
 
 run_read_10_10000(_Config) ->
     Threads    = 10,
     Iterations = 10000,
-    Start = erlang:timestamp(),
-    bench:quorum_read(Threads, Iterations),
-    Stop = erlang:timestamp(),
-    RunTime = timer:now_diff(Stop, Start),
+    Start = os:timestamp(),
+    {ok, _} = bench:quorum_read(Threads, Iterations),
+    Stop = os:timestamp(),
+    RunTime = erlang:max(1, timer:now_diff(Stop, Start)),
     write_result("result_read_10_10000.txt", Threads * Iterations / RunTime * 1000000.0),
     ok.
 
+-spec write_result(Filename::string(), Result::term()) -> ok.
 write_result(Filename, Result) ->
     % make_ring switched to the bin sub-dir...go to top-level:
-    _ = file:set_cwd(".."),
-    {ok, F} = file:open(Filename, [write]),
+    {ok, F} = file:open("../" ++ Filename, [write]),
     io:fwrite(F, "~p~n", [Result]),
     _ = file:close(F),
-    _ = file:set_cwd("bin"),
     ok.

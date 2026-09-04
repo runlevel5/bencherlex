@@ -1,4 +1,4 @@
-%  @copyright 2007-2012 Zuse Institute Berlin
+%  @copyright 2007-2018 Zuse Institute Berlin
 
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
@@ -15,20 +15,20 @@
 %% @author Thorsten Schuett <schuett@zib.de>
 %% @doc    Config file parser for scalaris.
 %% @end
-%% @version $Id: config.erl 2904 2012-03-19 16:52:28Z kruber@zib.de $
+%% @version $Id$
 -module(config).
 -author('schuett@zib.de').
--vsn('$Id: config.erl 2904 2012-03-19 16:52:28Z kruber@zib.de $').
+-vsn('$Id$').
 -include("scalaris.hrl").
 
 -export([
-         start_link2/1, start_link2/0, start_link/1, start_link/2, start/2,
          read/1, write/2,
+         init/1,
          check_config/0,
 
          cfg_exists/1, cfg_is_atom/1, cfg_is_bool/1, cfg_is_mypid/1,
          cfg_is_ip/1, cfg_is_ip/2, cfg_is_port/1,
-         cfg_is_integer/1, cfg_is_float/1,
+         cfg_is_integer/1, cfg_is_float/1, cfg_is_number/1,
          cfg_is_tuple/2, cfg_is_tuple/4, cfg_is_list/1, cfg_is_list/3, cfg_is_string/1,
          cfg_is_in_range/3, cfg_is_greater_than/2, cfg_is_greater_than_equal/2,
          cfg_is_less_than/2, cfg_is_less_than_equal/2, cfg_is_in/2, cfg_is_module/1,
@@ -42,103 +42,91 @@
 %%      cached in the config.
 -spec read(Key::atom()) -> any() | failed.
 read(Key) ->
-    % If an environment variable sets a config parameter that is present in the
+    %% If an environment variable sets a config parameter that is present in the
     % config, it will override the config (see populate_db/1, process_term/1).
     % We can thus first check the ets table and fall back to the environment
     % check afterwards.
-    case ets:lookup(config_ets, Key) of
-        [{Key, Value}] -> Value;
-        [] -> Value = util:app_get_env(Key, failed),
-              case self() =:= erlang:whereis(config) of
-                  true -> ets:insert(config_ets, {Key, Value});
-                  _    -> write(Key, Value)
-              end,
-              Value
+    case erlang:get({config,Key}) of
+        undefined ->
+            case ets:info(config_ets) of
+                undefined ->
+                    io:format("config not started yet (trying to read ~p)\n",
+                              [Key]),
+                    failed;
+                _ ->
+%%                    log:log("~p config read in hot path ~p", [self(), Key]),
+                    case ets:lookup(config_ets, Key) of
+                        [{Key, Value}] ->
+                            erlang:put({config,Key}, Value),
+                            Value;
+                        [] -> Value = util:app_get_env(Key, failed),
+                              case Value of
+                                  failed -> ok;
+                                  _ -> %% case self() =:= erlang:whereis(config)
+                                       %% of
+                                       %%    true -> ets:insert(config_ets,
+                                       %%                       {Key, Value});
+                                       %%    _    ->
+                                            write(Key, Value)
+                                       %% end
+                              end,
+                              erlang:put({config,Key}, Value),
+                              Value
+                    end
+            end;
+        Value -> Value
     end.
 
 %% @doc Writes a config parameter.
 -spec write(atom(), any()) -> ok.
 write(Key, Value) ->
-    comm:send_local(config, {write, self(), Key, Value}),
-    receive
-        {write_done} -> ok
-    end.
-
-%% gen_server setup
-
-%% @doc Short for start_link/2 with no options and the given files.
--spec start_link(Files::[file:name()]) -> {ok, pid()}.
-start_link(Files) ->
-    start_link(Files, []).
-
-%% @doc Starts the config process. If Options contains a
-%%      {config, [{Key1, Value1},...]} tuple, each Key is set to its Value in
-%%      the config.
--spec start_link(Files::[file:name()], Options::[tuple()]) -> {ok, pid()}.
-start_link(Files, Options) ->
-    case whereis(config) of
-        Pid when is_pid(Pid) ->
-            %% ct:pal("There is already a Config process:~n"),
-            {ok, Pid};
-        _ ->
-            TheFiles = case util:app_get_env(add_config, []) of
-                           []         -> Files;
-                           ConfigFile -> lists:append(Files, [ConfigFile])
-                       end,
-%%             error_logger:info_msg("Config files: ~p~n", [TheFiles]),
-            Owner = self(),
-            Link = spawn_link(?MODULE, start, [TheFiles, Owner]),
-            receive
-                done -> ok;
-                X    -> error_logger:error_msg("unknown config message  ~p", [X])
-            end,
-            ConfigParameters = case lists:keyfind(config, 1, Options) of
-                                   {config, ConfPars} -> ConfPars;
-                                   _ -> []
-                               end,
-            _ = [write(K, V) || {K, V} <- ConfigParameters],
-            {ok, Link}
-    end.
-
-%% @doc Short for start_link2/1 with no options.
--spec start_link2() -> {ok, pid()}.
-start_link2() ->
-    start_link2([]).
-
-%% @doc Starts the config process and determines the config files from the
-%%      application's environment. If there is no application, "scalaris.cfg"
-%%      and "scalaris.local.cfg" are used. If Options contains a
-%%      {config, [{Key1, Value1},...]} tuple, each Key is set to its Value in
-%%      the config.
--spec start_link2(Options::[tuple()]) -> {ok, pid()}.
-start_link2(Options) ->
-    Files = [util:app_get_env(config, "scalaris.cfg"),
-             util:app_get_env(local_config, "scalaris.local.cfg")],
-    start_link(Files, Options).
+    %% config is not dynamic. But we update the local cache, so one
+    %% can write config in a local context (in unittests).
+    %% io:format("Writing ~p~n", [{Key, Value}]),
+    erlang:put({config,Key}, Value),
+    ets:insert(config_ets, {Key, Value}),
+    ok.
 
 %@private
--spec start(Files::[file:name()], Owner::pid()) -> no_return().
-start(Files, Owner) ->
-    erlang:register(config, self()),
-    _ = ets:new(config_ets, [set, protected, named_table]),
-    _ = [ populate_db(File) || File <- Files],
-    case check_config() of
+-spec init(Options::[tuple()]) -> ok | no_return().
+init(Options) ->
+    Files = [util:app_get_env(config, "scalaris.cfg"),
+             util:app_get_env(local_config, "scalaris.local.cfg")],
+    _ = ets:new(config_ets, [set, public, named_table]),
+    TheFiles = case util:app_get_env(add_config, []) of
+                   []         -> Files;
+                   ConfigFile -> lists:append(Files, [ConfigFile])
+               end,
+    _ = [ populate_db(File) || File <- TheFiles],
+
+    ConfigParameters = case lists:keyfind(config, 1, Options) of
+                           {config, ConfPars} -> ConfPars;
+                           _ -> []
+                       end,
+    AdditionalKVs = util:app_get_env(config_kvs, []),
+    %% io:format("~p~n", [AdditionalKVs]),
+    _ = [write(K, V) || {K, V} <- ConfigParameters],
+    _ = [write(K, V) || {K, V} <- AdditionalKVs],
+
+    %% use different subdirectory per vmname to be independent of distr. Erlang
+    DBSubDir = case read(vmname) of
+                   failed -> novmname;
+                   X -> X
+               end,
+    _ = write(db_directory, read(db_directory) ++ "/"
+              ++ atom_to_list(DBSubDir) ++ "/"),
+    ok = filelib:ensure_dir(read(db_directory)),
+
+    try check_config() of
         true -> ok;
         _    -> % wait so the error output can be written:
             init:stop(1),
             receive nothing -> ok end
-    end,
-    Owner ! done,
-    loop().
-
-loop() ->
-    receive
-        {write, Pid, Key, Value} ->
-            ets:insert(config_ets, {Key, Value}),
-            comm:send_local(Pid, {write_done}),
-            loop();
-        _ ->
-            loop()
+    catch Err:Reason -> % wait so the error output can be written:
+            error_logger:error_msg("check_config/0 crashed with: ~.0p:~.0p~nStacktrace:~p~n",
+                                   [Err, Reason, util:get_stacktrace()]),
+            init:stop(1),
+            receive nothing -> ok end
     end.
 
 %@private
@@ -151,12 +139,12 @@ populate_db(File) ->
             _ = lists:map(fun process_term/1, Terms),
             ok;
         {error, enoent} ->
-            case File =/= "scalaris.local.cfg" of
-                true ->
+            case lists:suffix("scalaris.local.cfg", File) of
+                false ->
                     error_logger:info_msg(
                       "Can't load config file ~p: File does not exist. "
                       " Ignoring.\n", [File]);
-                false -> ok
+                true -> ok
             end,
             fail;
         {error, Reason} ->
@@ -180,14 +168,13 @@ check_config() ->
         [ case X() of
               true -> true;
               false ->
-                  ct:pal(error, "check_config ~p failed.~n", [X]),
+                  error_logger:error_msg("check_config ~p failed.~n", [X]),
                   false
           end || X  <- [ fun log:check_config/0,
                          fun sup_scalaris:check_config/0,
                          fun sup_dht_node_core:check_config/0,
-                         fun cyclon:check_config/0,
+                         fun proto_sched:check_config/0,
                          fun acceptor:check_config/0,
-                         fun gossip:check_config/0,
                          fun learner:check_config/0,
                          fun rdht_tx:check_config/0,
                          fun rdht_tx_read:check_config/0,
@@ -195,7 +182,6 @@ check_config() ->
                          fun ?RT:check_config/0,
                          fun rt_loop:check_config/0,
                          fun tx_tm_rtm:check_config/0,
-                         fun vivaldi:check_config/0,
                          fun vivaldi_latency:check_config/0,
                          fun ?RM:check_config/0,
                          fun fd_hbs:check_config/0,
@@ -208,11 +194,32 @@ check_config() ->
                          fun lb_psv_simple:check_config/0,
                          fun lb_psv_split:check_config/0,
                          fun lb_psv_gossip:check_config/0,
-                         fun comm_acceptor:check_config/0,
+                         fun gossip:check_config/0,
+                         fun comm_tcp_acceptor:check_config/0,
+                         fun comm_ssl_acceptor:check_config/0,
                          fun monitor:check_config/0,
                          fun monitor_perf:check_config/0,
                          fun rrd:check_config/0,
-                         fun sup_yaws:check_config/0 ]],
+                         fun rrepair:check_config/0,
+                         fun rr_recon:check_config/0,
+                         fun sup_yaws:check_config/0,
+                         fun dc_clustering:check_config/0,
+                         fun ganglia:check_config/0,
+                         fun autoscale:check_config/0,
+                         fun autoscale_server:check_config/0,
+                         fun cloud_local:check_config/0,
+                         fun cloud_ssh:check_config/0,
+                         fun lb_active:check_config/0,
+                         fun gossip_cyclon:check_config/0,
+                         fun gossip_vivaldi:check_config/0,
+                         fun db_prbr:check_config/0,
+                         fun l_on_cseq:check_config/0,
+                         fun prbr:check_config/0,
+                         fun rbrcseq:check_config/0,
+                         fun crdt:check_config/0,
+                         fun crdt_proposer:check_config/0,
+                         fun db_bitcask_merge_extension:check_config/0
+                       ]],
     lists:foldl(fun(A,B) -> A and B end, true, Checks).
 
 -spec cfg_exists(Key::atom()) -> boolean().
@@ -228,12 +235,17 @@ cfg_exists(Key) ->
 %%      prints an error message if not, also returns the result.
 -spec cfg_test_and_error(Key::atom(), Pred::fun((any()) -> boolean()), Msg::list()) -> boolean().
 cfg_test_and_error(Key, Pred, Msg) ->
-    Value = read(Key),
-    case cfg_exists(Key) andalso Pred(Value) of
-        true -> true;
-        false -> error_logger:error_msg("~p = ~p ~s (see scalaris.cfg and scalaris.local.cfg)~n",
+    case read(Key) of
+        failed ->
+            error_logger:error_msg("~p not defined (see scalaris.cfg and scalaris.local.cfg)~n", [Key]),
+            false;
+        Value ->
+            case Pred(Value) of
+                true -> true;
+                _ -> error_logger:error_msg("~p = ~p ~s (see scalaris.cfg and scalaris.local.cfg)~n",
                                             [Key, Value, lists:flatten(Msg)]),
-                 false
+                     false
+            end
     end.
 
 -spec cfg_is_atom(Key::atom()) -> boolean().
@@ -288,12 +300,15 @@ cfg_is_port(Key) ->
     IsPort = fun(Value) ->
                      case Value of
                          X when erlang:is_integer(X) ->
-                             true;
+                             X >= 0 andalso X =< 65535;
                          Y when erlang:is_list(Y) ->
-                             lists:all(fun erlang:is_integer/1, Y);
+                             lists:all(fun(P) ->
+                                               erlang:is_integer(P) andalso
+                                                   P >= 0 andalso P =< 655351
+                                       end, Y);
                          {From, To} ->
-                             erlang:is_integer(From) andalso
-                                 erlang:is_integer(To);
+                             erlang:is_integer(From) andalso From >= 0 andalso From =< 655351 andalso
+                                 erlang:is_integer(To) andalso To >= 0 andalso To =< 655351;
                          _ -> false
                      end
              end,
@@ -310,6 +325,12 @@ cfg_is_integer(Key) ->
 cfg_is_float(Key) ->
     Pred = fun erlang:is_float/1,
     Msg = "is not a valid float",
+    cfg_test_and_error(Key, Pred, Msg).
+
+-spec cfg_is_number(Key::atom()) -> boolean().
+cfg_is_number(Key) ->
+    Pred = fun erlang:is_number/1,
+    Msg = "is not a valid number",
     cfg_test_and_error(Key, Pred, Msg).
 
 -spec cfg_is_tuple(Key::atom(), TupleSize::pos_integer()) -> boolean().
@@ -371,8 +392,12 @@ cfg_is_in_range(Key, Min, Max) ->
 
 -spec cfg_is_greater_than(Key::atom(), Min::number() | atom()) -> boolean().
 cfg_is_greater_than(_Key, failed) -> false; %% stop endless loop
-cfg_is_greater_than(Key, Min) when erlang:is_atom(Min) ->
-    cfg_is_greater_than(Key, read(Min));
+cfg_is_greater_than(Key, Min0) when erlang:is_atom(Min0) ->
+    Min = read(Min0),
+    %% stop endless loop (do not recurse!)
+    IsGreaterThan = fun(Value) -> (Value > Min) end,
+    Msg = io_lib:format("is not larger than ~p", [Min]),
+    cfg_test_and_error(Key, IsGreaterThan, Msg);
 cfg_is_greater_than(Key, Min) ->
     IsGreaterThan = fun(Value) -> (Value > Min) end,
     Msg = io_lib:format("is not larger than ~p", [Min]),
@@ -380,8 +405,12 @@ cfg_is_greater_than(Key, Min) ->
 
 -spec cfg_is_greater_than_equal(Key::atom(), Min::number() | atom()) -> boolean().
 cfg_is_greater_than_equal(_Key, failed) -> false; %% stop endless loop
-cfg_is_greater_than_equal(Key, Min) when erlang:is_atom(Min) ->
-    cfg_is_greater_than_equal(Key, read(Min));
+cfg_is_greater_than_equal(Key, Min0) when erlang:is_atom(Min0) ->
+    Min = read(Min0),
+    %% stop endless loop (do not recurse!)
+    IsGreaterThanEqual = fun(Value) -> (Value >= Min) end,
+    Msg = io_lib:format("is not larger than or equal to ~p", [Min]),
+    cfg_test_and_error(Key, IsGreaterThanEqual, Msg);
 cfg_is_greater_than_equal(Key, Min) ->
     IsGreaterThanEqual = fun(Value) -> (Value >= Min) end,
     Msg = io_lib:format("is not larger than or equal to ~p", [Min]),
@@ -389,8 +418,12 @@ cfg_is_greater_than_equal(Key, Min) ->
 
 -spec cfg_is_less_than(Key::atom(), Max::number() | atom()) -> boolean().
 cfg_is_less_than(_Key, failed) -> false; %% stop endless loop
-cfg_is_less_than(Key, Max) when erlang:is_atom(Max) ->
-    cfg_is_less_than(Key, read(Max));
+cfg_is_less_than(Key, Max0) when erlang:is_atom(Max0) ->
+    Max = read(Max0),
+    %% stop endless loop (do not recurse!)
+    IsLessThan = fun(Value) -> (Value < Max) end,
+    Msg = io_lib:format("is not less than ~p", [Max]),
+    cfg_test_and_error(Key, IsLessThan, Msg);
 cfg_is_less_than(Key, Max) ->
     IsLessThan = fun(Value) -> (Value < Max) end,
     Msg = io_lib:format("is not less than ~p", [Max]),
@@ -398,8 +431,12 @@ cfg_is_less_than(Key, Max) ->
 
 -spec cfg_is_less_than_equal(Key::atom(), Max::number() | atom()) -> boolean().
 cfg_is_less_than_equal(_Key, failed) -> false; %% stop endless loop
-cfg_is_less_than_equal(Key, Max) when erlang:is_atom(Max) ->
-    cfg_is_less_than_equal(Key, read(Max));
+cfg_is_less_than_equal(Key, Max0) when erlang:is_atom(Max0) ->
+    Max = read(Max0),
+    %% stop endless loop (do not recurse!)
+    IsLessThanEqual = fun(Value) -> (Value =< Max) end,
+    Msg = io_lib:format("is not less than or equal to ~p", [Max]),
+    cfg_test_and_error(Key, IsLessThanEqual, Msg);
 cfg_is_less_than_equal(Key, Max) ->
     IsLessThanEqual = fun(Value) -> (Value =< Max) end,
     Msg = io_lib:format("is not less than or equal to ~p", [Max]),

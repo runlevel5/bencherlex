@@ -5,9 +5,8 @@
 # Uncomment this to turn on verbose mode.
 #export DH_VERBOSE=1
 
-# This is the debhelper compatibility version to use.
-export DH_COMPAT=4
-
+build-arch: build
+build-indep: build
 build: build-stamp
 build-stamp:
 	dh_testdir
@@ -16,7 +15,8 @@ build-stamp:
 	./configure --prefix=/usr \
 	--sysconfdir=/etc \
 	--localstatedir=/var \
-	--docdir=/usr/share/doc/scalaris
+	--docdir=/usr/share/doc/scalaris \
+	--disable-cpp
 #    --prefix=%{_prefix} \
 #    --exec-prefix=%{_exec_prefix} \
 #    --bindir=%{_bindir} \
@@ -46,30 +46,33 @@ clean:
 
 	dh_clean
 
-BUILD_DIR:=$(CURDIR)/debian/tmp
+BUILD_DIR_MAIN:=$(CURDIR)/debian/scalaris
+BUILD_DIR_DOC:=$(CURDIR)/debian/scalaris-doc
 install: build
 	dh_testdir
 	dh_testroot
-	dh_clean -k
+	dh_prep
 	dh_installdirs
 
 	# Add here commands to install the package into debian/gentoo.
-	make install DESTDIR=$(BUILD_DIR)
-	make install-doc DESTDIR=$(BUILD_DIR)
+	make install DESTDIR=$(BUILD_DIR_MAIN)
+	make install-doc DESTDIR=$(BUILD_DIR_MAIN)
+	# move some doc to the doc sub-package:
+	mkdir -p $(BUILD_DIR_DOC)/usr/share/doc/scalaris
+	mv $(BUILD_DIR_MAIN)/usr/share/doc/scalaris/erlang \
+	   $(BUILD_DIR_DOC)/usr/share/doc/scalaris/
+	mv $(BUILD_DIR_MAIN)/usr/share/doc/scalaris/user-dev-guide.pdf \
+	   $(BUILD_DIR_DOC)/usr/share/doc/scalaris/
+	mkdir -p $(BUILD_DIR_DOC)/usr/lib/scalaris/docroot
+	mv $(BUILD_DIR_MAIN)/usr/lib/scalaris/docroot/doc \
+	   $(BUILD_DIR_DOC)/usr/lib/scalaris/docroot/
 	
 	# handle config files:
-	cp $(BUILD_DIR)/etc/scalaris/scalaris.cfg \
-	   $(BUILD_DIR)/etc/scalaris/scalaris.cfg.example
-
-	# move sub-package files into the correct folders:
-	dh_install --sourcedir=$(BUILD_DIR)
+	cp $(BUILD_DIR_MAIN)/etc/scalaris/scalaris.cfg \
+	   $(BUILD_DIR_MAIN)/etc/scalaris/scalaris.cfg.example
 
 # Build architecture-independent files here.
 binary-indep: build install
-	# We have nothing to do by default.
-
-# Build architecture-dependent files here.
-binary-arch: build install
 	dh_testdir
 	dh_testroot
 #	dh_installdebconf
@@ -97,6 +100,10 @@ binary-arch: build install
 	dh_gencontrol
 	dh_md5sums
 	dh_builddeb
+
+# Build architecture-dependent files here.
+binary-arch: build install
+	# We have nothing to do by default.
 
 binary: binary-indep binary-arch
 .PHONY: build clean binary-indep binary-arch binary install

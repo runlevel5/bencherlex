@@ -1,5 +1,5 @@
 /**
- *  Copyright 2011 Zuse Institute Berlin
+ *  Copyright 2011-2013 Zuse Institute Berlin
  *
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -24,6 +24,7 @@ import de.zib.scalaris.examples.wikipedia.PageHistoryResult;
 import de.zib.scalaris.examples.wikipedia.RevisionResult;
 import de.zib.scalaris.examples.wikipedia.SavePageResult;
 import de.zib.scalaris.examples.wikipedia.ValueResult;
+import de.zib.scalaris.examples.wikipedia.data.Contribution;
 import de.zib.scalaris.examples.wikipedia.data.Page;
 import de.zib.scalaris.examples.wikipedia.data.Revision;
 import de.zib.scalaris.examples.wikipedia.data.SiteInfo;
@@ -44,26 +45,22 @@ public interface WikiServletDataHandler<Connection> {
     public String getSiteInfoKey();
     
     /**
-     * Gets the key to store the (complete) list of pages at.
+     * Gets the key to store the list of pages in the given namespace at.
+     * 
+     * @param namespace  the namespace ID
      * 
      * @return DB key
      */
-    public String getPageListKey();
+    public String getPageListKey(int namespace);
     
     /**
      * Gets the key to store the number of pages at.
      * 
-     * @return DB key
-     */
-    public String getPageCountKey();
-    
-    /**
-     * Gets the key to store the (complete) list of articles, i.e. pages in
-     * the main namespace) at.
+     * @param namespace  the namespace ID
      * 
      * @return DB key
      */
-    public String getArticleListKey();
+    public String getPageCountKey(int namespace);
     
     /**
      * Gets the key to store the number of articles, i.e. pages in the main
@@ -165,6 +162,16 @@ public interface WikiServletDataHandler<Connection> {
      * @return DB key
      */
     public String getStatsPageEditsKey();
+    
+    /**
+     * Gets the key to store the list of contributions of a user.
+     * 
+     * @param contributor  the user name or IP address of the user who created
+     *                     the revision
+     * 
+     * @return DB key
+     */
+    public String getContributionListKey(String contributor);
 
     
     /**
@@ -226,25 +233,26 @@ public interface WikiServletDataHandler<Connection> {
             int id, final MyNamespace nsObject);
     
     /**
-     * Retrieves a list of available pages from the DB.
+     * Retrieves a list of all available pages from the DB.
      * 
      * @param connection
      *            the connection to the DB
      * 
      * @return a result object with the page list on success
      */
-    public ValueResult<List<String>> getPageList(Connection connection);
+    public ValueResult<List<NormalisedTitle>> getPageList(Connection connection);
     
     /**
-     * Retrieves a list of available articles, i.e. pages in the main
-     * namespace, from the DB.
+     * Retrieves a list of available pages in the given namespace from the DB.
      * 
+     * @param namespace
+     *            the namespace ID
      * @param connection
      *            the connection to the DB
      * 
      * @return a result object with the page list on success
      */
-    public ValueResult<List<String>> getArticleList(Connection connection);
+    public ValueResult<List<NormalisedTitle>> getPageList(int namespace, Connection connection);
     
     /**
      * Retrieves a list of pages in the given category from the DB.
@@ -253,13 +261,11 @@ public interface WikiServletDataHandler<Connection> {
      *            the connection to the DB
      * @param title
      *            the title of the category
-     * @param nsObject
-     *            the namespace for page title normalisation
      * 
      * @return a result object with the page list on success
      */
-    public ValueResult<List<String>> getPagesInCategory(Connection connection,
-            String title, final MyNamespace nsObject);
+    public ValueResult<List<NormalisedTitle>> getPagesInCategory(Connection connection,
+            NormalisedTitle title);
     
     /**
      * Retrieves a list of pages using the given template from the DB.
@@ -268,13 +274,27 @@ public interface WikiServletDataHandler<Connection> {
      *            the connection to the DB
      * @param title
      *            the title of the template
-     * @param nsObject
-     *            the namespace for page title normalisation
      * 
      * @return a result object with the page list on success
      */
-    public ValueResult<List<String>> getPagesInTemplate(Connection connection,
-            String title, final MyNamespace nsObject);
+    public ValueResult<List<NormalisedTitle>> getPagesInTemplate(Connection connection,
+            NormalisedTitle title);
+
+    /**
+     * Retrieves a list of pages using the given templates from the DB.
+     * 
+     * @param connection
+     *            the connection to the DB
+     * @param titles
+     *            the titles of the templates
+     * @param pageTitle
+     *            the title of the page to retrieve the list for (will be
+     *            included in the statname)
+     * 
+     * @return a result object with the page list on success
+     */
+    public ValueResult<List<NormalisedTitle>> getPagesInTemplates(Connection connection,
+            List<NormalisedTitle> titles, String pageTitle);
     
     /**
      * Retrieves a list of pages linking to the given page from the DB.
@@ -288,11 +308,25 @@ public interface WikiServletDataHandler<Connection> {
      * 
      * @return a result object with the page list on success
      */
-    public ValueResult<List<String>> getPagesLinkingTo(Connection connection,
+    public ValueResult<List<NormalisedTitle>> getPagesLinkingTo(Connection connection,
             String title, final MyNamespace nsObject);
+
+    /**
+     * Retrieves a list of pages linking to the given page from the DB.
+     * 
+     * @param connection
+     *            the connection to the DB
+     * @param contributor
+     *            the user name or IP address of the user who created the
+     *            revision
+     * 
+     * @return a result object with the page list on success
+     */
+    public ValueResult<List<Contribution>> getContributions(
+            Connection connection, String contributor);
     
     /**
-     * Retrieves the number of available pages from the DB.
+     * Retrieves the number of all available pages from the DB.
      * 
      * @param connection
      *            the connection to the DB
@@ -300,6 +334,19 @@ public interface WikiServletDataHandler<Connection> {
      * @return a result object with the number of pages on success
      */
     public ValueResult<BigInteger> getPageCount(Connection connection);
+    
+    /**
+     * Retrieves the number of available pages in the given namespace from the
+     * DB.
+     * 
+     * @param namespace
+     *            the namespace ID
+     * @param connection
+     *            the connection to the DB
+     * 
+     * @return a result object with the number of pages on success
+     */
+    public ValueResult<BigInteger> getPageCount(int namespace, Connection connection);
     
     /**
      * Retrieves the number of available articles, i.e. pages in the main
@@ -348,7 +395,7 @@ public interface WikiServletDataHandler<Connection> {
      * 
      * @return a result object with the page list on success
      */
-    public ValueResult<String> getRandomArticle(Connection connection, Random random);
+    public ValueResult<NormalisedTitle> getRandomArticle(Connection connection, Random random);
     
     /**
      * Saves or edits a page with the given parameters

@@ -1,5 +1,5 @@
 /**
- *  Copyright 2011 Zuse Institute Berlin
+ *  Copyright 2011-2013 Zuse Institute Berlin
  *
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -29,7 +29,6 @@ import java.util.Properties;
 import java.util.Random;
 import java.util.TreeSet;
 
-import javax.servlet.RequestDispatcher;
 import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
@@ -42,13 +41,16 @@ import org.xml.sax.helpers.XMLReaderFactory;
 import de.zib.scalaris.Connection;
 import de.zib.scalaris.ConnectionFactory;
 import de.zib.scalaris.ConnectionPool;
+import de.zib.scalaris.NodeDiscovery;
 import de.zib.scalaris.TransactionSingleOp;
-import de.zib.scalaris.examples.wikipedia.CircularByteArrayOutputStream;
+import de.zib.scalaris.examples.wikipedia.Options;
 import de.zib.scalaris.examples.wikipedia.PageHistoryResult;
 import de.zib.scalaris.examples.wikipedia.RevisionResult;
 import de.zib.scalaris.examples.wikipedia.SavePageResult;
-import de.zib.scalaris.examples.wikipedia.ScalarisDataHandler;
+import de.zib.scalaris.examples.wikipedia.ScalarisDataHandlerNormalised;
+import de.zib.scalaris.examples.wikipedia.ScalarisDataHandlerUnnormalised;
 import de.zib.scalaris.examples.wikipedia.ValueResult;
+import de.zib.scalaris.examples.wikipedia.data.Contribution;
 import de.zib.scalaris.examples.wikipedia.data.Revision;
 import de.zib.scalaris.examples.wikipedia.data.SiteInfo;
 import de.zib.scalaris.examples.wikipedia.data.xml.SAXParsingInterruptedException;
@@ -56,6 +58,7 @@ import de.zib.scalaris.examples.wikipedia.data.xml.WikiDump;
 import de.zib.scalaris.examples.wikipedia.data.xml.WikiDumpHandler;
 import de.zib.scalaris.examples.wikipedia.data.xml.WikiDumpPreparedSQLiteToScalaris;
 import de.zib.scalaris.examples.wikipedia.data.xml.WikiDumpToScalarisHandler;
+import de.zib.tools.CircularByteArrayOutputStream;
 
 /**
  * Wiki servlet connecting to Scalaris.
@@ -65,10 +68,12 @@ import de.zib.scalaris.examples.wikipedia.data.xml.WikiDumpToScalarisHandler;
 public class WikiServletScalaris extends WikiServlet<Connection> {
 
     private static final long serialVersionUID = 1L;
-    private static final int CONNECTION_POOL_SIZE = 100;
+    private static final int CONNECTION_POOL_SIZE = 200;
     private static final int MAX_WAIT_FOR_CONNECTION = 10000; // 10s
     
     private ConnectionPool cPool;
+    protected NodeDiscovery nodeDiscovery;
+    private boolean autoImport;
 
     /**
      * Default constructor creating the servlet.
@@ -82,8 +87,8 @@ public class WikiServletScalaris extends WikiServlet<Connection> {
      * imports site information.
      */
     @Override
-    public void init(ServletConfig config) throws ServletException {
-        super.init(config);
+    public void init2(ServletConfig config) throws ServletException {
+        super.init2(config);
         Properties properties = new Properties();
         try {
             InputStream fis = config.getServletContext().getResourceAsStream("/WEB-INF/scalaris.properties");
@@ -113,8 +118,36 @@ public class WikiServletScalaris extends WikiServlet<Connection> {
 //        cFactory.setConnectionPolicy(new RoundRobinConnectionPolicy(cFactory.getNodes()));
 
         cPool = new ConnectionPool(cFactory, CONNECTION_POOL_SIZE);
-        loadSiteInfo();
-        loadPlugins();
+        if (Options.getInstance().SCALARIS_NODE_DISCOVERY > 0) {
+            nodeDiscovery = new NodeDiscovery(cPool);
+            nodeDiscovery.startWithFixedDelay(Options.getInstance().SCALARIS_NODE_DISCOVERY);
+        }
+    }
+
+    @Override
+    protected void startAutoImport() {
+        String dumpsPath = getServletContext().getRealPath("/WEB-INF/dumps");
+        if (!initialized && !loadSiteInfo() || !currentImport.isEmpty()) {
+            String req_import = null;
+            // get auto-import dumps:
+            File dumpsDir = new File(dumpsPath);
+            if (dumpsDir.isDirectory()) {
+                List<String> autoImportFiles = Arrays.asList(dumpsDir.list(new FilenameFilter() {
+                    @Override
+                    public boolean accept(File dir, String name) {
+                        return MATCH_WIKI_AUTOIMPORT_FILE.matcher(name).matches();
+                    }
+                }));
+                if (!autoImportFiles.isEmpty()) {
+                    // use the first auto-import file
+                    req_import = autoImportFiles.get(0);
+                    // remove .auto from filename:
+                    req_import = req_import.substring(0, req_import.length() - ".auto".length());
+                    startImport(dumpsPath, req_import, 2, null);
+                    autoImport = true;
+                }
+            }
+        }
     }
     
     /**
@@ -138,6 +171,7 @@ public class WikiServletScalaris extends WikiServlet<Connection> {
                 // TODO: fix siteinfo's base url
                 namespace = new MyNamespace(siteinfo);
                 initialized = true;
+                setLocalisedSpecialPageNames();
             } catch (Exception e) {
                 // no warning here - this probably is an empty wiki
                 return false;
@@ -153,8 +187,13 @@ public class WikiServletScalaris extends WikiServlet<Connection> {
     /**
      * Sets up the connection to the Scalaris erlang node once on the server.
      * 
+     * In case of errors, the <tt>error</tt> and <tt>notice</tt> attributes of
+     * the <tt>request</tt> object are set appropriately if not <tt>null</tt>.
+     * 
      * @param request
-     *            the request to the servlet
+     *            the request to the servlet (may be <tt>null</tt>)
+     * 
+     * @return a valid connection of <tt>null</tt> if an error occurred
      */
     @Override
     protected Connection getConnection(HttpServletRequest request) {
@@ -185,7 +224,7 @@ public class WikiServletScalaris extends WikiServlet<Connection> {
      * Releases the connection back into the Scalaris connection pool.
      * 
      * @param request
-     *            the request to the servlet
+     *            the request to the servlet or <tt>null</tt> if there is none
      * @param conn
      *            the connection to release
      */
@@ -207,14 +246,13 @@ public class WikiServletScalaris extends WikiServlet<Connection> {
      */
     @Override
     protected synchronized void showImportPage(HttpServletRequest request,
-            HttpServletResponse response, Connection connection)
-            throws ServletException, IOException {
-        WikiPageBean page = new WikiPageBean();
+            HttpServletResponse response, Connection connection,
+            WikiPageBean page) throws ServletException, IOException {
         page.setNotAvailable(true);
-        request.setAttribute("pageBean", page);
         
         StringBuilder content = new StringBuilder();
         String dumpsPath = getServletContext().getRealPath("/WEB-INF/dumps");
+        final String serviceUser = page.getServiceUser().isEmpty() ? "" : "&service_user=" + page.getServiceUser();
         
         if (currentImport.isEmpty() && importHandler == null) {
             TreeSet<String> availableDumps = new TreeSet<String>();
@@ -234,6 +272,9 @@ public class WikiServletScalaris extends WikiServlet<Connection> {
                 content.append("<h2>Please select a wiki dump to import</h2>\n");
                 
                 content.append("<form method=\"get\" action=\"wiki\">\n");
+                if (!page.getServiceUser().isEmpty()) {
+                    content.append("<input type=\"hidden\" value=\"" + page.getServiceUser() + "\" name=\"service_user\"/>");
+                }
                 content.append("<p>\n");
                 content.append("  <select name=\"import\" size=\"10\" style=\"width:500px;\">\n");
                 for (String dump: availableDumps) {
@@ -249,48 +290,36 @@ public class WikiServletScalaris extends WikiServlet<Connection> {
             } else {
                 content.append("<h2>Importing \"" + req_import + "\"...</h2>\n");
                 try {
-                    currentImport = req_import;
                     int maxRevisions = parseInt(request.getParameter("max_revisions"), 2);
                     Calendar maxTime = parseDate(request.getParameter("max_time"), null);
-                    importLog = new CircularByteArrayOutputStream(1024 * 1024);
-                    PrintStream ps = new PrintStream(importLog);
-                    ps.println("starting import...");
-                    String fileName = dumpsPath + File.separator + req_import;
-                    if (fileName.endsWith(".db")) {
-                        importHandler = new WikiDumpPreparedSQLiteToScalaris(fileName, cPool.getConnectionFactory());
-                    } else {
-                        importHandler = new WikiDumpToScalarisHandler(
-                                de.zib.scalaris.examples.wikipedia.data.xml.Main.blacklist,
-                                null, maxRevisions, null, maxTime, cPool.getConnectionFactory());
-                    }
-                    importHandler.setMsgOut(ps);
-                    this.new ImportThread(importHandler, fileName, ps).start();
-                    response.setHeader("Refresh", "2; url = wiki?import=" + currentImport);
+                    startImport(dumpsPath, req_import, maxRevisions, maxTime);
+                    response.setHeader("Refresh", "2; url = wiki?import=" + currentImport + serviceUser + "#refresh");
                     content.append("<p>Current log file (refreshed automatically every " + IMPORT_REDIRECT_EVERY + " seconds):</p>\n");
                     content.append("<pre>");
                     content.append("starting import...\n");
                     content.append("</pre>");
-                    content.append("<p><a href=\"wiki?import=" + currentImport + "\">refresh</a></p>");
-                    content.append("<p><a href=\"wiki?stop_import=" + currentImport + "\">stop</a> (WARNING: pages may be incomplete due to missing templates)</p>");
+                    content.append("<p><a name=\"refresh\" href=\"wiki?import=" + currentImport + serviceUser + "#refresh\">refresh</a></p>");
+                    if (importHandler.hasStopSupport()) {
+                        content.append("<p><a href=\"wiki?stop_import=" + currentImport + serviceUser + "\">stop</a> (WARNING: pages may be incomplete due to missing templates)</p>");
+                    }
                 } catch (Exception e) {
                     setParam_error(request, "ERROR: import failed");
                     addToParam_notice(request, "error: <pre>" + e.getMessage() + "</pre>");
                     currentImport = "";
                 }
             }
-        } else {
+        } else if (!currentImport.isEmpty() && importHandler != null) {
             content.append("<h2>Importing \"" + currentImport + "\"...</h2>\n");
             
             String req_stop_import = request.getParameter("stop_import");
-            boolean stopImport;
-            if (req_stop_import == null || req_stop_import.isEmpty()) {
-                stopImport = false;
-                response.setHeader("Refresh", IMPORT_REDIRECT_EVERY + "; url = wiki?import=" + currentImport);
-                content.append("<p>Current log file (refreshed automatically every " + IMPORT_REDIRECT_EVERY + " seconds):</p>\n");
-            } else {
+            boolean stopImport = false;
+            if (importHandler.hasStopSupport() && req_stop_import != null && !req_stop_import.isEmpty()) {
                 stopImport = true;
                 importHandler.stopParsing();
                 content.append("<p>Current log file:</p>\n");
+            } else {
+                response.setHeader("Refresh", IMPORT_REDIRECT_EVERY + "; url = wiki?import=" + currentImport + serviceUser + "#refresh");
+                content.append("<p>Current log file (refreshed automatically every " + IMPORT_REDIRECT_EVERY + " seconds):</p>\n");
             }
             content.append("<pre>");
             String log = importLog.toString();
@@ -300,10 +329,34 @@ public class WikiServletScalaris extends WikiServlet<Connection> {
             }
             content.append("</pre>");
             if (!stopImport) {
-                content.append("<p><a href=\"wiki?import=" + currentImport + "\">refresh</a></p>");
-                content.append("<p><a href=\"wiki?stop_import=" + currentImport + "\">stop</a> (WARNING: pages may be incomplete due to missing templates)</p>");
+                content.append("<p><a name=\"refresh\" href=\"wiki?import=" + currentImport + serviceUser + "#refresh\">refresh</a></p>");
+                if (importHandler.hasStopSupport()) {
+                    content.append("<p><a href=\"wiki?stop_import=" + currentImport + serviceUser + "\">stop</a> (WARNING: pages may be incomplete due to missing templates)</p>");
+                }
             } else {
-                content.append("<p>Import has been stopped by the user. Return to <a href=\"wiki?title=" + MAIN_PAGE + "\">" + MAIN_PAGE + "</a>.</p>");
+                content.append("<p>Import has been stopped by the user. Return to <a href=\"wiki?title=" + MAIN_PAGE + serviceUser + "\">" + MAIN_PAGE + "</a>.</p>");
+            }
+        } else if (!currentImport.isEmpty() && importHandler == null) {
+            content.append("<h2>Import of \"" + currentImport + "\" finished</h2>\n");
+            content.append("<p>Current log file:</p>\n");
+            content.append("<pre>");
+            String log = importLog.toString();
+            int start = log.indexOf("\n");
+            if (start != -1) { 
+                content.append(log.substring(start));
+            }
+            content.append("</pre>");
+
+            String req_stop_import = request.getParameter("stop_import");
+            if (req_stop_import != null && !req_stop_import.isEmpty()) {
+                synchronized (WikiServletScalaris.this) {
+                    importLog.close();
+                    WikiServletScalaris.this.currentImport = "";
+                }
+                response.setHeader("Refresh", "1; url = wiki?title=" + MAIN_PAGE + serviceUser + "");
+                content.append("<p>If not re-directed automatically: Return to <a href=\"wiki?title=" + MAIN_PAGE + serviceUser + "\">" + MAIN_PAGE + "</a></p>\n");
+            } else {
+                content.append("<p><a href=\"wiki?stop_import=" + currentImport + serviceUser + "\">clear log and return to Main Page</a></p>");
             }
         }
 
@@ -311,9 +364,26 @@ public class WikiServletScalaris extends WikiServlet<Connection> {
         page.setError(getParam_error(request));
         page.setTitle("Import Wiki dump");
         page.setPage(content.toString());
-        
-        RequestDispatcher dispatcher = request.getRequestDispatcher("page.jsp");
-        dispatcher.forward(request, response);
+
+        forwardToPageJsp(request, response, connection, page, "page.jsp");
+    }
+
+    private void startImport(String dumpsPath, String req_import,
+            int maxRevisions, Calendar maxTime) throws RuntimeException {
+        currentImport = req_import;
+        importLog = new CircularByteArrayOutputStream(1024 * 1024);
+        PrintStream ps = new PrintStream(importLog);
+        ps.println("starting import...");
+        String fileName = dumpsPath + File.separator + req_import;
+        if (fileName.endsWith(".db")) {
+            importHandler = new WikiDumpPreparedSQLiteToScalaris(fileName, Options.getInstance(), 1, 1, cPool.getConnectionFactory());
+        } else {
+            importHandler = new WikiDumpToScalarisHandler(
+                    de.zib.scalaris.examples.wikipedia.data.xml.Main.blacklist,
+                    null, maxRevisions, null, maxTime, cPool.getConnectionFactory());
+        }
+        importHandler.setMsgOut(ps);
+        this.new ImportThread(importHandler, fileName, ps).start();
     }
     
     private class ImportThread extends Thread {
@@ -331,7 +401,7 @@ public class WikiServletScalaris extends WikiServlet<Connection> {
          */
         @Override
         public void run() {
-            InputSource is = null;
+            InputSource[] is = null;
             try {
                 handler.setUp();
                 if (handler instanceof WikiDumpHandler) {
@@ -339,15 +409,16 @@ public class WikiServletScalaris extends WikiServlet<Connection> {
                     XMLReader reader = XMLReaderFactory.createXMLReader();
                     reader.setContentHandler(xmlHandler);
                     is = de.zib.scalaris.examples.wikipedia.data.xml.Main.getFileReader(fileName);
-                    reader.parse(is);
-                    xmlHandler.new ReportAtShutDown().run();
+                    for (InputSource source : is) {
+                        reader.parse(source);
+                    }
+                    xmlHandler.new ReportAtShutDown().reportAtEnd();
                     ps.println("import finished");
                 } else if (handler instanceof WikiDumpPreparedSQLiteToScalaris) {
                     WikiDumpPreparedSQLiteToScalaris sqlHandler =
                             (WikiDumpPreparedSQLiteToScalaris) handler;
                     sqlHandler.writeToScalaris();
-                    sqlHandler.new ReportAtShutDown().run();
-                    
+                    sqlHandler.new ReportAtShutDown().reportAtEnd();
                 }
             } catch (Exception e) {
                 if (e instanceof SAXParsingInterruptedException) {
@@ -359,165 +430,188 @@ public class WikiServletScalaris extends WikiServlet<Connection> {
                 handler.tearDown();
                 if (is != null) {
                     try {
-                        is.getCharacterStream().close();
+                        for (InputSource source : is) {
+                            source.getCharacterStream().close();
+                        }
                     } catch (IOException e) {
                         // don't care
                     }
                 }
             }
             synchronized (WikiServletScalaris.this) {
-                WikiServletScalaris.this.currentImport = "";
                 WikiServletScalaris.this.importHandler = null;
+                WikiServletScalaris.this.updateExistingPages();
+                if (WikiServletScalaris.this.autoImport) {
+                    WikiServletScalaris.this.currentImport = "";
+                }
             }
         }
     }
     
     @Override
-    protected MyScalarisWikiModel getWikiModel(Connection connection) {
-        return new MyScalarisWikiModel(WikiServlet.imageBaseURL,
-                WikiServlet.linkBaseURL, connection, namespace);
+    protected MyScalarisWikiModel getWikiModel(Connection connection, WikiPageBeanBase page) {
+        final MyScalarisWikiModel model = new MyScalarisWikiModel(getImagebaseurl(page),
+                getLinkbaseurl(page), connection, namespace);
+        model.setExistingPages(existingPages);
+        return model;
     }
 
     @Override
     public String getSiteInfoKey() {
-        return ScalarisDataHandler.getSiteInfoKey();
+        return ScalarisDataHandlerUnnormalised.getSiteInfoKey();
     }
 
     @Override
-    public String getPageListKey() {
-        return ScalarisDataHandler.getPageListKey();
+    public String getPageListKey(int namespace) {
+        return ScalarisDataHandlerUnnormalised.getPageListKey(namespace);
     }
 
     @Override
-    public String getPageCountKey() {
-        return ScalarisDataHandler.getPageCountKey();
-    }
-
-    @Override
-    public String getArticleListKey() {
-        return ScalarisDataHandler.getArticleListKey();
+    public String getPageCountKey(int namespace) {
+        return ScalarisDataHandlerUnnormalised.getPageCountKey(namespace);
     }
 
     @Override
     public String getArticleCountKey() {
-        return ScalarisDataHandler.getArticleCountKey();
+        return ScalarisDataHandlerUnnormalised.getArticleCountKey();
     }
 
     @Override
     public String getRevKey(String title, int id, final MyNamespace nsObject) {
-        return ScalarisDataHandler.getRevKey(title, id, nsObject);
+        return ScalarisDataHandlerUnnormalised.getRevKey(title, id, nsObject);
     }
 
     @Override
     public String getPageKey(String title, final MyNamespace nsObject) {
-        return ScalarisDataHandler.getPageKey(title, nsObject);
+        return ScalarisDataHandlerUnnormalised.getPageKey(title, nsObject);
     }
 
     @Override
     public String getRevListKey(String title, final MyNamespace nsObject) {
-        return ScalarisDataHandler.getRevListKey(title, nsObject);
+        return ScalarisDataHandlerUnnormalised.getRevListKey(title, nsObject);
     }
 
     @Override
     public String getCatPageListKey(String title, final MyNamespace nsObject) {
-        return ScalarisDataHandler.getCatPageListKey(title, nsObject);
+        return ScalarisDataHandlerUnnormalised.getCatPageListKey(title, nsObject);
     }
 
     @Override
     public String getCatPageCountKey(String title, final MyNamespace nsObject) {
-        return ScalarisDataHandler.getCatPageCountKey(title, nsObject);
+        return ScalarisDataHandlerUnnormalised.getCatPageCountKey(title, nsObject);
     }
 
     @Override
     public String getTplPageListKey(String title, final MyNamespace nsObject) {
-        return ScalarisDataHandler.getTplPageListKey(title, nsObject);
+        return ScalarisDataHandlerUnnormalised.getTplPageListKey(title, nsObject);
     }
 
     @Override
     public String getBackLinksPageListKey(String title, final MyNamespace nsObject) {
-        return ScalarisDataHandler.getBackLinksPageListKey(title, nsObject);
+        return ScalarisDataHandlerUnnormalised.getBackLinksPageListKey(title, nsObject);
     }
 
     @Override
     public String getStatsPageEditsKey() {
-        return ScalarisDataHandler.getStatsPageEditsKey();
+        return ScalarisDataHandlerUnnormalised.getStatsPageEditsKey();
+    }
+
+    @Override
+    public String getContributionListKey(String contributor) {
+        return ScalarisDataHandlerUnnormalised.getContributionListKey(contributor);
     }
 
     @Override
     public ValueResult<String> getDbVersion(Connection connection) {
-        return ScalarisDataHandler.getDbVersion(connection);
+        return ScalarisDataHandlerUnnormalised.getDbVersion(connection);
     }
 
     @Override
     public PageHistoryResult getPageHistory(Connection connection, String title, final MyNamespace nsObject) {
-        return ScalarisDataHandler.getPageHistory(connection, title, nsObject);
+        return ScalarisDataHandlerUnnormalised.getPageHistory(connection, title, nsObject);
     }
 
     @Override
     public RevisionResult getRevision(Connection connection, String title, final MyNamespace nsObject) {
-        return ScalarisDataHandler.getRevision(connection, title, nsObject);
+        return ScalarisDataHandlerUnnormalised.getRevision(connection, title, nsObject);
     }
 
     @Override
     public RevisionResult getRevision(Connection connection, String title, int id, final MyNamespace nsObject) {
-        return ScalarisDataHandler.getRevision(connection, title, id, nsObject);
+        return ScalarisDataHandlerUnnormalised.getRevision(connection, title, id, nsObject);
     }
 
     @Override
-    public ValueResult<List<String>> getPageList(Connection connection) {
-        return ScalarisDataHandler.getPageList(connection);
+    public ValueResult<List<NormalisedTitle>> getPageList(Connection connection) {
+        return ScalarisDataHandlerUnnormalised.getPageList(connection);
     }
 
     @Override
-    public ValueResult<List<String>> getArticleList(Connection connection) {
-        return ScalarisDataHandler.getArticleList(connection);
+    public ValueResult<List<NormalisedTitle>> getPageList(int namespace, Connection connection) {
+        return ScalarisDataHandlerUnnormalised.getPageList(namespace, connection);
     }
 
     @Override
-    public ValueResult<List<String>> getPagesInCategory(Connection connection, String title, final MyNamespace nsObject) {
-        return ScalarisDataHandler.getPagesInCategory(connection, title, nsObject);
+    public ValueResult<List<NormalisedTitle>> getPagesInCategory(Connection connection, NormalisedTitle title) {
+        return ScalarisDataHandlerNormalised.getPagesInCategory(connection, title);
     }
 
     @Override
-    public ValueResult<List<String>> getPagesInTemplate(Connection connection, String title, final MyNamespace nsObject) {
-        return ScalarisDataHandler.getPagesInTemplate(connection, title, nsObject);
+    public ValueResult<List<NormalisedTitle>> getPagesInTemplate(Connection connection, NormalisedTitle title) {
+        return ScalarisDataHandlerNormalised.getPagesInTemplate(connection, title);
     }
 
     @Override
-    public ValueResult<List<String>> getPagesLinkingTo(Connection connection, String title, final MyNamespace nsObject) {
-        return ScalarisDataHandler.getPagesLinkingTo(connection, title, nsObject);
+    public ValueResult<List<NormalisedTitle>> getPagesInTemplates(Connection connection, List<NormalisedTitle> titles, String pageTitle) {
+        return ScalarisDataHandlerNormalised.getPagesInTemplates(connection, titles, pageTitle);
+    }
+
+    @Override
+    public ValueResult<List<NormalisedTitle>> getPagesLinkingTo(Connection connection, String title, final MyNamespace nsObject) {
+        return ScalarisDataHandlerUnnormalised.getPagesLinkingTo(connection, title, nsObject);
+    }
+
+    @Override
+    public ValueResult<List<Contribution>> getContributions(
+            Connection connection, String contributor) {
+        return ScalarisDataHandlerUnnormalised.getContributions(connection, contributor);
     }
 
     @Override
     public ValueResult<BigInteger> getPageCount(Connection connection) {
-        return ScalarisDataHandler.getPageCount(connection);
+        return ScalarisDataHandlerUnnormalised.getPageCount(connection);
+    }
+
+    @Override
+    public ValueResult<BigInteger> getPageCount(int namespace, Connection connection) {
+        return ScalarisDataHandlerUnnormalised.getPageCount(namespace, connection);
     }
 
     @Override
     public ValueResult<BigInteger> getArticleCount(Connection connection) {
-        return ScalarisDataHandler.getArticleCount(connection);
+        return ScalarisDataHandlerUnnormalised.getArticleCount(connection);
     }
 
     @Override
     public ValueResult<BigInteger> getPagesInCategoryCount(Connection connection, String title, final MyNamespace nsObject) {
-        return ScalarisDataHandler.getPagesInCategoryCount(connection, title, nsObject);
+        return ScalarisDataHandlerUnnormalised.getPagesInCategoryCount(connection, title, nsObject);
     }
 
     @Override
     public ValueResult<BigInteger> getStatsPageEdits(Connection connection) {
-        return ScalarisDataHandler.getStatsPageEdits(connection);
+        return ScalarisDataHandlerUnnormalised.getStatsPageEdits(connection);
     }
 
     @Override
-    public ValueResult<String> getRandomArticle(Connection connection, Random random) {
-        return ScalarisDataHandler.getRandomArticle(connection, random);
+    public ValueResult<NormalisedTitle> getRandomArticle(Connection connection, Random random) {
+        return ScalarisDataHandlerUnnormalised.getRandomArticle(connection, random);
     }
 
     @Override
     public SavePageResult savePage(Connection connection, String title,
             Revision newRev, int prevRevId, Map<String, String> restrictions,
             SiteInfo siteinfo, String username, final MyNamespace nsObject) {
-        return ScalarisDataHandler.savePage(connection, title, newRev,
+        return ScalarisDataHandlerUnnormalised.savePage(connection, title, newRev,
                 prevRevId, restrictions, siteinfo, username, nsObject);
     }
 }

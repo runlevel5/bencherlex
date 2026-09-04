@@ -6,6 +6,11 @@
     <meta http-equiv="pragma" content="no-cache">
     <meta http-equiv="cache-control" content="no-cache">
     <meta http-equiv="expires" content="-1">
+    <link rel='shortcut icon' type='image/x-icon' href='/favicon.ico' />
+<erl>
+out(Arg) ->
+    {header, {cache_control, "no-cache"}}.
+</erl>
     <title>Scalaris Management Interface</title>
     <link rel="stylesheet" type="text/css" href="main.css">
   <!--[if lte IE 5.5999]>
@@ -75,14 +80,7 @@ out(A) ->
 <erl>
 get_web_debug_info(Group) ->
   Pid = pid_groups:pid_of(Group, dht_node),
-  comm:send_local(Pid, {web_debug_info, self()}),
-  receive
-    {web_debug_info_reply, Details} ->
-      Details
-  after
-    1000 ->
-      timeout
-  end.
+  util:debug_info(Pid).
 
 out(A) ->
   case lists:keyfind("group", 1, yaws_api:parse_query(A)) of
@@ -169,17 +167,12 @@ out(A) ->
 </erl>
 </p>
 
-Last update:
+<hr />
+<p>Last update:
 <erl>
-
  out(Arg) ->
     {Date, {Hour, Minute, Second}} = calendar:local_time(),
     {html, io_lib:format("~2..0B:~2..0B:~2..0B", [Hour, Minute, Second])}.
-</erl>
-</div>
-<br class="br_class">&nbsp;
-</div>
-<div class="bottom">
-</div>
+</erl></p>
 </body>
 </html>

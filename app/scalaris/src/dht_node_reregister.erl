@@ -1,4 +1,4 @@
-%  @copyright 2007-2011 Zuse Institute Berlin
+%  @copyright 2007-2015 Zuse Institute Berlin
 
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
@@ -13,29 +13,31 @@
 %   limitations under the License.
 
 %% @author Thorsten Schuett <schuett@zib.de>
-%% @doc    Re-register with boot nodes
+%% @doc    Re-register with mgmt_server nodes
 %% @end
-%% @version $Id: dht_node_reregister.erl 2576 2011-12-16 18:01:34Z kruber@zib.de $
+%% @version $Id$
 -module(dht_node_reregister).
 
 -author('schuett@zib.de').
--vsn('$Id: dht_node_reregister.erl 2576 2011-12-16 18:01:34Z kruber@zib.de $').
+-vsn('$Id$').
 
--behavior(gen_component).
+-behaviour(gen_component).
 
 -include("scalaris.hrl").
 
 -export([start_link/1]).
 -export([init/1, on_active/2, on_inactive/2,
-         activate/0, deactivate/0,
-         get_base_interval/0]).
+         activate/0, deactivate/0]).
+
+-include("gen_component.hrl").
 
 -type(message() ::
+    {register_trigger} |
     {register} |
     {web_debug_info, Requestor::comm:erl_local_pid()}).
 
--type state_active() :: trigger:state().
--type state_inactive() :: {inactive, trigger:state()} .
+-type state_active() :: ok.
+-type state_inactive() :: inactive.
 
 %% @doc Activates the re-register process. If not activated, it will
 %%      queue most messages without processing them.
@@ -50,51 +52,63 @@ deactivate() ->
     Pid = pid_groups:get_my(dht_node_reregister),
     comm:send_local(Pid, {deactivate_reregister}).
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Startup
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %% @doc Starts a re-register process, registers it with the process
 %%      dictionary and returns its pid for use by a supervisor.
 -spec start_link(pid_groups:groupname()) -> {ok, pid()}.
 start_link(DHTNodeGroup) ->
-    Trigger = config:read(dht_node_reregister_trigger),
-    gen_component:start_link(?MODULE, fun ?MODULE:on_inactive/2, Trigger,
-                             [{pid_groups_join_as, DHTNodeGroup, dht_node_reregister}]).
+    gen_component:start_link(?MODULE, fun ?MODULE:on_inactive/2, [],
+                             [{pid_groups_join_as, DHTNodeGroup, ?MODULE}]).
 
 %% @doc Initialises the module with an uninitialized state.
--spec init(module()) -> state_inactive().
-init(Trigger) ->
-    TriggerState = trigger:init(Trigger, fun get_base_interval/0, register),
-    {inactive, TriggerState}.
-      
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+-spec init([]) -> state_inactive().
+init([]) ->
+    msg_delay:send_trigger(get_base_interval(), {register_trigger}),
+    inactive.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Message Loop
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 -spec on_inactive(message(), state_inactive()) -> state_inactive();
                  ({activate_reregister}, state_inactive()) -> {'$gen_component', [{on_handler, Handler::gen_component:handler()}], State::state_active()}.
-on_inactive({activate_reregister}, {inactive, TriggerState}) ->
+on_inactive({activate_reregister}, _State) ->
     log:log(info, "[ Reregister ~.0p ] activating...~n", [comm:this()]),
-    NewTriggerState = trigger:now(TriggerState),
-    gen_component:change_handler(NewTriggerState, fun ?MODULE:on_active/2);
+    comm:send_local(self(), {register}),
+    gen_component:change_handler(ok, fun ?MODULE:on_active/2);
 
 on_inactive({web_debug_info, Requestor}, State) ->
     KeyValueList = [{"", ""}, {"inactive re-register process", ""}],
     comm:send_local(Requestor, {web_debug_info_reply, KeyValueList}),
     State;
 
-on_inactive(_Msg, {inactive, _TriggerState} = State) ->
+on_inactive({register_trigger}, State) ->
+    msg_delay:send_trigger(get_base_interval(), {register_trigger}),
+    State;
+
+on_inactive(_Msg, State) ->
     State.
 
 -spec on_active(message(), state_active()) -> state_active();
          ({deactivate_reregister}, state_active()) -> {'$gen_component', [{on_handler, Handler::gen_component:handler()}], State::state_inactive()}.
-on_active({deactivate_reregister}, TriggerState)  ->
+on_active({deactivate_reregister}, _State)  ->
     log:log(info, "[ Reregister ~.0p ] deactivating...~n", [comm:this()]),
-    gen_component:change_handler({inactive, TriggerState}, fun ?MODULE:on_inactive/2);
+    gen_component:change_handler(inactive, fun ?MODULE:on_inactive/2);
 
-on_active({register}, TriggerState) ->
-    RegisterMessage = {register, get_dht_node_this()},
+on_active({register_trigger}, State) ->
+    msg_delay:send_trigger(get_base_interval(), {register_trigger}),
+    gen_component:post_op({register}, State);
+
+on_active({register}, State) ->
+    comm:send_local(pid_groups:get_my(dht_node),
+                    {get_node_details, comm:this(), [node]}),
+    State;
+
+on_active({get_node_details_response, NodeDetails}, State) ->
+    RegisterMessage = {register, node_details:get(NodeDetails, node)},
     _ = case config:read(register_hosts) of
             failed -> MgmtServer = mgmtServer(),
                       case comm:is_valid(MgmtServer) of
@@ -103,29 +117,23 @@ on_active({register}, TriggerState) ->
                       end;
             Hosts  -> [comm:send(Host, RegisterMessage) || Host <- Hosts]
         end,
-    NewTriggerState = trigger:next(TriggerState),
-    NewTriggerState;
+    State;
 
-on_active({web_debug_info, Requestor}, TriggerState) ->
+on_active({web_debug_info, Requestor}, State) ->
     KeyValueList =
         case config:read(register_hosts) of
-            failed -> [{"Hosts (mgmt_server):", lists:flatten(io_lib:format("~.0p", [mgmtServer()]))}];
+            failed -> [{"Hosts (mgmt_server):", webhelpers:safe_html_string("~.0p", [mgmtServer()])}];
             Hosts  -> [{"Hosts:", ""} |
-                           [{"", lists:flatten(io_lib:format("~.0p", [Host]))} || Host <- Hosts]]
+                           [{"", webhelpers:safe_html_string("~.0p", [Host])} || Host <- Hosts]]
         end,
     comm:send_local(Requestor, {web_debug_info_reply, KeyValueList}),
-    TriggerState.
+    State.
 
-%% @doc Gets the interval to trigger re-registering the node set in scalaris.cfg.
--spec get_base_interval() -> pos_integer().
+%% @doc Gets the interval to trigger re-registering the node set in
+%%      scalaris.cfg and converts it to seconds.
+-spec get_base_interval() -> Seconds::pos_integer().
 get_base_interval() ->
-    config:read(reregister_interval).
-
-%% @doc Gets the pid of the dht_node process in the same group as the calling
-%%      process.
--spec get_dht_node_this() -> comm:mypid().
-get_dht_node_this() ->
-    comm:make_global(pid_groups:get_my(dht_node)).
+    config:read(reregister_interval) div 1000.
 
 %% @doc pid of the mgmt server (may be invalid)
 -spec mgmtServer() -> comm:mypid() | any().

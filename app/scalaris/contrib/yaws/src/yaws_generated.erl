@@ -10,14 +10,14 @@
 -module(yaws_generated).
 -author('klacke@bluetail.com').
 
--export([etcdir/0, is_local_install/0, vardir/0, version/0]).
+-export([version/0,
+         vardir/0,
+         etcdir/0]).
 
-version() -> "1.92".
+version() -> "2.0.4".
 
 vardir() ->  "/usr/local/var".
 
 etcdir() -> "/usr/local/etc".
-
-is_local_install() -> true.
 
 

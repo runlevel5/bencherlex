@@ -1,5 +1,5 @@
 /**
- *  Copyright 2007-2011 Zuse Institute Berlin
+ *  Copyright 2007-2013 Zuse Institute Berlin
  *
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -20,7 +20,6 @@ import info.bliki.wiki.template.AbstractTemplateFunction;
 import info.bliki.wiki.template.ITemplateFunction;
 import info.bliki.wiki.template.Switch;
 
-import java.io.IOException;
 import java.util.List;
 
 /**
@@ -46,13 +45,15 @@ public class MyParsingSwitchTemplateFun extends AbstractTemplateFunction {
      * @see info.bliki.wiki.template.AbstractTemplateFunction#parseFunction(java.util.List, info.bliki.wiki.model.IWikiModel, char[], int, int)
      */
     @Override
-    public String parseFunction(List<String> parts, IWikiModel model,
-            char[] src, int beginIndex, int endIndex) throws IOException {
-        if (parts.size() > 2) {
-            parse(parts.get(0), model);
+    public String parseFunction(List<String> list, IWikiModel model,
+            char[] src, int beginIndex, int endIndex, boolean isSubst) {
+        if (list.size() > 2) {
+            if (!isSubst) {
+                parseTrim(list.get(0), model);
+            }
             StringBuilder result = new StringBuilder();
-            for (int i = 1; i < parts.size(); i++) {
-                String temp = parse(parts.get(i), model);
+            for (int i = 1; i < list.size(); i++) {
+                String temp = isSubst ? list.get(i) : parseTrim(list.get(i), model);
                 int index = temp.indexOf('=');
                 String leftHandSide;
                 if (index >= 0) {
@@ -61,8 +62,8 @@ public class MyParsingSwitchTemplateFun extends AbstractTemplateFunction {
                 } else {
                     leftHandSide = temp.trim();
                 }
-                String parsedLHS = parse(leftHandSide, model);
-                if (index < 0 && i == parts.size() - 1) {
+                String parsedLHS = isSubst ? leftHandSide.trim() : parseTrim(leftHandSide, model);
+                if (index < 0 && i == list.size() - 1) {
                     result.append(parsedLHS);
                 }
             }

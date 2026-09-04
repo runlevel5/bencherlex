@@ -1,4 +1,4 @@
-%% @copyright 2011 Zuse Institute Berlin
+%% @copyright 2011-2015 Zuse Institute Berlin
 
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
@@ -30,19 +30,19 @@
 -spec get_node_info() -> [{scalaris_version | erlang_version, nonempty_string()} |
                           {dht_nodes, non_neg_integer()},...].
 get_node_info() ->
-    %MyMonitor = pid_groups:pid_of("clients_group", monitor),
-    %statistics:getMonitorStats(MyMonitor, Keys, tuple),
+    %MyMonitor = pid_groups:pid_of(clients_group, monitor),
+    %statistics:getTimingMonitorStats(MyMonitor, Keys, tuple),
     [{scalaris_version, ?SCALARIS_VERSION},
      {erlang_version, erlang:system_info(otp_release)},
      {dht_nodes, length(pid_groups:find_all(dht_node))}].
 
 -spec get_node_performance() -> list().
 get_node_performance() ->
-    Monitor = pid_groups:pid_of("clients_group", monitor),
+    Monitor = pid_groups:pid_of(basic_services, monitor),
     {_CountD, _CountPerSD, AvgMsD, _MinMsD, _MaxMsD, StddevMsD, _HistMsD} =
-        case statistics:getMonitorStats(Monitor, [{api_tx, 'req_list'}], tuple) of
-            []                           -> {[], [], [], [], [], [], []};
-            [{api_tx, 'req_list', Data}] -> Data
+        case statistics:getTimingMonitorStats(Monitor, [{monitor_perf, 'read_read'}], tuple) of
+            []                                  -> {[], [], [], [], [], [], []};
+            [{monitor_perf, 'read_read', Data}] -> Data
         end,
     [{latency_avg, AvgMsD},
      {latency_stddev, StddevMsD}].
@@ -50,16 +50,16 @@ get_node_performance() ->
 -spec get_service_info() -> list().
 get_service_info() ->
     Ring = statistics:get_ring_details(),
-    [{total_load, statistics:get_total_load(Ring)},
+    [{total_load, statistics:get_total_load(load, Ring)},
      {nodes, length(Ring)}].
 
 -spec get_service_performance() -> list().
 get_service_performance() ->
-    Monitor = pid_groups:find_a(monitor_perf),
+    Monitor = pid_groups:pid_of(basic_services, monitor),
     {_CountD, _CountPerSD, AvgMsD, _MinMsD, _MaxMsD, StddevMsD, _HistMsD} =
-        case statistics:getMonitorStats(Monitor, [{api_tx, 'req_list'}], tuple) of
-            []                           -> {[], [], [], [], [], [], []};
-            [{api_tx, 'req_list', Data}] -> Data
+        case statistics:getTimingMonitorStats(Monitor, [{monitor_perf, 'agg_read_read'}], tuple) of
+            []                                  -> {[], [], [], [], [], [], []};
+            [{monitor_perf, 'agg_read_read', Data}] -> Data
         end,
     [{latency_avg, AvgMsD},
      {latency_stddev, StddevMsD}].

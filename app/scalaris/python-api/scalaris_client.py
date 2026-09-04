@@ -1,5 +1,4 @@
-#!/usr/bin/python
-# Copyright 2011 Zuse Institute Berlin
+# Copyright 2011-2015 Zuse Institute Berlin
 #
 #    Licensed under the Apache License, Version 2.0 (the "License");
 #    you may not use this file except in compliance with the License.
@@ -13,7 +12,7 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
-from scalaris import TransactionSingleOp, ReplicatedDHT, PubSub
+from scalaris import TransactionSingleOp, ReplicatedDHT, RoutingTable
 from scalaris import ConnectionError, TimeoutError, NotFoundError, AbortError, KeyChangedError, UnknownError
 import scalaris_bench
 import sys
@@ -97,74 +96,10 @@ if __name__ == "__main__":
         except UnknownError as instance:
             print 'delete(' + key + ') failed with unknown: ' + str(instance)
             sys.exit(1)
-    elif (len(sys.argv) == 4 and sys.argv[1] in ["--publish", "-p"]):
-        ps = PubSub()
-        topic = sys.argv[2]
-        content = sys.argv[3]
-        try:
-            ps.publish(topic, content)
-            print 'publish(' + topic + ', ' + content + '): ok'
-        except ConnectionError as instance:
-            print 'publish(' + topic + ', ' + content + ') failed with connection error'
-            sys.exit(1)
-        except UnknownError as instance:
-            print 'publish(' + topic + ', ' + content + ') failed with unknown: ' + str(instance)
-            sys.exit(1)
-    elif (len(sys.argv) == 4 and sys.argv[1] in ["--subscribe", "-s"]):
-        ps = PubSub()
-        topic = sys.argv[2]
-        url = sys.argv[3]
-        try:
-            ps.subscribe(topic, url)
-            print 'subscribe(' + topic + ', ' + url + '): ok'
-        except ConnectionError as instance:
-            print 'subscribe(' + topic + ', ' + url + ') failed with connection error'
-            sys.exit(1)
-        except TimeoutError as instance:
-            print 'subscribe(' + topic + ', ' + url + ') failed with timeout'
-            sys.exit(1)
-        except AbortError as instance:
-            print 'subscribe(' + topic + ', ' + url + ') failed with abort'
-            sys.exit(1)
-        except UnknownError as instance:
-            print 'subscribe(' + topic + ', ' + url + ') failed with unknown: ' + str(instance)
-            sys.exit(1)
-    elif (len(sys.argv) == 4 and sys.argv[1] in ["--unsubscribe", "-u"]):
-        ps = PubSub()
-        topic = sys.argv[2]
-        url = sys.argv[3]
-        try:
-            ps.unsubscribe(topic, url)
-            print 'unsubscribe(' + topic + ', ' + url + '): ok'
-        except ConnectionError as instance:
-            print 'unsubscribe(' + topic + ', ' + url + ') failed with connection error'
-            sys.exit(1)
-        except TimeoutError as instance:
-            print 'unsubscribe(' + topic + ', ' + url + ') failed with timeout'
-            sys.exit(1)
-        except NotFoundError as instance:
-            print 'unsubscribe(' + topic + ', ' + url + ') failed with not found'
-            sys.exit(1)
-        except AbortError as instance:
-            print 'unsubscribe(' + topic + ', ' + url + ') failed with abort'
-            sys.exit(1)
-        except UnknownError as instance:
-            print 'unsubscribe(' + topic + ', ' + url + ') failed with unknown: ' + str(instance)
-            sys.exit(1)
-    elif (len(sys.argv) == 3 and sys.argv[1] in ["--getsubscribers", "-g"]):
-        ps = PubSub()
-        topic = sys.argv[2]
-        try:
-            value = ps.get_subscribers(topic)
-            print 'get_subscribers(' + topic + ') = ' + repr(value)
-        except ConnectionError as instance:
-            print 'get_subscribers(' + topic + ') failed with connection error'
-            sys.exit(1)
-        except UnknownError as instance:
-            print 'get_subscribers(' + topic + ') failed with unknown: ' + str(instance)
-            sys.exit(1)
     elif (len(sys.argv) >= 2 and sys.argv[1] in ["--minibench", "-b"]):
         scalaris_bench.run_from_cmd(sys.argv[:1] + sys.argv[2:])
+    elif (len(sys.argv) >= 2 and sys.argv[1] in ["--get-replication-factor", "-f"]):
+        print RoutingTable().get_replication_factor()
     else:
         print 'usage: ' + sys.argv[0] + ' [Options]'
         print ' -r,--read <key>'
@@ -180,19 +115,13 @@ if __name__ == "__main__":
         print '                            data (e.g. deleted items can re-appear).'
         print '                            Also if an item is re-created, the version'
         print '                            before the delete can re-appear.'
-        print ' -p,--publish <topic> <message>'
-        print '                            publish a new message for the given topic'
-        print ' -s,--subscribe <topic> <url>'
-        print '                            subscribe to a topic'
-        print ' -g,--getsubscribers <topic>'
-        print '                            get subscribers of a topic'
-        print ' -u,--unsubscribe <topic> <url>'
-        print '                            unsubscribe from a topic'
         print ' -h,--help'
         print '                            print this message'
         print ' -b,--minibench [<ops> [<threads_per_node> [<benchmarks>]]]'
         print '                            run selected mini benchmark(s)'
         print '                            [1|...|9|all] (default: all benchmarks, 500'
         print '                            operations each, 10 threads per Scalaris node)'
+        print ' -f, --get-replication-factor'
+        print '                            print the replication factor'
         if len(sys.argv) == 1 or (len(sys.argv) >= 2 and not sys.argv[1] in ["--help", "-h"]):
             sys.exit(1)

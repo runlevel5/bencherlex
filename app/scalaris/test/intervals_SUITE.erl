@@ -1,4 +1,4 @@
-%  @copyright 2008-2011 Zuse Institute Berlin
+%  @copyright 2008-2015 Zuse Institute Berlin
 
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
@@ -16,60 +16,24 @@
 %% @author Nico Kruber <kruber@zib.de>
 %% @doc Unit tests for src/intervals.erl.
 %% @end
-%% @version $Id: intervals_SUITE.erl 2618 2011-12-29 14:35:15Z kruber@zib.de $
+%% @version $Id$
 -module(intervals_SUITE).
 -author('schuett@zib.de').
--vsn('$Id: intervals_SUITE.erl 2618 2011-12-29 14:35:15Z kruber@zib.de $').
+-vsn('$Id$').
 
--export([all/0, end_per_suite/1, init_per_suite/1, intersection/1, is_empty/1,
-         is_left_right_of/1, new/1, normalize/1, prop_all/1,
-         prop_all_continuous/0, prop_all_well_formed/0, prop_empty/1,
-         prop_empty_continuous/0, prop_empty_well_formed/0,
-         prop_from_elements1/1, prop_from_elements1_well_formed/1,
-         prop_get_bounds/1, prop_get_bounds_continuous/1, prop_get_elements/1,
-         prop_intersection/3, prop_intersection_well_formed/2,
-         prop_is_adjacent/8, prop_is_adjacent_union/8,
-         prop_is_left_right_of/8, prop_is_subset/2, prop_is_subset2/2,
-         prop_minus/3, prop_minus2/4, prop_minus3/1, prop_minus_well_formed/2,
-         prop_mk_from_node_ids/2, prop_mk_from_node_ids_continuous/2,
-         prop_mk_from_node_ids_well_formed/2, prop_mk_from_nodes/2,
-         prop_new1/1, prop_new1_bounds/1, prop_new1_continuous/1,
-         prop_new1_well_formed/1, prop_new2/2, prop_new2_bounds/2,
-         prop_new2_continuous/2, prop_new2_well_formed/2, prop_new4/4,
-         prop_new4_bounds/3, prop_new4_continuous/4, prop_new4_well_formed/4,
-         prop_normalize/2, prop_normalize_well_formed/1,
-         prop_not_intersection/3, prop_not_intersection2/3, prop_not_minus/3,
-         prop_not_minus2/3, prop_not_union/3, prop_split/3,
-         prop_split_is_continuous/3, prop_split_is_well_formed/3,
-         prop_union/3, prop_union_continuous/8, prop_union_well_formed/2,
-         suite/0, switch_br/1, switch_br2/1, tc1/1, tester_all/1,
-         tester_all_continuous/1, tester_all_well_formed/1, tester_empty/1,
-         tester_empty_continuous/1, tester_empty_well_formed/1,
-         tester_from_elements1/1, tester_from_elements1_well_formed/1,
-         tester_get_bounds/1, tester_get_bounds_continuous/1,
-         tester_get_elements/1, tester_intersection/1,
-         tester_intersection_well_formed/1, tester_is_adjacent/1,
-         tester_is_adjacent_union/1, tester_is_left_right_of/1,
-         tester_is_subset/1, tester_is_subset2/1, tester_minus/1,
-         tester_minus2/1, tester_minus3/1, tester_minus_well_formed/1,
-         tester_mk_from_node_ids/1, tester_mk_from_node_ids_continuous/1,
-         tester_mk_from_node_ids_well_formed/1, tester_mk_from_nodes/1,
-         tester_new1/1, tester_new1_bounds/1, tester_new1_continuous/1,
-         tester_new1_well_formed/1, tester_new2/1, tester_new2_bounds/1,
-         tester_new2_continuous/1, tester_new2_well_formed/1, tester_new4/1,
-         tester_new4_bounds/1, tester_new4_continuous/1,
-         tester_new4_well_formed/1, tester_normalize/1,
-         tester_normalize_well_formed/1, tester_not_intersection/1,
-         tester_not_intersection2/1, tester_not_minus/1, tester_not_minus2/1,
-         tester_not_union/1, tester_split/1, tester_split_is_continuous/1,
-         tester_split_is_well_formed/1, tester_union/1,
-         tester_union_continuous/1, tester_union_well_formed/1]).
+-compile(export_all).
 
 -include("unittest.hrl").
 -include("scalaris.hrl").
 
-all() ->
-    [new, is_empty, intersection, tc1, normalize, is_left_right_of,
+-dialyzer({[no_opaque, no_return], [tc1/1, normalize/1]}).
+
+groups() ->
+    [{hand_written_tests, [sequence], [
+                                       new, is_empty, intersection, tc1, 
+                                       normalize, is_left_right_of]},
+
+     {tester_tests, [sequence], [
      tester_empty_well_formed, tester_empty, tester_empty_continuous,
      tester_all_well_formed, tester_all_continuous, tester_all,
      tester_new1_well_formed, tester_new1, tester_new1_continuous,
@@ -83,31 +47,51 @@ all() ->
      tester_normalize_well_formed, tester_normalize,
      tester_intersection_well_formed, tester_intersection,
      tester_not_intersection, tester_not_intersection2,
-     tester_union_well_formed, tester_union, tester_not_union, tester_union_continuous,
+     tester_union2_well_formed, tester_union2, tester_not_union2,
+     tester_union1_well_formed, tester_union1, tester_not_union1,
+     tester_union2_same_as_union1, tester_union_continuous,
      tester_is_adjacent, tester_is_adjacent_union,
      tester_is_left_right_of,
-     tester_is_subset, tester_is_subset2,
+     tester_is_subset, tester_is_subset2, tester_is_double_subset_equality,
      tester_minus_well_formed, tester_minus, tester_minus2, tester_minus3,
      tester_not_minus, tester_not_minus2,
      tester_get_bounds_continuous, tester_get_bounds, tester_get_elements,
      tester_mk_from_node_ids_well_formed, tester_mk_from_node_ids, tester_mk_from_node_ids_continuous,
      tester_mk_from_nodes,
-     tester_split_is_continuous, tester_split_is_well_formed, tester_split
-     ].
+     tester_split_is_continuous, tester_split_is_well_formed, tester_split, split_bounds]}].
+
+all() ->
+    [
+     {group, tester_tests},
+     {group, hand_written_tests}
+].
 
 suite() ->
     [
-     {timetrap, {seconds, 30}}
+     {timetrap, {seconds, 90}}
     ].
 
 init_per_suite(Config) ->
-    Config2 = unittest_helper:init_per_suite(Config),
-    unittest_helper:start_minimal_procs(Config2, [], false).
+    Config3 = unittest_helper:start_minimal_procs(Config, [], true),
+    tester:register_type_checker({typedef, intervals, interval, []}, intervals, is_well_formed),
+    tester:register_type_checker({typedef, intervals, continuous_interval, []}, intervals, is_continuous),
+    tester:register_value_creator({typedef, intervals, interval, []}, intervals, tester_create_interval, 1),
+    tester:register_value_creator({typedef, intervals, continuous_interval, []}, intervals, tester_create_continuous_interval, 4),
+    rt_SUITE:register_value_creator(),
+    Config3.
 
 end_per_suite(Config) ->
-    unittest_helper:stop_minimal_procs(Config),
-    _ = unittest_helper:end_per_suite(Config),
+    tester:unregister_type_checker({typedef, intervals, interval, []}),
+    tester:unregister_type_checker({typedef, intervals, continuous_interval, []}),
+    tester:unregister_value_creator({typedef, intervals, interval, []}),
+    tester:unregister_value_creator({typedef, intervals, continuous_interval, []}),
+    rt_SUITE:unregister_value_creator(),
+    _ = unittest_helper:stop_minimal_procs(Config),
     ok.
+
+init_per_group(Group, Config) -> unittest_helper:init_per_group(Group, Config).
+
+end_per_group(Group, Config) -> unittest_helper:end_per_group(Group, Config).
 
 new(_Config) ->
     ?assert(intervals:is_well_formed(intervals:new('[', ?RT:hash_key("a"), ?RT:hash_key("b"), ']'))),
@@ -122,12 +106,13 @@ is_empty(_Config) ->
 intersection(_Config) ->
     NotEmpty = intervals:new('[', ?RT:hash_key("a"), ?RT:hash_key("b"), ']'),
     Empty = intervals:empty(),
+    All = intervals:all(),
     ?assert(intervals:is_empty(intervals:intersection(NotEmpty, Empty))),
     ?assert(intervals:is_empty(intervals:intersection(Empty, NotEmpty))),
     ?assert(intervals:is_empty(intervals:intersection(NotEmpty, Empty))),
     ?assert(not intervals:is_empty(intervals:intersection(NotEmpty, NotEmpty))),
-    ?assert(intervals:intersection(NotEmpty, NotEmpty) =:= NotEmpty),
-    ?assert(intervals:intersection(all, all) =:= all),
+    ?equals(intervals:intersection(NotEmpty, NotEmpty), NotEmpty),
+    ?equals(intervals:intersection(All, All), All),
     ok.
 
 tc1(_Config) ->
@@ -145,8 +130,8 @@ tc1(_Config) ->
               intervals:union(intervals:new(Key1), intervals:new(Key3)),
               intervals:new('[', Key1, Key3, ']'))),
 
-    ?equals(intervals:union([{interval,'(', ?MINUS_INFINITY, ?PLUS_INFINITY,')'}],
-                            [{interval,'[', ?MINUS_INFINITY, ?RT:hash_key("4"), ']'}]),
+    ?equals(intervals:union([{'(', ?MINUS_INFINITY, ?PLUS_INFINITY,')'}],
+                            [{'[', ?MINUS_INFINITY, ?RT:hash_key("4"), ']'}]),
             intervals:all()),
 
     ok.
@@ -154,16 +139,16 @@ tc1(_Config) ->
 normalize(_Config) ->
     % some tests that have once failed:
     % attention: manually defined intervals may have to be adapted to changes in the intervals module!
-    ?equals(intervals:normalize([{interval,'[', ?MINUS_INFINITY, ?PLUS_INFINITY,')'}, {element,?MINUS_INFINITY}, {interval,'[', ?PLUS_INFINITY,4,']'}, {interval,'(', ?MINUS_INFINITY, ?PLUS_INFINITY, ')'}]),
+    ?equals(intervals:tester_create_interval([{'[', ?MINUS_INFINITY, ?PLUS_INFINITY,')'}, {?MINUS_INFINITY}, {'[', ?PLUS_INFINITY,4,']'}, {'(', ?MINUS_INFINITY, ?PLUS_INFINITY, ')'}]),
             intervals:all()),
     
-    ?equals(intervals:normalize([{interval,'[', ?MINUS_INFINITY, ?PLUS_INFINITY,')'}, {element,?MINUS_INFINITY}, {interval,'[', ?PLUS_INFINITY,4,']'}]),
+    ?equals(intervals:tester_create_interval([{'[', ?MINUS_INFINITY, ?PLUS_INFINITY,')'}, {?MINUS_INFINITY}, {'[', ?PLUS_INFINITY,4,']'}]),
             intervals:all()),
     
-    ?equals(intervals:normalize([{interval,'[', ?MINUS_INFINITY, ?PLUS_INFINITY,')'}, {interval,'[', ?PLUS_INFINITY, 4, ']'}]),
+    ?equals(intervals:tester_create_interval([{'[', ?MINUS_INFINITY, ?PLUS_INFINITY,')'}, {'[', ?PLUS_INFINITY, 4, ']'}]),
             intervals:all()),
 
-    ?equals(intervals:normalize([{interval,'[',3,2,']'}, {interval,'[',?PLUS_INFINITY,3,')'}, {interval,'(',3,?PLUS_INFINITY,')'}]),
+    ?equals(intervals:tester_create_interval([{'[',3,2,']'}, {'[',?PLUS_INFINITY,3,')'}, {'(',3,?PLUS_INFINITY,')'}]),
             intervals:all()).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -171,11 +156,11 @@ normalize(_Config) ->
 % intervals:empty/0, intervals:is_empty/1, intervals:in/2 and intervals:is_continuous/1
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--spec prop_empty_well_formed() -> boolean().
+-spec prop_empty_well_formed() -> true.
 prop_empty_well_formed() ->
     intervals:is_well_formed(intervals:empty()).
 
--spec prop_empty_continuous() -> boolean().
+-spec prop_empty_continuous() -> true.
 prop_empty_continuous() ->
     not intervals:is_continuous(intervals:empty()).
 
@@ -198,11 +183,11 @@ tester_empty(_Config) ->
 % intervals:all/0, intervals:is_all/1, intervals:in/2 and intervals:is_continuous/1
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--spec prop_all_well_formed() -> boolean().
+-spec prop_all_well_formed() -> true.
 prop_all_well_formed() ->
     intervals:is_well_formed(intervals:all()).
 
--spec prop_all_continuous() -> boolean().
+-spec prop_all_continuous() -> true.
 prop_all_continuous() ->
     intervals:is_continuous(intervals:all()).
 
@@ -225,11 +210,11 @@ tester_all(_Config) ->
 % intervals:new/1, intervals:in/2 and intervals:is_continuous/1
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--spec prop_new1_well_formed(intervals:key()) -> boolean().
+-spec prop_new1_well_formed(intervals:key()) -> true.
 prop_new1_well_formed(X) ->
     intervals:is_well_formed(intervals:new(X)).
 
--spec prop_new1_continuous(intervals:key()) -> boolean().
+-spec prop_new1_continuous(intervals:key()) -> true.
 prop_new1_continuous(X) ->
     intervals:is_continuous(intervals:new(X)).
 
@@ -260,11 +245,11 @@ tester_new1(_Config) ->
 % intervals:new/4, intervals:in/2 and intervals:is_continuous/1
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--spec prop_new2_well_formed(intervals:key(), intervals:key()) -> boolean().
+-spec prop_new2_well_formed(intervals:key(), intervals:key()) -> true.
 prop_new2_well_formed(X, Y) ->
     intervals:is_well_formed(intervals:new('[', X, Y, ']')).
 
--spec prop_new2_continuous(intervals:key(), intervals:key()) -> boolean().
+-spec prop_new2_continuous(intervals:key(), intervals:key()) -> true.
 prop_new2_continuous(X, Y) ->
     intervals:is_continuous(intervals:new('[', X, Y, ']')).
 
@@ -303,11 +288,11 @@ tester_new2(_Config) ->
 % intervals:new/4, intervals:in/2 and intervals:is_continuous/1
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--spec prop_new4_well_formed(intervals:left_bracket(), intervals:key(), intervals:key(), intervals:right_bracket()) -> boolean().
+-spec prop_new4_well_formed(intervals:left_bracket(), intervals:key(), intervals:key(), intervals:right_bracket()) -> true.
 prop_new4_well_formed(XBr, X, Y, YBr) ->
     intervals:is_well_formed(intervals:new(XBr, X, Y, YBr)).
 
--spec prop_new4_continuous(intervals:left_bracket(), intervals:key(), intervals:key(), intervals:right_bracket()) -> boolean().
+-spec prop_new4_continuous(intervals:left_bracket(), intervals:key(), intervals:key(), intervals:right_bracket()) -> true.
 prop_new4_continuous(XBr, X, Y, YBr) ->
     Interval = intervals:new(XBr, X, Y, YBr),
     ?implies(not intervals:is_empty(Interval), intervals:is_continuous(Interval)).
@@ -370,7 +355,7 @@ tester_new4(_Config) ->
 % intervals:from_elements/1 and intervals:in/2
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--spec prop_from_elements1_well_formed([intervals:key()]) -> boolean().
+-spec prop_from_elements1_well_formed([intervals:key()]) -> true.
 prop_from_elements1_well_formed(X) ->
     intervals:is_well_formed(intervals:from_elements(X)).
 
@@ -389,17 +374,16 @@ tester_from_elements1(_Config) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
-% intervals:normalize/2
+% intervals:tester_create_interval/2
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--spec prop_normalize_well_formed(intervals:interval()) -> boolean().
+-spec prop_normalize_well_formed(intervals:invalid_interval()) -> true.
 prop_normalize_well_formed(Is) ->
-    intervals:is_well_formed(intervals:normalize(Is)).
+    intervals:is_well_formed(intervals:tester_create_interval(Is)).
 
--spec prop_normalize(intervals:interval(), intervals:key()) -> boolean().
+-spec prop_normalize(intervals:interval(), intervals:key()) -> true.
 prop_normalize(I, X) ->
-    ?implies(intervals:is_well_formed(I),
-             intervals:in(X, I) =:= intervals:in(X, intervals:normalize(I))).
+    intervals:in(X, I) =:= intervals:in(X, intervals:tester_create_interval(I)).
 
 tester_normalize_well_formed(_Config) ->
     tester:test(?MODULE, prop_normalize_well_formed, 1, 5000, [{threads, 2}]).
@@ -412,30 +396,22 @@ tester_normalize(_Config) ->
 % intervals:intersection/2
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--spec prop_intersection_well_formed(intervals:interval(), intervals:interval()) -> boolean().
-prop_intersection_well_formed(A_, B_) ->
-    A = intervals:normalize(A_),
-    B = intervals:normalize(B_),
+-spec prop_intersection_well_formed(intervals:interval(), intervals:interval()) -> true.
+prop_intersection_well_formed(A, B) ->
     intervals:is_well_formed(intervals:intersection(A, B)).
 
--spec prop_intersection(intervals:interval(), intervals:interval(), intervals:key()) -> boolean().
-prop_intersection(A_, B_, X) ->
-    A = intervals:normalize(A_),
-    B = intervals:normalize(B_),
+-spec prop_intersection(intervals:interval(), intervals:interval(), intervals:key()) -> true.
+prop_intersection(A, B, X) ->
     ?implies(intervals:in(X, A) andalso intervals:in(X, B),
              intervals:in(X, intervals:intersection(A, B))).
 
--spec prop_not_intersection(intervals:interval(), intervals:interval(), intervals:key()) -> boolean().
-prop_not_intersection(A_, B_, X) ->
-    A = intervals:normalize(A_),
-    B = intervals:normalize(B_),
+-spec prop_not_intersection(intervals:interval(), intervals:interval(), intervals:key()) -> true.
+prop_not_intersection(A, B, X) ->
     ?implies(intervals:in(X, A) xor intervals:in(X, B),
              not intervals:in(X, intervals:intersection(A, B))).
 
--spec prop_not_intersection2(intervals:interval(), intervals:interval(), intervals:key()) -> boolean().
-prop_not_intersection2(A_, B_, X) ->
-    A = intervals:normalize(A_),
-    B = intervals:normalize(B_),
+-spec prop_not_intersection2(intervals:interval(), intervals:interval(), intervals:key()) -> true.
+prop_not_intersection2(A, B, X) ->
     ?implies(not intervals:in(X, A) andalso not intervals:in(X, B),
              not intervals:in(X, intervals:intersection(A, B))).
 
@@ -453,28 +429,40 @@ tester_not_intersection2(_Config) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
-% intervals:union/2 and intervals:is_continuous/1
+% intervals:union/2, intervals:union/1 and intervals:is_continuous/1
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--spec prop_union_well_formed(intervals:interval(), intervals:interval()) -> boolean().
-prop_union_well_formed(A_, B_) ->
-    A = intervals:normalize(A_),
-    B = intervals:normalize(B_),
+-spec prop_union2_well_formed(intervals:interval(), intervals:interval()) -> true.
+prop_union2_well_formed(A, B) ->
     intervals:is_well_formed(intervals:union(A, B)).
 
--spec prop_union(intervals:interval(), intervals:interval(), intervals:key()) -> boolean().
-prop_union(A_, B_, X) ->
-    A = intervals:normalize(A_),
-    B = intervals:normalize(B_),
+-spec prop_union1_well_formed([intervals:interval()]) -> true.
+prop_union1_well_formed(List) ->
+    intervals:is_well_formed(intervals:union(List)).
+
+-spec prop_union2(intervals:interval(), intervals:interval(), intervals:key()) -> true.
+prop_union2(A, B, X) ->
     ?implies(intervals:in(X, A) orelse intervals:in(X, B),
              intervals:in(X, intervals:union(A, B))).
 
--spec prop_not_union(intervals:interval(), intervals:interval(), intervals:key()) -> boolean().
-prop_not_union(A_, B_, X) ->
-    A = intervals:normalize(A_),
-    B = intervals:normalize(B_),
+-spec prop_union1([intervals:interval()], intervals:key()) -> true.
+prop_union1(List, X) ->
+    ?implies(lists:any(fun(I) -> intervals:in(X, I) end, List),
+             intervals:in(X, intervals:union(List))).
+
+-spec prop_not_union2(intervals:interval(), intervals:interval(), intervals:key()) -> true.
+prop_not_union2(A, B, X) ->
     ?implies(not intervals:in(X, A) andalso not intervals:in(X, B),
              not intervals:in(X, intervals:union(A, B))).
+
+-spec prop_not_union1([intervals:interval()], intervals:key()) -> true.
+prop_not_union1(List, X) ->
+    ?implies(lists:all(fun(I) -> not intervals:in(X, I) end, List),
+             not intervals:in(X, intervals:union(List))).
+
+-spec prop_union2_same_as_union1(intervals:interval(), intervals:interval()) -> true.
+prop_union2_same_as_union1(A, B) ->
+    ?equals(intervals:union(A, B), intervals:union([A, B])).
 
 -spec prop_union_continuous(A0Br::intervals:left_bracket(), A0::intervals:key(), A1::intervals:key(), A1Br::intervals:right_bracket(),
                             B0Br::intervals:left_bracket(), B0::intervals:key(), B1::intervals:key(), B1Br::intervals:right_bracket()) -> true.
@@ -514,14 +502,26 @@ prop_union_continuous(A0Br, A0, A1, A1Br, B0Br, B0, B1, B1Br) ->
         true  -> true
     end.
 
-tester_union_well_formed(_Config) ->
-    tester:test(?MODULE, prop_union_well_formed, 2, 5000, [{threads, 2}]).
+tester_union2_well_formed(_Config) ->
+    tester:test(?MODULE, prop_union2_well_formed, 2, 5000, [{threads, 2}]).
 
-tester_union(_Config) ->
-    tester:test(?MODULE, prop_union, 3, 5000, [{threads, 2}]).
+tester_union1_well_formed(_Config) ->
+    tester:test(?MODULE, prop_union1_well_formed, 1, 5000, [{threads, 2}]).
 
-tester_not_union(_Config) ->
-    tester:test(?MODULE, prop_not_union, 3, 5000, [{threads, 2}]).
+tester_union2(_Config) ->
+    tester:test(?MODULE, prop_union2, 3, 5000, [{threads, 2}]).
+
+tester_union1(_Config) ->
+    tester:test(?MODULE, prop_union1, 2, 5000, [{threads, 2}]).
+
+tester_not_union2(_Config) ->
+    tester:test(?MODULE, prop_not_union2, 3, 5000, [{threads, 2}]).
+
+tester_not_union1(_Config) ->
+    tester:test(?MODULE, prop_not_union1, 2, 5000, [{threads, 2}]).
+
+tester_union2_same_as_union1(_Config) ->
+    tester:test(?MODULE, prop_union2_same_as_union1, 2, 5000, [{threads, 2}]).
 
 tester_union_continuous(_Config) ->
     tester:test(?MODULE, prop_union_continuous, 8, 5000, [{threads, 2}]).
@@ -532,8 +532,11 @@ tester_union_continuous(_Config) ->
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
--spec prop_is_adjacent(A0Br::intervals:left_bracket(), A0::intervals:key(), A1::intervals:key(), A1Br::intervals:right_bracket(),
-                             B0Br::intervals:left_bracket(), B0::intervals:key(), B1::intervals:key(), B1Br::intervals:right_bracket()) -> boolean().
+tester_is_adjacent(_Config) ->
+    tester:test(?MODULE, prop_is_adjacent, 8, 5000, [{threads, 2}]).
+
+-spec(prop_is_adjacent(A0Br::intervals:left_bracket(), A0::intervals:key(), A1::intervals:key(), A1Br::intervals:right_bracket(),
+                       B0Br::intervals:left_bracket(), B0::intervals:key(), B1::intervals:key(), B1Br::intervals:right_bracket()) -> boolean()).
 prop_is_adjacent(A0Br, A0, A1, A1Br, B0Br, B0, B1, B1Br) ->
     A = intervals:new(A0Br, A0, A1, A1Br),
     B = intervals:new(B0Br, B0, B1, B1Br),
@@ -565,19 +568,16 @@ tester_is_adjacent_union(_Config) ->
     tester:test(?MODULE, prop_is_adjacent_union, 8, 5000, [{threads, 2}]).
 
 -spec prop_is_adjacent_union(A0Br::intervals:left_bracket(), A0::intervals:key(), A1::intervals:key(), A1Br::intervals:right_bracket(),
-                             B0Br::intervals:left_bracket(), B0::intervals:key(), B1::intervals:key(), B1Br::intervals:right_bracket()) -> boolean().
+                             B0Br::intervals:left_bracket(), B0::intervals:key(), B1::intervals:key(), B1Br::intervals:right_bracket()) -> true.
 prop_is_adjacent_union(A0Br, A0, A1, A1Br, B0Br, B0, B1, B1Br) ->
     A = intervals:new(A0Br, A0, A1, A1Br),
     B = intervals:new(B0Br, B0, B1, B1Br),
     ?implies(intervals:is_adjacent(A, B), intervals:is_continuous(intervals:union(A, B))).
 
-tester_is_adjacent(_Config) ->
-    tester:test(?MODULE, prop_is_adjacent, 8, 5000, [{threads, 2}]).
-
--spec prop_is_left_right_of(A0Br::intervals:left_bracket(), A0::intervals:key(),
-                                  A1::intervals:key(), A1Br::intervals:right_bracket(),
-                                  B0Br::intervals:left_bracket(), B0::intervals:key(),
-                                  B1::intervals:key(), B1Br::intervals:right_bracket()) -> true.
+-spec(prop_is_left_right_of(A0Br::intervals:left_bracket(), A0::intervals:key(),
+                            A1::intervals:key(), A1Br::intervals:right_bracket(),
+                            B0Br::intervals:left_bracket(), B0::intervals:key(),
+                            B1::intervals:key(), B1Br::intervals:right_bracket()) -> true).
 prop_is_left_right_of(A0Br, A0, A1, A1Br, B0Br, B0, B1, B1Br) ->
     A = intervals:new(A0Br, A0, A1, A1Br),
     B = intervals:new(B0Br, B0, B1, B1Br),
@@ -590,8 +590,8 @@ tester_is_left_right_of(_Config) ->
 
 is_left_right_of(_Config) ->
     MiddleKey = ?RT:hash_key("17"),
-    X = [{interval,'[', MiddleKey, ?PLUS_INFINITY, ')'}],
-    Y = [{interval,'[', ?MINUS_INFINITY, MiddleKey, ')'}],
+    X = intervals:new('[', MiddleKey, ?PLUS_INFINITY, ')'),
+    Y = intervals:new('[', ?MINUS_INFINITY, MiddleKey, ')'),
     ?equals(intervals:is_adjacent(X, Y), true), % @17
     ?equals(intervals:is_left_of(X, Y), true),
     ?equals(intervals:is_left_of(Y, X), true),
@@ -602,20 +602,16 @@ is_left_right_of(_Config) ->
 % intervals:is_subset/2
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--spec prop_is_subset(intervals:interval(), intervals:interval()) -> boolean().
-prop_is_subset(X_, Y_) ->
-    X = intervals:normalize(X_),
-    Y = intervals:normalize(Y_),
+-spec prop_is_subset(intervals:interval(), intervals:interval()) -> true.
+prop_is_subset(X, Y) ->
     % Y covers X iff X \cup Y covers X
     intervals:is_subset(X, Y) =:= intervals:is_subset(X, intervals:intersection(X, Y)).
 
 tester_is_subset(_Config) ->
     tester:test(?MODULE, prop_is_subset, 2, 5000, [{threads, 2}]).
 
--spec prop_is_subset2(intervals:interval(), intervals:interval()) -> boolean().
-prop_is_subset2(_X, _Y) ->
-    X = intervals:normalize(_X),
-    Y = intervals:normalize(_Y),
+-spec prop_is_subset2(intervals:interval(), intervals:interval()) -> true.
+prop_is_subset2(X, Y) ->
     Z = intervals:intersection(X, Y),
     % X as well as Y cover X \cup Y
     intervals:is_subset(Z, X) andalso intervals:is_subset(Z, Y).
@@ -623,21 +619,24 @@ prop_is_subset2(_X, _Y) ->
 tester_is_subset2(_Config) ->
     tester:test(?MODULE, prop_is_subset2, 2, 5000, [{threads, 2}]).
 
+-spec prop_is_double_subset_equality(intervals:interval(), intervals:interval()) -> true.
+prop_is_double_subset_equality(X, Y) ->
+    (X =:= Y) =:= (intervals:is_subset(X, Y) andalso intervals:is_subset(Y, X)).
+
+tester_is_double_subset_equality(_Config) ->
+    tester:test(?MODULE, prop_is_double_subset_equality, 2, 5000, [{threads, 2}]).
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
 % intervals:minus/2
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--spec prop_minus_well_formed(intervals:interval(), intervals:interval()) -> boolean().
-prop_minus_well_formed(A_, B_) ->
-    A = intervals:normalize(A_),
-    B = intervals:normalize(B_),
+-spec prop_minus_well_formed(intervals:interval(), intervals:interval()) -> true.
+prop_minus_well_formed(A, B) ->
     intervals:is_well_formed(intervals:minus(A, B)).
 
--spec prop_minus(intervals:interval(), intervals:interval(), intervals:key()) -> boolean().
-prop_minus(A_, B_, X) ->
-    A = intervals:normalize(A_),
-    B = intervals:normalize(B_),
+-spec prop_minus(intervals:interval(), intervals:interval(), intervals:key()) -> true.
+prop_minus(A, B, X) ->
     ?implies(intervals:in(X, A) andalso not intervals:in(X, B),
              intervals:in(X, intervals:minus(A, B))).
 
@@ -657,22 +656,17 @@ prop_minus2(XBr, X, Y, YBr) ->
     ?equals(intervals:minus(intervals:all(), I), I_inv).
 
 -spec prop_minus3(intervals:interval()) -> true.
-prop_minus3(A_) ->
-    A = intervals:normalize(A_),
+prop_minus3(A) ->
     A_inv = intervals:minus(intervals:all(), A),
     ?equals(intervals:union(A, A_inv), intervals:all()).
 
--spec prop_not_minus(intervals:interval(), intervals:interval(), intervals:key()) -> boolean().
-prop_not_minus(A_, B_, X) ->
-    A = intervals:normalize(A_),
-    B = intervals:normalize(B_),
+-spec prop_not_minus(intervals:interval(), intervals:interval(), intervals:key()) -> true.
+prop_not_minus(A, B, X) ->
     ?implies(intervals:in(X, B),
              not intervals:in(X, intervals:minus(A, B))).
 
--spec prop_not_minus2(intervals:interval(), intervals:interval(), intervals:key()) -> boolean().
-prop_not_minus2(A_, B_, X) ->
-    A = intervals:normalize(A_),
-    B = intervals:normalize(B_),
+-spec prop_not_minus2(intervals:interval(), intervals:interval(), intervals:key()) -> true.
+prop_not_minus2(A, B, X) ->
     ?implies(not intervals:in(X, A),
              not intervals:in(X, intervals:minus(A, B))).
 
@@ -699,9 +693,8 @@ tester_not_minus2(_Config) ->
 % intervals:get_bounds/1
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--spec prop_get_bounds_continuous(intervals:interval()) -> boolean().
-prop_get_bounds_continuous(I_) ->
-    I = intervals:normalize(I_),
+-spec prop_get_bounds_continuous(intervals:interval()) -> true.
+prop_get_bounds_continuous(I) ->
     ?implies(intervals:is_continuous(I),
              case intervals:get_bounds(I) of
                  {'(', Key, Key, ')'} -> I =:= intervals:union(intervals:new('(', Key, ?PLUS_INFINITY, ')'),
@@ -709,9 +702,8 @@ prop_get_bounds_continuous(I_) ->
                  {LBr, L, R, RBr}     -> I =:= intervals:new(LBr, L, R, RBr)
              end).
 
--spec prop_get_bounds(intervals:interval()) -> boolean().
-prop_get_bounds(I_) ->
-    I = intervals:normalize(I_),
+-spec prop_get_bounds(intervals:interval()) -> true.
+prop_get_bounds(I) ->
     ?implies(not intervals:is_empty(I),
              begin
                  BoundsInterval =
@@ -737,8 +729,7 @@ tester_get_bounds(_Config) ->
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -spec prop_get_elements(intervals:interval()) -> true.
-prop_get_elements(I_) ->
-    I = intervals:normalize(I_),
+prop_get_elements(I) ->
     {Elements, RestInt} = intervals:get_elements(I),
     ?equals(lists:foldl(fun(E, Acc) -> intervals:union(intervals:new(E), Acc) end, RestInt, Elements), I).
 
@@ -751,53 +742,67 @@ tester_get_elements(_Config) ->
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
--spec prop_split_is_well_formed(intervals:key(), intervals:key(), 1..100) -> boolean().
-prop_split_is_well_formed(X, Y, Parts) ->
-    I = intervals:new('[', X, Y, ']'),
+-spec prop_split_is_well_formed(intervals:continuous_interval(), 1..1000) -> true.
+prop_split_is_well_formed(I, Parts) ->
     S = intervals:split(I, Parts),
     lists:foldl(fun(SubI, Acc) -> Acc andalso intervals:is_well_formed(SubI) end, true, S).
 
--spec prop_split_is_continuous(intervals:key(), intervals:key(), 1..100) -> boolean().
-prop_split_is_continuous(X, Y, Parts) ->
-    I = intervals:new('[', X, Y, ']'),
+-spec prop_split_is_continuous(intervals:continuous_interval(), 1..1000) -> true.
+prop_split_is_continuous(I, Parts) ->
     S = intervals:split(I, Parts),
     lists:foldl(fun(SubI, Acc) -> 
                         Acc andalso ?implies(not intervals:is_empty(SubI), intervals:is_continuous(SubI)) 
                 end, true, S).    
 
-% funktional union ok, subset von org, nciht überlappend = adjazent
--spec prop_split(intervals:key(), intervals:key(), 1..100) -> true.
-prop_split(X, Y, Parts) ->
-    I = intervals:new('[', X, Y, ']'),
+%% @doc Checks that each split interval is a subset of the original,
+%%      the union of all is the original, split-off intervals do not overlap.
+-spec prop_split(intervals:continuous_interval(), 1..1000) -> true.
+prop_split(I, Parts) ->
     S = intervals:split(I, Parts),
     lists:foreach(fun(SubI) -> ?equals(intervals:is_subset(SubI, I), true) end, S),
     ?equals(lists:foldl(fun(SubI, UI) -> intervals:union(SubI, UI) end, intervals:empty(), S), I),
-    [FirstI | RestI] = S,
+    S_nonempty = [X || X <- S, not intervals:is_empty(X)],
     _ = lists:foldl(fun(SubI, LastI) -> 
-                            ?equals(?implies(not intervals:is_empty(SubI), intervals:is_adjacent(SubI, LastI)), true),
+                            ?assert(intervals:is_adjacent(SubI, LastI)),
                             SubI 
-                    end, FirstI, RestI),
-    true.
+                    end, hd(S_nonempty), tl(S_nonempty)),
+    UniqueRanges = gb_sets:from_list(
+                     [begin
+                          {_, Begin, End, _} = intervals:get_bounds(X),
+                          ?RT:get_range(Begin, End)
+                      end || X <- S_nonempty]),
+    case gb_sets:fold(fun(X, Acc) -> Acc andalso is_integer(X) end, true, UniqueRanges) of
+        true ->
+            ?assert_w_note(lists:member(gb_sets:size(UniqueRanges), [1, 2]),
+                           io_lib:format("UniqueRanges: ~.0p", [gb_sets:to_list(UniqueRanges)]));
+        false -> true
+    end.
 
 tester_split_is_continuous(_Config) ->
-    tester:test(?MODULE, prop_split_is_continuous, 3, 5000, [{threads, 2}]).
+    tester:test(?MODULE, prop_split_is_continuous, 2, 5000, [{threads, 2}]).
 
 tester_split_is_well_formed(_Config) ->
-    tester:test(?MODULE, prop_split_is_well_formed, 3, 5000, [{threads, 2}]).
+    tester:test(?MODULE, prop_split_is_well_formed, 2, 5000, [{threads, 2}]).
 
 tester_split(_Config) ->
-    tester:test(?MODULE, prop_split, 3, 5000, [{threads, 2}]).
+    tester:test(?MODULE, prop_split, 2, 3000, [{threads, 2}]).
 
+split_bounds(_) ->
+    Q = intervals:split(intervals:all(), 4), %4=ReplicationFactor
+    Min = lists:min(lists:map(fun(I) -> {_, L, _, _} = intervals:get_bounds(I), L end, Q)),
+    Max = lists:max(lists:map(fun(I) -> {_, _, R, _} = intervals:get_bounds(I), R end, Q)),
+    ?equals(Min, ?MINUS_INFINITY) andalso ?equals(Max, ?PLUS_INFINITY).
+    
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
 % node:mk_interval_between_ids/2, intervals:in/2 and intervals:is_continuous/1
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--spec prop_mk_from_node_ids_well_formed(?RT:key(), ?RT:key()) -> boolean().
+-spec prop_mk_from_node_ids_well_formed(?RT:key(), ?RT:key()) -> true.
 prop_mk_from_node_ids_well_formed(X, Y) ->
     intervals:is_well_formed(node:mk_interval_between_ids(X, Y)).
 
--spec prop_mk_from_node_ids_continuous(?RT:key(), ?RT:key()) -> boolean().
+-spec prop_mk_from_node_ids_continuous(?RT:key(), ?RT:key()) -> true.
 prop_mk_from_node_ids_continuous(X, Y) ->
     Interval = node:mk_interval_between_ids(X, Y),
     ?implies(not intervals:is_empty(Interval), intervals:is_continuous(Interval)).
@@ -832,7 +837,7 @@ tester_mk_from_node_ids(_Config) ->
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
--spec prop_mk_from_nodes(node:node_type(), node:node_type()) -> boolean().
+-spec prop_mk_from_nodes(node:node_type(), node:node_type()) -> true.
 prop_mk_from_nodes(X, Y) ->
     node:mk_interval_between_nodes(X, Y) =:=
         node:mk_interval_between_ids(node:id(X), node:id(Y)).

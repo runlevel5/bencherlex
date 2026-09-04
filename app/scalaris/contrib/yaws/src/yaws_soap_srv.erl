@@ -57,10 +57,11 @@ start_link(L) ->
 %%% To be called from yaws_rpc.erl
 %%% Return according to yaws_rpc:eval_payload/6
 handler(Args, Id, Payload, SessionValue) ->
+    {ok, WsdlModel} = gen_server:call(?SERVER, {get_wsdl, Id}, infinity),
     Headers = Args#arg.headers,
     SoapAction = yaws_soap_lib:findHeader("SOAPAction", Headers#headers.other),
-    case gen_server:call(?SERVER, {request, Id, Payload,
-                                   SessionValue, SoapAction}, infinity) of
+    Res = request(WsdlModel, Id, Payload, SessionValue, SoapAction),
+    case Res of
         {ok, XmlDoc, ResCode, undefined} ->
             {false, XmlDoc, ResCode};
         {ok, XmlDoc, ResCode, SessVal} ->
@@ -128,10 +129,8 @@ setup_on_init( {Id, WsdlFile, Prefix}, OldList ) when is_tuple(Id),
 handle_call({add_wsdl, Id, WsdlModel}, _From, State) ->
     NewWsdlList = uinsert({Id, WsdlModel}, State#s.wsdl_list),
     {reply, ok, State#s{wsdl_list = NewWsdlList}};
-%%
-handle_call( {request, Id, Payload, SessionValue, SoapAction}, _From, State) ->
-    Reply = request(State, Id, Payload, SessionValue, SoapAction),
-    {reply, Reply, State}.
+handle_call({get_wsdl, Id}, _From, State) ->
+    {reply, get_model(State, Id), State}.
 
 %%--------------------------------------------------------------------
 %% Function: handle_cast(Msg, State) -> {noreply, State} |
@@ -172,29 +171,27 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%--------------------------------------------------------------------
 
-request(State, {M,F} = Id, {Req, Attachments}, SessionValue, Action) ->
-    {ok, Model} = get_model(State, Id),
+request(Model, {M,F}, {Req, Attachments}, SessionValue, Action) ->
     %%error_logger:info_report([?MODULE, {payload, Req}]),
-    case try yaws_soap_lib:parseMessage(Req, Model) catch throw:CaughtT1 -> CaughtT1; error:CaughtR1:CaughtS1 -> {'EXIT', {CaughtR1, CaughtS1}}; exit:CaughtR1 -> {'EXIT', CaughtR1} end of
+    case catch yaws_soap_lib:parseMessage(Req, Model) of
         {ok, Header, Body} ->
             %% call function
-            result(Model, try apply(M, F, [Header, Body,
+            result(Model, catch apply(M, F, [Header, Body,
                                              Action, SessionValue,
-					     Attachments]) catch throw:CaughtT2 -> CaughtT2; error:CaughtR2:CaughtS2 -> {'EXIT', {CaughtR2, CaughtS2}}; exit:CaughtR2 -> {'EXIT', CaughtR2} end);
+					     Attachments]));
         {error, Error} ->
             cli_error(Error);
         OtherError ->
             srv_error(io_lib:format("Error parsing message: ~p", [OtherError]))
     end;
-request(State, {M,F} = Id, Req, SessionValue, Action) ->
+request(Model, {M,F}, Req, SessionValue, Action) ->
     %%error_logger:info_report([?MODULE, {payload, Req}]),
-    {ok, Model} = get_model(State, Id),
-    Umsg = (try erlsom_lib:toUnicode(Req) catch throw:CaughtT3 -> CaughtT3; error:CaughtR3:CaughtS3 -> {'EXIT', {CaughtR3, CaughtS3}}; exit:CaughtR3 -> {'EXIT', CaughtR3} end),
-    case try yaws_soap_lib:parseMessage(Umsg, Model) catch throw:CaughtT4 -> CaughtT4; error:CaughtR4:CaughtS4 -> {'EXIT', {CaughtR4, CaughtS4}}; exit:CaughtR4 -> {'EXIT', CaughtR4} end of
+    Umsg = (catch erlsom_lib:toUnicode(Req)),
+    case catch yaws_soap_lib:parseMessage(Umsg, Model) of
         {ok, Header, Body} ->
             %% call function
-            result(Model, try apply(M, F, [Header, Body,
-                                             Action, SessionValue]) catch throw:CaughtT5 -> CaughtT5; error:CaughtR5:CaughtS5 -> {'EXIT', {CaughtR5, CaughtS5}}; exit:CaughtR5 -> {'EXIT', CaughtR5} end);
+            result(Model, catch apply(M, F, [Header, Body,
+                                             Action, SessionValue]));
         {error, Error} ->
             cli_error(Error);
         OtherError ->
@@ -228,7 +225,7 @@ return(Model, ResHeader, ResBody, ResCode, SessVal, Files) ->
               end,
     Envelope = #'soap:Envelope'{'Body' =  #'soap:Body'{choice = ResBody},
                                 'Header' = Header2},
-    case try erlsom:write(Envelope, Model) catch throw:CaughtT6 -> CaughtT6; error:CaughtR6:CaughtS6 -> {'EXIT', {CaughtR6, CaughtS6}}; exit:CaughtR6 -> {'EXIT', CaughtR6} end of
+    case catch erlsom:write(Envelope, Model) of
         {ok, XmlDoc} ->
 	    case Files of
 		undefined ->

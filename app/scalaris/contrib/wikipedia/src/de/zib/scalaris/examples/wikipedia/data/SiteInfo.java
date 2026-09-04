@@ -1,5 +1,5 @@
 /**
- *  Copyright 2007-2011 Zuse Institute Berlin
+ *  Copyright 2007-2013 Zuse Institute Berlin
  *
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -17,7 +17,10 @@ package de.zib.scalaris.examples.wikipedia.data;
 
 import java.io.Serializable;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Represents generic site information.
@@ -58,6 +61,8 @@ public class SiteInfo implements Serializable {
      * @see #getNamespaces()
      */
     public final static String NAMESPACE_CASE = "case";
+    
+    protected static final Pattern MATCH_WIKI_SITE_LANG = Pattern.compile("^http[s]?://([^.]+).*$");
 
     /**
      * Creates a site info object with the given data.
@@ -108,6 +113,47 @@ public class SiteInfo implements Serializable {
      */
     public void setBase(String base) {
         this.base = base;
+    }
+    
+    /**
+     * Extract the language string from {@link #base}. Assumes <tt>en</tt> if no
+     * match is found.
+     * 
+     * @return Wikipedia language code
+     * @see #getBase()
+     */
+    public String extractLang() {
+        String lang = "en";
+        Matcher matcher = MATCH_WIKI_SITE_LANG.matcher(base);
+        if (matcher.matches()) {
+            lang = matcher.group(1);
+        }
+        return lang;
+    }
+    
+    /**
+     * Extract the locale from the language string from {@link #base}.
+     * 
+     * @return locale or <tt>null</tt> if the found language is no valid language code
+     * @see #extractLang()
+     */
+    public Locale extractLolace() {
+        String lang = extractLang();
+        String country = "";
+        int idx = lang.indexOf('_'); // e.g. de_DE
+        if (idx >= 0) {
+            lang = lang.substring(0, idx);
+            country = lang.substring(idx + 1);
+        }
+        try {
+            Locale locale = new Locale(lang, country);
+            // test that the locale is working:
+            locale.getLanguage();
+            locale.getCountry();
+            return locale;
+        } catch (Exception e) {
+        }
+        return null;
     }
 
     /**

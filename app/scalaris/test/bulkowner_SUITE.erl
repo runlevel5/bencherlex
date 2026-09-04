@@ -1,5 +1,5 @@
-%  Copyright 2008, 2011 Zuse Institute Berlin
-%
+%  @copyright 2008, 2011, 2012 Zuse Institute Berlin
+
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
 %   You may obtain a copy of the License at
@@ -11,69 +11,69 @@
 %   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %   See the License for the specific language governing permissions and
 %   limitations under the License.
-%%%-------------------------------------------------------------------
-%%% File    : bulkowner_SUITE.erl
-%%% Author  : Thorsten Schuett <schuett@zib.de>
-%%% Description : Unit tests for src/bulkowner.erl
-%%%
-%%% Created :  26 Aug 2008 by Thorsten Schuett <schuett@zib.de>
-%%%-------------------------------------------------------------------
+
+%% @author Thorsten Schuett <schuett@zib.de>
+%% @doc    Unit tests for src/bulkowner.erl
+%% @end
+%% @version $Id$
 -module(bulkowner_SUITE).
 
 -author('schuett@zib.de').
--vsn('$Id: bulkowner_SUITE.erl 2122 2011-08-15 15:47:12Z kruber@zib.de $').
+-vsn('$Id$').
 
--export([all/0, collect/2, count/1, end_per_suite/1, init_per_suite/1,
-         reduce/1, suite/0]).
+-compile(export_all).
 
 -include("unittest.hrl").
 -include("scalaris.hrl").
 
-all() -> [count].
+all() -> [tester_count].
 
 suite() -> [ {timetrap, {seconds, 10}} ].
 
 init_per_suite(Config) ->
-    Config2 = unittest_helper:init_per_suite(Config),
-    {priv_dir, PrivDir} = lists:keyfind(priv_dir, 1, Config2),
+    {priv_dir, PrivDir} = lists:keyfind(priv_dir, 1, Config),
     unittest_helper:make_ring(4, [{config, [{log_path, PrivDir}]}]),
-    Config2.
+    Config.
 
-end_per_suite(Config) ->
-    _ = unittest_helper:end_per_suite(Config),
+end_per_suite(_Config) ->
     ok.
 
-count(_Config) ->
-    ?equals(api_tx:write("i", 2), {ok}),
-    ?equals(api_tx:write("j", 3), {ok}),
-    ?equals(api_tx:write("k", 5), {ok}),
-    ?equals(api_tx:write("l", 7), {ok}),
-    Id = util:get_global_uid(),
-    bulkowner:issue_bulk_owner(Id, intervals:all(), {bulk_read_entry, comm:this()}),
-    ?equals(collect(Id, 0), 68),
-    ?expect_no_message(),
+tester_count(_Config) ->
+    tester:test(?MODULE, count, 0, 1000),
+    ?expect_no_message().
+
+-spec count() -> ok.
+count() ->
+    Entries = [begin
+                   RandInt = uid:get_pids_uid(),
+                   db_entry:new(
+                     ?RT:hash_key(erlang:integer_to_list(RandInt)),
+                     X, RandInt)
+               end || X <- lists:seq(1, 16)],
+    db_generator:insert_db(Entries),
+    Total = reduce(Entries),
+    Keys = [db_entry:get_key(Entry) || Entry <- Entries],
+    Id = uid:get_global_uid(),
+    I = intervals:from_elements(Keys),
+    bulkowner:issue_bulk_owner(Id, I, {bulk_read_entry, comm:this()}),
+    ?equals(collect(Id, 0, Total, 0), Total),
+    db_generator:remove_keys(Keys),
     ok.
 
-collect(Id, Sum) ->
+collect(Id, Sum, ExpSum, Msgs) ->
+%%     if Msgs =< 0 -> ok;
+%%        true      -> ct:pal("sum after ~p msgs: ~p~n", [Msgs, Sum])
+%%     end,
     if
-        Sum < 68 ->
-%%         ct:pal("sum: ~p ~p~n", [Sum, Sum]),
+        Msgs =:= 4 -> Sum; % 4 nodes -> max 4 messages
+        Sum =:= ExpSum -> Sum;
+        true ->
             receive
-                {bulkowner_reply, Id, {bulk_read_entry_response, _NowDone, Data}} ->
-                collect(Id, Sum + reduce(Data))
-            end;
-        Sum == 68 ->
-            receive
-                {bulkowner_reply, Id, {bulk_read_entry_response, _NowDone, Data}} ->
-                    Sum + reduce(Data)
-            after 1000 ->
-                    Sum
-            end;
-        Sum > 68 ->
-            ct:pal("sum: ~p ~p~n", [Sum, Sum]),
-            Sum
+                {bulkowner, reply, Id, {bulk_read_entry_response, _NowDone, Data}} ->
+                    collect(Id, Sum + reduce(Data), ExpSum, Msgs + 1)
+            end
     end.
 
--spec reduce(?DB:db_as_list()) -> integer().
+-spec reduce(db_dht:db_as_list()) -> integer().
 reduce(Entries) ->
     lists:foldl(fun(E, Acc) -> db_entry:get_value(E) + Acc end, 0, Entries).

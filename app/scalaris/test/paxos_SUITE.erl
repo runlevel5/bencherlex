@@ -1,5 +1,5 @@
-%  Copyright 2008-2011 Zuse Institute Berlin
-%
+%  @copyright 2008-2016 Zuse Institute Berlin
+
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
 %   You may obtain a copy of the License at
@@ -11,23 +11,17 @@
 %   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %   See the License for the specific language governing permissions and
 %   limitations under the License.
-%%%-------------------------------------------------------------------
-%%% File    : paxos_SUITE.erl
-%%% Author  : Thorsten Schuett <schuett@zib.de>
-%%% Description : Unit tests for src/paxos/*.erl
-%%%
-%%% Created :  20 Nov 2009 by Thorsten Schuett <schuett@zib.de>
-%%%-------------------------------------------------------------------
+
+%% @author Thorsten Schuett <schuett@zib.de>
+%% @doc    Unit tests for src/paxos/*.erl
+%% @end
+%% @version $Id$
 -module(paxos_SUITE).
 -author('schuett@zib.de').
--vsn('$Id: paxos_SUITE.erl 2511 2011-12-06 16:09:52Z schintke $').
+-vsn('$Id$').
 
--export([all/0, collect/1, collector/2, end_per_suite/1, init_per_suite/1,
-         make/4, make_groupname/2, prop_rnd_interleave/3, step_until_decide/3,
-         suite/0, test_acceptors_16/1, test_acceptors_4/1,
-         test_fast_acceptors_16/1, test_fast_acceptors_4/1,
-         test_rnd_interleave/1, test_two_proposers/1, tester_fast_paxos/3,
-         tester_paxos/3]).
+-compile(export_all).
+-include("scalaris.hrl").
 -include("unittest.hrl").
 
 all() -> [
@@ -41,22 +35,20 @@ suite() ->
     [{timetrap, {seconds, 40}}].
 
 init_per_suite(Config) ->
-    Config2 = unittest_helper:init_per_suite(Config),
-    {priv_dir, PrivDir} = lists:keyfind(priv_dir, 1, Config2),
+    {priv_dir, PrivDir} = lists:keyfind(priv_dir, 1, Config),
     unittest_helper:make_ring(2, [{config, [{log_path, PrivDir}]}]),
     comm_server:set_local_address({127,0,0,1}, unittest_helper:get_scalaris_port()),
-    Config2.
+    Config.
 
-end_per_suite(Config) ->
-    _ = unittest_helper:end_per_suite(Config),
+end_per_suite(_Config) ->
     ok.
 
 -spec make_groupname(Prefix::string(), Number::integer()) -> pid_groups:groupname().
 make_groupname(Prefix, Number) ->
-    Prefix ++ integer_to_list(Number).
+    {Prefix, Number}.
 
 %% make proposers, acceptors, and learners
--spec make(P::pos_integer(), A::pos_integer(), L::pos_integer(), Prefix::string())
+-spec make(P::pos_integer(), A::pos_integer(), L::pos_integer(), Prefix::atom())
         -> {Ps::[comm:mypid(),...], As::[comm:mypid(),...], Ls::[comm:mypid(),...]}.
 make(P, A, L, Prefix) ->
     NumMDs = lists:max([P,A,L]),
@@ -88,7 +80,7 @@ collect(Count) ->
 %%             collect(Count - 1)
     end.
 
--spec tester_fast_paxos(CountAcceptors::pos_integer(), Count::pos_integer(), Prefix::string()) -> ok.
+-spec tester_fast_paxos(CountAcceptors::pos_integer(), Count::pos_integer(), Prefix::atom()) -> ok.
 tester_fast_paxos(CountAcceptors, Count, Prefix) ->
     %% Count = 10,
     CountProposers = 1,
@@ -103,7 +95,7 @@ tester_fast_paxos(CountAcceptors, Count, Prefix) ->
             || Id <- lists:seq(1, Count)],
     _ = [ acceptor:start_paxosid(X, Id, Learners)
             || X <- Acceptors,  Id <- lists:seq(1, Count)],
-    _ = [ proposer:start_paxosid(hd(Proposers), Id, Acceptors, prepared,
+    _ = [ proposer:start_paxosid(hd(Proposers), Id, Acceptors, ?prepared,
                                  Majority, CountProposers, 0)
             || Id <- lists:seq(1, Count)],
     receive done -> ok
@@ -112,7 +104,7 @@ tester_fast_paxos(CountAcceptors, Count, Prefix) ->
           || X <- lists:flatten([Proposers, Acceptors, Learners])],
     ok.
 
--spec tester_paxos(CountAcceptors::pos_integer(), Count::pos_integer(), Prefix::string()) -> ok.
+-spec tester_paxos(CountAcceptors::pos_integer(), Count::pos_integer(), Prefix::atom()) -> ok.
 tester_paxos(CountAcceptors, Count, Prefix) ->
     CountProposers = 1,
     Majority = CountAcceptors div 2 + 1,
@@ -131,7 +123,7 @@ tester_paxos(CountAcceptors, Count, Prefix) ->
            end),
     _ = spawn(fun() ->
                       [ proposer:start_paxosid(hd(Proposers), Id, Acceptors,
-                                               prepared, Majority, CountProposers)
+                                               ?prepared, Majority, CountProposers)
                           || Id <- lists:seq(1, Count)]
               end),
     receive done -> ok
@@ -142,34 +134,34 @@ tester_paxos(CountAcceptors, Count, Prefix) ->
 
 test_fast_acceptors_4(_Config) ->
     Count = 10000,
-    Before = erlang:timestamp(),
-    tester_fast_paxos(4, Count, "test_acceptors_4"),
-    After = erlang:timestamp(),
-    ct:pal("fast: acceptors: 4, throughput: ~p~n", [Count / (timer:now_diff(After, Before) / 1000000.0)]),
+    Before = os:timestamp(),
+    tester_fast_paxos(4, Count, test_acceptors_4),
+    After = os:timestamp(),
+    ct:pal("fast: acceptors: 4, throughput: ~p~n", [Count / (erlang:max(1, timer:now_diff(After, Before)) / 1000000.0)]),
     ok.
 
 test_fast_acceptors_16(_Config) ->
     Count = 10000,
-    Before = erlang:timestamp(),
-    tester_fast_paxos(16, Count, "test_acceptors_16"),
-    After = erlang:timestamp(),
-    ct:pal("fast: acceptors: 16, throughput: ~p~n", [Count / (timer:now_diff(After, Before) / 1000000.0)]),
+    Before = os:timestamp(),
+    tester_fast_paxos(16, Count, test_acceptors_16),
+    After = os:timestamp(),
+    ct:pal("fast: acceptors: 16, throughput: ~p~n", [Count / (erlang:max(1, timer:now_diff(After, Before)) / 1000000.0)]),
     ok.
 
 test_acceptors_4(_Config) ->
     Count = 10000,
-    Before = erlang:timestamp(),
-    tester_paxos(4, Count, "test_acceptors_4"),
-    After = erlang:timestamp(),
-    ct:pal("slow: acceptors: 4, throughput: ~p~n", [Count / (timer:now_diff(After, Before) / 1000000.0)]),
+    Before = os:timestamp(),
+    tester_paxos(4, Count, test_acceptors_4),
+    After = os:timestamp(),
+    ct:pal("slow: acceptors: 4, throughput: ~p~n", [Count / (erlang:max(1, timer:now_diff(After, Before)) / 1000000.0)]),
     ok.
 
 test_acceptors_16(_Config) ->
     Count = 10000,
-    Before = erlang:timestamp(),
-    tester_paxos(16, Count, "test_acceptors_16"),
-    After = erlang:timestamp(),
-    ct:pal("slow: acceptors: 16, throughput: ~p~n", [Count / (timer:now_diff(After, Before) / 1000000.0)]),
+    Before = os:timestamp(),
+    tester_paxos(16, Count, test_acceptors_16),
+    After = os:timestamp(),
+    ct:pal("slow: acceptors: 16, throughput: ~p~n", [Count / (erlang:max(1, timer:now_diff(After, Before)) / 1000000.0)]),
     ok.
 
 test_two_proposers(_Config) ->
@@ -178,7 +170,7 @@ test_two_proposers(_Config) ->
     CountAcceptors = 4,
     Majority = CountAcceptors div 2 + 1,
     {Proposers, Acceptors, Learners} =
-        make(CountProposers, CountAcceptors, 1, "two_proposers"),
+        make(CountProposers, CountAcceptors, 1, two_proposers),
 
     %% start paxosids in the components
     learner:start_paxosid(hd(Learners), paxid123, Majority, comm:this(), cpaxid123),
@@ -189,9 +181,9 @@ test_two_proposers(_Config) ->
     gen_component:bp_set(comm:make_local(Proposer1), acceptor_ack, bp1),
     %% initiate full paxos
     proposer:start_paxosid(Proposer1, paxid123, Acceptors,
-                           prepared, Majority, length(Proposers), 3),
+                           ?prepared, Majority, length(Proposers), 3),
     proposer:start_paxosid(Proposer2, paxid123, Acceptors,
-                           abort, Majority, length(Proposers), 2),
+                           ?abort, Majority, length(Proposers), 2),
 
     %% should receive an abort
     receive {learner_decide, cpaxid123, _, Res1} = Any -> io:format("Expected abort Received ~p~n", [Any]) end,
@@ -216,9 +208,9 @@ test_two_proposers(_Config) ->
     gen_component:bp_set(comm:make_local(Proposer2), acceptor_ack, bp2),
     %% initiate full paxos
     proposer:start_paxosid(Proposer1, paxid124, Acceptors,
-                           prepared, Majority, length(Proposers), 1),
+                           ?prepared, Majority, length(Proposers), 1),
     proposer:start_paxosid(Proposer2, paxid124, Acceptors,
-                           abort, Majority, length(Proposers), 2),
+                           ?abort, Majority, length(Proposers), 2),
 
     %% should receive a prepared as proposer2 was hold
     receive {learner_decide, cpaxid124, _, Res3} = Any3 -> io:format("Expected prepared Received ~p~n", [Any3]) end,
@@ -239,16 +231,16 @@ test_two_proposers(_Config) ->
     ok.
 
 %% userdevguide-begin paxos_SUITE:random_interleaving_test
--spec prop_rnd_interleave(1..4, 4..16, {pos_integer(), pos_integer(), pos_integer()})
+-spec prop_rnd_interleave(1..4, 4..16)
         -> true.
-prop_rnd_interleave(NumProposers, NumAcceptors, Seed) ->
-    ct:pal("Called with: paxos_SUITE:prop_rnd_interleave(~p, ~p, ~p).~n",
-           [NumProposers, NumAcceptors, Seed]),
+prop_rnd_interleave(NumProposers, NumAcceptors) ->
+    ct:pal("Called with: paxos_SUITE:prop_rnd_interleave(~p, ~p).~n",
+           [NumProposers, NumAcceptors]),
     Majority = NumAcceptors div 2 + 1,
     {Proposers, Acceptors, Learners} =
-        make(NumProposers, NumAcceptors, 1, "rnd_interleave"),
+        make(NumProposers, NumAcceptors, 1, rnd_interleave),
     %% set bp on all processes
-    _ = [ gen_component:bp_set(comm:make_local(X), proposer_initialize, bp)
+    _ = [ gen_component:bp_set(comm:make_local(X), ?proposer_initialize, bp)
             ||  X <- Proposers],
     _ = [ gen_component:bp_set(comm:make_local(X), acceptor_initialize, bp)
             ||  X <- Acceptors ],
@@ -264,14 +256,8 @@ prop_rnd_interleave(NumProposers, NumAcceptors, Seed) ->
                                 comm:this(), cpaxidrndinterl)
             || X <- Learners],
     %% randomly step through protocol
-    OldSeed = rand:export_seed(),
-    _ = rand:seed(exsss, Seed),
     Steps = step_until_decide(Proposers ++ Acceptors ++ Learners, cpaxidrndinterl, 0),
     ct:pal("Needed ~p steps~n", [Steps]),
-    _ = case OldSeed of
-            undefined -> ok;
-            _ -> rand:seed(OldSeed)
-        end,
     _ = [ gen_component:kill(comm:make_local(X))
           || X <- lists:flatten([Proposers, Acceptors, Learners])],
     true.
@@ -284,7 +270,7 @@ step_until_decide(Processes, PaxId, SumSteps) ->
             ct:pal("No runnable processes of ~p~n", [length(Processes)]),
             timer:sleep(5), step_until_decide(Processes, PaxId, SumSteps);
         _ ->
-            Num = rand:uniform(length(Runnable)),
+            Num = randoms:uniform(length(Runnable)),
             _ = gen_component:bp_step(comm:make_local(lists:nth(Num, Runnable))),
             receive
                 {learner_decide, cpaxidrndinterl, _, _Res} = _Any ->
@@ -296,4 +282,4 @@ step_until_decide(Processes, PaxId, SumSteps) ->
 %% userdevguide-end paxos_SUITE:random_interleaving_test
 
 test_rnd_interleave(_Config) ->
-    tester:test(paxos_SUITE, prop_rnd_interleave, _Params = 3, _Iter = 100).
+    tester:test(paxos_SUITE, prop_rnd_interleave, _Params = 2, _Iter = 100).

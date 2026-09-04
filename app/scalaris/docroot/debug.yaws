@@ -6,6 +6,11 @@
     <meta http-equiv="pragma" content="no-cache">
     <meta http-equiv="cache-control" content="no-cache">
     <meta http-equiv="expires" content="-1">
+    <link rel='shortcut icon' type='image/x-icon' href='/favicon.ico' />
+<erl>
+out(Arg) ->
+    {header, {cache_control, "no-cache"}}.
+</erl>
     <title>Scalaris Management Interface</title>
   <!--[if lte IE 5.5999]>
     <style type="text/css">@import url(ie55-.css);</style>
@@ -49,6 +54,17 @@ out(Arg) ->
       </div>
       <div class=\"nothighlighted\">
         <a class=\"menua\" href=\"vivaldi.yaws\">Vivaldi Map</a>
+      </div>" ++ 
+    case config:read(dc_clustering_enable) of
+        true -> "
+      <div class=\"nothighlighted\">
+        <a class=\"menua\" href=\"dc.yaws\">Datacenter Clusters Map</a>
+      </div>
+";
+        _ -> ""
+    end ++ "
+      <div class=\"nothighlighted\">
+        <a class=\"menua\" href=\"bench.yaws\">Benchmarks</a>
       </div>
 "}
     end.

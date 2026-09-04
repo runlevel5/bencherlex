@@ -1,4 +1,4 @@
-% @copyright 2007-2012 Zuse Institute Berlin
+% @copyright 2007-2018 Zuse Institute Berlin
 
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
@@ -14,16 +14,14 @@
 
 %% @author Thorsten Schuett <schuett@zib.de>
 %% @doc Starting and stopping the scalaris app.
-%% @version $Id: scalaris.erl 2817 2012-03-06 05:06:34Z kruber@zib.de $
 -module(scalaris).
 -author('schuett@zib.de').
--vsn('$Id: scalaris.erl 2817 2012-03-06 05:06:34Z kruber@zib.de $').
 
 -include("scalaris.hrl").
 
 %% functions called by Erlangs init module, triggered via command line
 %% (bin/scalarisctl and erl ... '-s scalaris')
--export([start/0, stop/0]).
+-export([start/0, stop/0, load/0]).
 %% (bin/scalarisctl and erl ... '-s scalaris cli')
 -export([cli/0, process/1]).
 
@@ -36,47 +34,79 @@
 %% (bin/scalarisctl and erl ... '-s scalaris')
 -spec start() -> ok | {error, Reason::term()}.
 start() ->
-    _ = application:load(
-          {application, scalaris,
-           [{description, "scalaris"},
-            {vsn, ?SCALARIS_VERSION},
-            {mod, {scalaris, []}},
-            {registered, []},
-            {applications, [kernel, stdlib]},
-            {env, []}
-           ]}),
+    _ = load(),
     %% preload at least the API modules (for Erlang shell usage)
     _ = code:ensure_loaded(api_dht),
     _ = code:ensure_loaded(api_dht_raw),
     _ = code:ensure_loaded(api_monitor),
-    _ = code:ensure_loaded(api_pubsub),
     _ = code:ensure_loaded(api_rdht),
+    _ = code:ensure_loaded(api_ring),
     _ = code:ensure_loaded(api_tx),
     _ = code:ensure_loaded(api_vm),
+    _ = code:ensure_loaded(api_autoscale),
+    _ = code:ensure_loaded(api_mr),
+    _ = code:ensure_loaded(trace_mpath),
     application:start(scalaris).
 
 -spec stop() -> ok | {error, Reason::term()}.
 stop() ->
     application:stop(scalaris).
 
+-spec load() -> 'ok' | {'error', term()}.
+load() ->
+    %% provide load/0 as a separate function (called from
+    %% 'bin/scalarisctl checkinstallation').
+    %% We need to have the scalaris application loaded to get access
+    %% to the scalaris application environment variables provided with
+    %% the '-scalaris key value' syntax on the 'erl' command line.
+    %% The mechanism is used to check whether config files can be
+    %% found without actually starting the application.
+    application:load(
+      {application, scalaris,
+       [{description, "scalaris"},
+        {vsn, ?SCALARIS_VERSION},
+        {mod, {scalaris, []}},
+        {registered, []},
+        {applications, [kernel, stdlib]},
+        {env, []}
+       ]}).
+
 %% functions called by application:start(scalaris)
 %% triggered by ?MODULE:start/0.
 -spec start(StartType::normal, StartArgs::[])
-        -> {ok, Pid::pid()} |
-           {error, Error::{already_started, Pid::pid()} | term()}.
+        -> {ok, Pid::pid()}.
 start(normal, []) ->
-    case util:app_get_env(verbose, false) of
-        true -> io:format("Running with node name ~p.~n", [node()]);
-        false -> ok
-    end,
-    _ = pid_groups:start_link(),
-    case sup_scalaris:start_link() of
-        ignore -> {error, ignore};
-        X      -> X
+    try
+        util:if_verbose("~nAlready registered: ~p.~n", [erlang:registered()]),
+        util:if_verbose("Running with node name ~p.~n", [node()]),
+        config:init([]),
+        {ok, _LogPid} = log:start_link(),
+        case config:read(start_type) of
+            client ->
+                _ = inets:start(), % for jsonrpc
+                ok;
+            _ ->
+                {ok, _PidGroupsPid} = pid_groups:start_link(),
+                {ok, _YawsPid} = sup_yaws:start_link(),
+                case sup_scalaris:start_link() of
+                    %% ignore -> {error, ignore}; % no longer needed as dialyzer states
+                    X = {ok, Pid} when is_pid(Pid) ->
+                        comm:send_local(service_per_vm, {scalaris_says_hi}),
+                        X
+                end
+        end
+    catch
+        Error:Reason ->
+            io:format("Ups, Scalaris crashed with ~p:~p~n~p~n",
+                      [Error, Reason, util:get_stacktrace()]),
+            halt(1)
     end.
 
 -spec stop(any()) -> ok.
 stop(_State) ->
+    sup:sup_terminate(main_sup),
+%%  would prevent proper VM termination: (so leave it as a comment for now)
+%%  sup_scalaris:stop_first_services(),
     ok.
 
 %% functions called by Erlangs init module, triggered via command line

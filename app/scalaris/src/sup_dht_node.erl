@@ -1,4 +1,4 @@
-%  @copyright 2007-2011 Zuse Institute Berlin
+%  @copyright 2007-2017 Zuse Institute Berlin
 
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
@@ -19,80 +19,130 @@
 %%         If one of the supervised processes fails, only the failed process
 %%         will be re-started!
 %% @end
-%% @version $Id: sup_dht_node.erl 2755 2012-01-19 16:32:22Z kruber@zib.de $
+%% @version $Id$
 -module(sup_dht_node).
 -author('schuett@zib.de').
--vsn('$Id: sup_dht_node.erl 2755 2012-01-19 16:32:22Z kruber@zib.de $').
+-vsn('$Id$').
 
 -behaviour(supervisor).
 -include("scalaris.hrl").
 
--export([start_link/1, start_link/0, init/1]).
+-export([start_link/1, init/1]).
+-export([supspec/1, childs/1]).
 
--spec start_link([tuple()])
+-spec start_link({DHTNodeGroup::pid_groups:groupname(), Options::[tuple()]})
         -> {ok, Pid::pid(), pid_groups:groupname()} | ignore |
                {error, Error::{already_started, Pid::pid()} | shutdown | term()}.
-start_link(Options) ->
-    DHTNodeGroup = pid_groups:new("dht_node_"),
-    case supervisor:start_link(?MODULE, {DHTNodeGroup, Options}) of
+start_link({DHTNodeGroup, Options}) ->
+    case supervisor:start_link(?MODULE, [{DHTNodeGroup, Options}]) of
         {ok, Pid} -> {ok, Pid, DHTNodeGroup};
         X         -> X
     end.
 
--spec start_link()
-        -> {ok, Pid::pid(), pid_groups:groupname()} | ignore |
-               {error, Error::{already_started, Pid::pid()} | shutdown | term()}.
-start_link() ->
-    start_link([]).
-
 %% userdevguide-begin sup_dht_node:init
--spec init({pid_groups:groupname(), [tuple()]})
-        -> {ok, {{one_for_one, MaxRetries::pos_integer(), PeriodInSeconds::pos_integer()},
-                 [ProcessDescr::supervisor:child_spec()]}}.
-init({DHTNodeGroup, Options}) ->
+-spec init([{pid_groups:groupname(), [tuple()]}])
+        -> {ok, {{one_for_one, MaxRetries::pos_integer(),
+                  PeriodInSeconds::pos_integer()}, []}}.
+init([{DHTNodeGroup, _Options}] = X) ->
     pid_groups:join_as(DHTNodeGroup, ?MODULE),
-    mgmt_server:connect(),
-    
-    Cyclon = util:sup_worker_desc(cyclon, cyclon, start_link, [DHTNodeGroup]),
+    supspec(X).
+%% userdevguide-end sup_dht_node:init
+
+-spec supspec(any()) -> {ok, {{one_for_one, MaxRetries::pos_integer(),
+                         PeriodInSeconds::pos_integer()}, []}}.
+supspec(_) ->
+    {ok, {{one_for_one, 10, 1}, []}}.
+
+-spec childs([{pid_groups:groupname(), Options::[tuple()]}]) ->
+                    [ProcessDescr::supervisor:child_spec()].
+childs([{DHTNodeGroup, Options}]) ->
+    Autoscale =
+        case config:read(autoscale) of
+            true -> sup:worker_desc(autoscale, autoscale, start_link, [DHTNodeGroup]);
+            _ -> []
+        end,
+    DBValCache =
+        sup:worker_desc(dht_node_db_cache, dht_node_db_cache, start_link,
+                             [DHTNodeGroup]),
     DC_Clustering =
-        util:sup_worker_desc(dc_clustering, dc_clustering, start_link,
+        sup:worker_desc(dc_clustering, dc_clustering, start_link,
                              [DHTNodeGroup]),
     DeadNodeCache =
-        util:sup_worker_desc(deadnodecache, dn_cache, start_link,
+        sup:worker_desc(deadnodecache, dn_cache, start_link,
                              [DHTNodeGroup]),
     Delayer =
-        util:sup_worker_desc(msg_delay, msg_delay, start_link,
+        sup:worker_desc(msg_delay, msg_delay, start_link,
                              [DHTNodeGroup]),
     Gossip =
-        util:sup_worker_desc(gossip, gossip, start_link, [DHTNodeGroup]),
+        sup:worker_desc(gossip, gossip, start_link, [DHTNodeGroup]),
+
+    VivaldiLatency =
+        sup:worker_desc(vivaldi_latency, vivaldi_latency, start_link, [DHTNodeGroup]),
+
+    GossipCyclonFeeder =
+        sup:worker_desc(gossip_cyclon_feeder, gossip_cyclon_feeder, start_link, [DHTNodeGroup]),
+
+    LBActive =
+        case config:read(lb_active) of
+            true -> sup:worker_desc(lb_active, lb_active, start_link, [DHTNodeGroup]);
+            _ -> []
+        end,
     Reregister =
-        util:sup_worker_desc(dht_node_reregister, dht_node_reregister,
+        sup:worker_desc(dht_node_reregister, dht_node_reregister,
+                             start_link, [DHTNodeGroup]),
+    RMLeases =
+        sup:worker_desc(rm_leases, rm_leases,
                              start_link, [DHTNodeGroup]),
     RoutingTable =
-        util:sup_worker_desc(routing_table, rt_loop, start_link,
+        sup:worker_desc(routing_table, rt_loop, start_link,
                              [DHTNodeGroup]),
+    DHTNodeCache =
+        case config:read(cache_dht_nodes) of
+            true ->
+                sup:worker_desc(dht_node_cache, dht_node_cache, start_link, [DHTNodeGroup]);
+            false ->
+                []
+        end,
     SupDHTNodeCore_AND =
-        util:sup_supervisor_desc(sup_dht_node_core, sup_dht_node_core,
+        sup:supervisor_desc(sup_dht_node_core, sup_dht_node_core,
                                  start_link, [DHTNodeGroup, Options]),
-    Vivaldi =
-        util:sup_worker_desc(vivaldi, vivaldi, start_link, [DHTNodeGroup]),
+    %% SupMr = case config:read(mr_enable) of
+    %%     true ->
+    %%         util:sup_supervisor_desc(sup_mr, sup_mr, start_link, [DHTNodeGroup]);
+    %%     _ -> []
+    %% end,
     Monitor =
-        util:sup_worker_desc(monitor, monitor, start_link, [DHTNodeGroup]),
-    MonitorPerf =
-        util:sup_worker_desc(monitor_perf, monitor_perf, start_link, [DHTNodeGroup]),
-    %% order in the following list is the start order
-    {ok, {{one_for_one, 10, 1},
-          lists:flatten([
-                Monitor,
-                Delayer,
-                Reregister,
-                DeadNodeCache,
-                RoutingTable,
-                Cyclon,
-                Vivaldi,
-                DC_Clustering,
-                Gossip,
-                SupDHTNodeCore_AND,
-                MonitorPerf
-          ])}}.
-%% userdevguide-end sup_dht_node:init
+        sup:worker_desc(monitor, monitor, start_link, [DHTNodeGroup]),
+    RepUpdate =
+        case config:read(rrepair_enabled) of
+            true -> sup:worker_desc(rrepair, rrepair, start_link, [DHTNodeGroup]);
+            _ -> []
+        end,
+    SnapshotLeader =
+        sup:worker_desc(snapshot_leader, snapshot_leader, start_link,
+                        [DHTNodeGroup]),
+    SupWPool =
+        sup:supervisor_desc(sup_wpool, sup_wpool, start_link, [DHTNodeGroup]),
+    WPool = sup:worker_desc(wpool, wpool, start_link, [DHTNodeGroup, Options]),
+
+    lists:flatten([ %% RepUpd may be [] and lists:flatten eliminates this
+                    Monitor,
+                    Delayer,
+                    Reregister,
+                    DBValCache,
+                    DeadNodeCache,
+                    DHTNodeCache,
+                    RoutingTable,
+                    DC_Clustering,
+                    VivaldiLatency,
+                    Gossip,
+                    GossipCyclonFeeder,
+                    SnapshotLeader,
+                    SupWPool,
+                    WPool,
+                    SupDHTNodeCore_AND,
+                    RepUpdate,
+                    Autoscale,
+                    RMLeases,
+                    LBActive
+           ]).

@@ -16,14 +16,12 @@
 %% @doc    Implements helper functions for queuing messages and sending them
 %%         in the order they have been queued.
 %% @end
-%% @version $Id: msg_queue.erl 1445 2011-02-23 11:34:29Z kruber@zib.de $
+%% @version $Id$
 -module(msg_queue).
 -author('kruber@zib.de').
--vsn('$Id: msg_queue.erl 1445 2011-02-23 11:34:29Z kruber@zib.de $ ').
+-vsn('$Id$').
 
--ifdef(with_export_type_support).
 -export_type([msg_queue/0]).
--endif.
 
 -export([new/0, is_empty/1, add/2, send/1]).
 

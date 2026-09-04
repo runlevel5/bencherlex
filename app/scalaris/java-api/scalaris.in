@@ -1,4 +1,4 @@
-#! /bin/sh
+#!/bin/bash
 
 #  Copyright 2007-2011 Zuse Institute Berlin
 #
@@ -16,7 +16,7 @@
 
 # inspired by the start script of ant
 
-OTP_VERSION=1.5.4-custom
+OTP_VERSION=1.6.1
 JAKARTA_COMMONS_VERSION=1.2
 ERL=@ERL@
 
@@ -30,29 +30,39 @@ no_config=false
 scalaris_exec_debug=false
 show_help=false
 no_erl=false
-for arg in "$@" ; do
-  if [ "$arg" = "--noconfig" ] ; then
-    no_config=true
-  elif [ "$arg" = "--noerl" ] ; then
-    no_erl=true
-  elif [ "$arg" = "--execdebug" ] ; then
-    scalaris_exec_debug=true
-  elif [ my"$arg" = my"-h"  -o my"$arg" = my"--help"  ] ; then
-    show_help=true
-    scalaris_exec_args="$scalaris_exec_args --help"
-  else
-    if [  my"$arg" = my"-h"  -o  my"$arg" = my"-help" ] ; then
+jmvopts=""
+ERLANG_HOSTNAME=${ERLANG_HOSTNAME-""}
+
+until [ -z "$1" ]; do
+  case $1 in
+    "--noconfig")
+      no_config=true
+      shift;;
+    "--noerl")
+      no_erl=true
+      shift;;
+    "--execdebug")
+      scalaris_exec_debug=true
+      shift;;
+    "-h" | "--help" | "-help")
       show_help=true
-    fi
-    scalaris_exec_args="$scalaris_exec_args \"$arg\""
-  fi
+      scalaris_exec_args="$scalaris_exec_args --help"
+      shift;;
+    "--jvmopts")
+      shift
+      jmvopts="$jmvopts $1"
+      shift;;
+    *)
+      scalaris_exec_args="$scalaris_exec_args \"$1\""
+      shift;;
+  esac
 done
 
 # activate no_config if called in the source tree:
 ABSPATH="$(cd "${0%/*}" 2>/dev/null; echo "$PWD"/"${0##*/}")"
 DIRNAME=`dirname $ABSPATH`
-# is this a svn checkout or an (rpm/deb/manual) installation?
-if [ "$DIRNAME" != "@bindir@" ]; then
+# is this a source checkout or an (rpm/deb/manual) installation?
+if [ "$DIRNAME" != "@bindir@" -a "$DIRNAME" != "/bin" ]; then
   no_config=true
 fi
 
@@ -109,9 +119,40 @@ if $rpm_mode ; then
   fi
 fi
 
+get_hostname() {
+    # Uses the OS hostname from "hostname -f" for the Erlang long node name.
+    if [ -z "$ERLANG_HOSTNAME" ] ; then
+        ERLANG_HOSTNAME="`get_sys_hostname`"
+    fi
+    # Alternative using the hostname that erlang chooses if set up to start with a long node
+    # name and falls back to "hostname -f" if this is not possible:
+    # NOTE: In this case, the Java-API (if used as a library) is not always able
+    #       to guess the host name that Erlang expects and connections may fail.
+    #       Therefore, the convenience node spec "<node>@localhost" may not be used.
+#     if [ -z "$ERLANG_HOSTNAME" ] ; then
+#         ERLANG_HOSTNAME="`get_erlang_hostname`"
+#         if [ -z "$ERLANG_HOSTNAME" ] ; then
+#             # could not start erlang with long node name (no FQDN?)
+#             ERLANG_HOSTNAME="`get_sys_hostname`"
+#         fi
+#     fi
+}
+
+get_erlang_hostname() {
+    MY_HOSTNAME_ERL="`$ERL -name foo$$ -noinput -eval 'N=erlang:atom_to_list(node()),io:format("~s", [string:sub_string(N, string:chr(N, $@)+1)]), halt(0).' 2>/dev/null`"
+    if [ $? -ne 0 ] ; then
+        MY_HOSTNAME_ERL=
+    fi
+    echo "$MY_HOSTNAME_ERL"
+}
+
+get_sys_hostname() {
+    hostname -f
+}
+
 # Get local host name from erlang
 if ! $no_erl; then
-  ERLANG_NODE_NAME="`hostname -f`"
+  get_hostname
 fi
 
 # OS specific support.  $var _must_ be set to either true or false.
@@ -180,16 +221,21 @@ if [ ! -x "$JAVACMD" ] ; then
   exit 1
 fi
 
+# include our Scalaris jar files (we know where they are and do not need to
+# rely on tools like build-classpath which may include the wrong library,
+# i.e. not the installed one)
+if [ -z "$LOCALCLASSPATH" ] ; then
+  LOCALCLASSPATH=$SCALARIS_JAVA_HOME/scalaris.jar:$SCALARIS_JAVA_HOME/lib/jakarta-commons-cli-$JAKARTA_COMMONS_VERSION.jar:$SCALARIS_JAVA_HOME/lib/OtpErlang-$OTP_VERSION.jar
+else
+  LOCALCLASSPATH=$SCALARIS_JAVA_HOME/scalaris.jar:$SCALARIS_JAVA_HOME/lib/jakarta-commons-cli-$JAKARTA_COMMONS_VERSION.jar:$SCALARIS_JAVA_HOME/lib/OtpErlang-$OTP_VERSION.jar:$LOCALCLASSPATH
+fi
+
 # Build local classpath manually in non-rpm mode or
 # use the Jpackage helper in rpm mode with basic and default jars
-# specified in the scalaris-java.conf configuration. Because the launcher
-# is used, libraries linked in SCALARIS_JAVA_HOME/lib will also be included, but this
-# is discouraged as it is not java-version safe. A user should
+# specified in the scalaris-java.conf configuration. A user should
 # request optional jars and their dependencies via the OPT_JAR_LIST
 # variable
 if $rpm_mode && [ -x "@BUILDCLASSPATH@" ] ; then
-  LOCALCLASSPATH="$(@BUILDCLASSPATH@ scalaris)"
-
   # If the user requested to try to add some other jars to the classpath
   if [ -n "$OPT_JAR_LIST" ] ; then
     _OPTCLASSPATH="$(@BUILDCLASSPATH@ $OPT_JAR_LIST 2> /dev/null)"
@@ -225,13 +271,6 @@ if $rpm_mode && [ -x "@BUILDCLASSPATH@" ] ; then
 
     # remove class path from launcher -cp option
     CLASSPATH=""
-  fi
-else
-  # not using rpm_mode or no build-classpath tool
-  if [ -z "$LOCALCLASSPATH" ] ; then
-      LOCALCLASSPATH=$SCALARIS_JAVA_HOME/scalaris.jar:$SCALARIS_JAVA_HOME/lib/jakarta-commons-cli-$JAKARTA_COMMONS_VERSION.jar:$SCALARIS_JAVA_HOME/lib/OtpErlang-$OTP_VERSION.jar
-  else
-      LOCALCLASSPATH=$SCALARIS_JAVA_HOME/scalaris.jar:$SCALARIS_JAVA_HOME/lib/jakarta-commons-cli-$JAKARTA_COMMONS_VERSION.jar:$SCALARIS_JAVA_HOME/lib/OtpErlang-$OTP_VERSION.jar:$LOCALCLASSPATH
   fi
 fi
 
@@ -302,10 +341,11 @@ fi
 # java options, and scalaris args
 scalaris_exec_command="exec \"$JAVACMD\" $SCALARIS_OPTS\
   -classpath \"$LOCALCLASSPATH\"\
+  $jmvopts\
   -Dscalaris.java.home=\"$SCALARIS_JAVA_HOME\"\
-  -Dscalaris.erlang.nodename=\"$ERLANG_NODE_NAME\"\
+  -Dscalaris.erlang.nodename=\"$ERLANG_HOSTNAME\"\
   -Dscalaris.cookie=\"`get_cookie`\"\
-  -Dscalaris.node=\"$SCALARIS_JAPI_NODE\"
+  -Dscalaris.node=\"$SCALARIS_JAPI_NODE\"\
   $scalaris_java_config de.zib.scalaris.Main $SCALARIS_ARGS $scalaris_exec_args"
 if $scalaris_exec_debug ; then
     echo $scalaris_exec_command

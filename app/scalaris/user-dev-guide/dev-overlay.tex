@@ -6,7 +6,6 @@
 
 \section{Routing Tables}
 \label{chapter.routing}
-\svnrev{r1453}
 \erlmoduleindex{rt\_beh}
 
 Each node of the ring can perform searches in the overlay.
@@ -41,9 +40,9 @@ defined using a so called `behaviour'.  The files \code{rt_simple} and
 \code{rt_chord} implement the behaviour `rt\_beh'.
 
 The macro \code{?RT} is used to select the current implementation of routing
-tables. It is defined in \code{include/scalaris.hrl}.
-
-\codesnippet{scalaris.hrl}{scalaris:rt}{../include/scalaris.hrl}
+tables. It is defined in a \code{rt_*.hrl} file in the \code{include} directory
+which is set during configuration. For \code{rt_simple}, the following call
+would include the proper files: \code{./configure --with-rt=rt_simple}.
 
 The functions, that have to be implemented for a routing mechanism are
 defined in the following file:
@@ -144,6 +143,13 @@ defined in the following file:
 \item \code{check_config/0} check that all required configuration parameters
   exist and satisfy certain restrictions.
 
+\erlfunindex{rt\_beh}{wrap\_message}
+\item \code{wrap_message/1} wraps a message send via a \code{dht_node_lookup:lookup_aux/4}.
+
+\erlfunindex{rt\_beh}{unwrap\_message}
+\item \code{unwrap_message/2} unwraps a message send via \code{dht_node_lookup:lookup_aux/4}
+previously wrapped by \code{wrap_message/1}.
+
 \end{description}
 
 \subsection{The routing table process (\texorpdfstring{\code{rt_loop}}{rt\_loop})}
@@ -158,8 +164,7 @@ If initialized, the node's id, its predecessor, successor and the routing table
 state of the selected implementation (the macro \code{RT} refers to).
 
 \codesnippet{rt_loop.erl}{rt_loop:trigger}{../src/rt_loop.erl}
-Periodically (see \code{routingtable_trigger} and
-\code{pointer_base_stabilization_interval} config parameters) a \code{trigger}
+Periodically (see \code{pointer_base_stabilization_interval} config parameter) a \code{trigger}
 message is sent to the \code{rt_loop} process that starts the periodic
 stabilization implemented by each routing table.
 
@@ -260,6 +265,19 @@ Checks whether the routing table changed and in this case sends the
 the failure detector is updated. This may not be necessary, e.g. if
 \code{check} is called after a crashed node has been reported by the failure
 detector (the failure detector already unsubscribes the node in this case).
+\codesnippet{rt_simple.hrl}{rt_simple:check}{../src/rt_simple.erl}
+
+\erlfunindex{rt\_simple}{wrap\_message}
+\codesnippet{rt_simple.erl}{rt_simple:wrap_message}{../src/rt_simple.erl}
+Wraps a message send via \code{dht_node_lookup:lookup/4} if needed. This routing algorithm
+does not need callbacks when finishing the lookup, so it does not need to wrap the
+message.
+
+\erlfunindex{rt\_simple}{unwrap\_message}
+\codesnippet{rt_simple.erl}{rt_simple:unwrap_message}{../src/rt_simple.erl}
+Unwraps a message previously wrapped with \code{rt\_simple:wrap_message/1}. As that
+function does not wrap messages, \code{rt\_simple:unwrap_message/2} doesn't have to do
+anything as well.
 
 \subsection{Chord routing table (\texorpdfstring{\code{rt_chord}}{rt\_chord})}
 \erlmoduleindex{rt\_chord}
@@ -351,6 +369,19 @@ the failure detector is updated. This may not be necessary, e.g. if
 \code{check} is called after a crashed node has been reported by the failure
 detector (the failure detector already unsubscribes the node in this case).
 
+\erlfunindex{rt\_chord}{wrap\_message}
+\codesnippet{rt_chord.erl}{rt_chord:wrap_message}{../src/rt_chord.erl}
+
+Wraps a message send via \code{dht_node_lookup:lookup/4} if needed. This
+routing algorithm does not need callbacks when finishing the lookup, so it
+does not need to wrap the message.
+
+\erlfunindex{rt\_chord}{unwrap\_message}
+\codesnippet{rt_chord.erl}{rt_chord:unwrap_message}{../src/rt_chord.erl}
+
+Unwraps a message previously wrapped with
+\code{rt\_chord:wrap_message/1}. As that function does not wrap messages,
+\code{rt\_chord:unwrap_message/2} doesn't have to do anything as well.
 
 \section{Local Datastore}
 

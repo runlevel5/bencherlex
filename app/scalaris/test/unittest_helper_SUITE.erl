@@ -1,4 +1,4 @@
-% @copyright 2011 Zuse Institute Berlin
+% @copyright 2011-2015 Zuse Institute Berlin
 
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
@@ -12,16 +12,15 @@
 %   See the License for the specific language governing permissions and
 %   limitations under the License.
 
-%%% @author Nico Kruber <kruber@zib.de>
-%%% @doc : Unit tests for unittest_helper
-%%% @end
+%% @author Nico Kruber <kruber@zib.de>
+%% @doc : Unit tests for unittest_helper
+%% @end
+%% @version $Id$
 -module(unittest_helper_SUITE).
 -author('kruber@zib.de').
--vsn('$Id: unittest_helper_SUITE.erl 2059 2011-08-02 17:54:21Z kruber@zib.de $').
+-vsn('$Id$').
 
--export([all/0, end_per_suite/1, end_per_testcase/2, init_per_suite/1,
-         init_per_testcase/2, prop_make_ring_with_ids/1, suite/0,
-         tester_make_ring_with_ids/1]).
+-compile(export_all).
 
 -include("unittest.hrl").
 -include("scalaris.hrl").
@@ -34,29 +33,28 @@ suite() ->
      {timetrap, {seconds, 30}}
     ].
 
-init_per_testcase(_TestCase, Config) ->
-    unittest_helper:stop_ring(),
-    Config.
- 
-end_per_testcase(_TestCase, Config) ->
-    unittest_helper:stop_ring(),
-    Config.
-
 init_per_suite(Config) ->
-    unittest_helper:init_per_suite(Config).
+    Config.
 
-end_per_suite(Config) ->
-    _ = unittest_helper:end_per_suite(Config),
+end_per_suite(_Config) ->
+    ok.
+
+init_per_testcase(_TestCase, Config) ->
+    [{stop_ring, true} | Config].
+
+end_per_testcase(_TestCase, _Config) ->
     ok.
 
 -spec prop_make_ring_with_ids(IDs::[?RT:key(),...]) -> true.
 prop_make_ring_with_ids(IDs) ->
     UniqueIDs = lists:usort(IDs),
-    unittest_helper:make_ring_with_ids(UniqueIDs, [{config, [pdb:get(log_path, ?MODULE)]}]),
-    
+    unittest_helper:make_ring_with_ids(
+      UniqueIDs,
+      [{config, [pdb:get(log_path, ?MODULE)]}]),
+
     DHTNodes = pid_groups:find_all(dht_node),
     ?equals(length(DHTNodes), length(UniqueIDs)),
-    
+
     ActualIds = [begin
            comm:send_local(DhtNode,
                            {get_node_details, comm:this(), [node]}),
@@ -67,9 +65,9 @@ prop_make_ring_with_ids(IDs) ->
 %%            after 500 -> timeout
            end
        end || DhtNode <- DHTNodes],
-    
+
     ?equals(lists:sort(ActualIds), lists:sort(UniqueIDs)),
-    
+
     unittest_helper:stop_ring(),
     % wait a bit for all processes to stop
     timer:sleep(100),

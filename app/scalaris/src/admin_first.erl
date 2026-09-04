@@ -1,4 +1,4 @@
-%  @copyright 2007-2011 Zuse Institute Berlin
+%  @copyright 2007-2015 Zuse Institute Berlin
 
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
@@ -16,10 +16,10 @@
 %% @author Florian Schintke <schintke@zib.de>
 %% @doc    determine if first vm in this deployment
 %% @end
-%% @version $Id: $
+%% @version $Id$
 -module(admin_first).
 -author('schuett@zib.de').
--vsn('$Id:$').
+-vsn('$Id$').
 
 -include("scalaris.hrl").
 
@@ -27,15 +27,13 @@
 
 -spec is_first_vm() -> boolean().
 is_first_vm() ->
-    util:is_unittest()
+    config:read(start_type) =:= first
         orelse
-    util:app_get_env(first, false) =:= true
+    config:read(start_type) =:= first_nostart
         orelse
-    (util:app_get_env(first_quorum, false) =:= true andalso has_first_quorum()).
+    (config:read(start_type) =:= quorum andalso has_first_quorum()).
 
 has_first_quorum() ->
-    % determine own IP
-    comm:init_and_wait_for_valid_pid(),
     KnownHosts = config:read(known_hosts),
     MyServicePerVM = comm:get(service_per_vm, comm:this()),
     case lists:member(MyServicePerVM, KnownHosts) of
@@ -51,19 +49,18 @@ has_first_quorum() ->
             Proposal = {leader, MyServicePerVM},
             MaxProposers = length(KnownHosts),
             Majority = quorum:majority_for_accept(MaxProposers),
-            Rank = index_of(MyServicePerVM, KnownHosts),
+            Rank = util:lists_index_of(MyServicePerVM, KnownHosts),
+            ?ASSERT(Rank =/= not_found),
 
             acceptor:start_paxosid(MyAcceptor, PaxosId, Learners),
             learner:start_paxosid(MyLearner, PaxosId, Majority, comm:this(), client_cookie),
             proposer:start_paxosid(MyProposer, PaxosId,
                                    Acceptors, Proposal, Majority, MaxProposers, Rank),
+            trace_mpath:thread_yield(),
             receive
-                {learner_decide, client_cookie, PaxosId, {leader, TheLeader}} ->
+                ?SCALARIS_RECV(
+                    {learner_decide, client_cookie, PaxosId, {leader, TheLeader}}, %%->
                     TheLeader =:= MyServicePerVM
+                  )
             end
     end.
-
-index_of(P, [P|_Rest]) ->
-    1;
-index_of(P, [_|Rest]) ->
-    1 + index_of(P, Rest).

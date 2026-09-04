@@ -1,5 +1,4 @@
-% @copyright 2009-2011 Zuse Institute Berlin,
-%            2010 onScale solutions GmbH
+% @copyright 2009-2015 Zuse Institute Berlin,
 
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
@@ -17,10 +16,10 @@
 %% @doc Part of a generic Paxos-Consensus implementation
 %%      The role of a acceptor.
 %% @end
-%% @version $Id: acceptor.erl 2576 2011-12-16 18:01:34Z kruber@zib.de $
+%% @version $Id$
 -module(acceptor).
 -author('schintke@zib.de').
--vsn('$Id: acceptor.erl 2576 2011-12-16 18:01:34Z kruber@zib.de $').
+-vsn('$Id$').
 
 %-define(TRACE(X,Y), io:format(X,Y)).
 -define(TRACE(X,Y), ok).
@@ -38,6 +37,11 @@
 -export([on/2, init/1]).
 -export([check_config/0]).
 
+-include("gen_component.hrl").
+-include("acceptor_state.hrl").
+
+-compile({inline, [initialize/4, inform_learner/3]}).
+
 %% Messages to expect from this module
 -spec msg_ack(comm:mypid(), any(), non_neg_integer(), any(), non_neg_integer())
              -> ok.
@@ -54,7 +58,7 @@ msg_naccepted(Proposer, PaxosID, NewerRound) ->
 
 -spec msg_accepted(comm:mypid(), any(), non_neg_integer(), any()) -> ok.
 msg_accepted(Learner, PaxosID, Raccepted, Val) ->
-    comm:send(Learner, {acceptor_accepted, PaxosID, Raccepted, Val}).
+    comm:send(Learner, {?acceptor_accept, PaxosID, Raccepted, Val}).
 
 %%% public function to initiate a new paxos instance
 %%% gets a
@@ -92,31 +96,35 @@ add_learner(Acceptor, PaxosID, Learner) ->
 start_link(DHTNodeGroup, PidName) ->
     gen_component:start_link(?MODULE, fun ?MODULE:on/2,
                              [],
-                             [{pid_groups_join_as, DHTNodeGroup, PidName}]).
+                             [{pid_groups_join_as, DHTNodeGroup, PidName},
+                              {spawn_opts, [{fullsweep_after, 0},
+                                            {min_heap_size, 16383}]}]).
 
 %% initialize: return initial state.
 -spec init([]) -> atom().
 init([]) ->
     ?TRACE("Starting acceptor for DHT node: ~p~n", [pid_groups:my_groupname()]),
     %% For easier debugging, use a named table (generates an atom)
-    %%TableName = list_to_atom(pid_groups:my_groupname() ++ "_acceptor"),
+    %%TableName = erlang:list_to_atom(pid_groups:group_to_filename(pid_groups:my_groupname()) ++ "_acceptor"),
     %%pdb:new(TableName, [set, protected, named_table]),
     %% use random table name provided by ets to *not* generate an atom
-    TableName = pdb:new(?MODULE, [set, protected]),
+    TableName = pdb:new(?MODULE, [set]),
     _State = TableName.
 
 -spec on(comm:message(), atom()) -> atom().
 on({acceptor_initialize, PaxosID, Learners}, ETSTableName = State) ->
     ?TRACE("acceptor:initialize for paxos id: Pid ~p Learners ~p~n", [PaxosID, Learners]),
-    {_, StateForID} = get_entry(PaxosID, ETSTableName),
-    case acceptor_state:get_learners(StateForID) of
-        Learners -> log:log(error, "dupl. acceptor init for id ~p", [PaxosID]);
-        _ ->
-            NewState = acceptor_state:set_learners(StateForID, Learners),
-            set_entry(NewState, ETSTableName),
-            case acceptor_state:accepted(NewState) of
-                true  -> inform_learners(PaxosID, NewState);
-                false -> ok
+    case pdb:get(PaxosID, ETSTableName) of
+        undefined when Learners =:= [] -> % just in case
+            log:log(error, "dupl. acceptor init for id ~p", [PaxosID]);
+        undefined ->
+            initialize(state_new(PaxosID), ETSTableName, PaxosID, Learners);
+        StateForID ->
+            case state_get_learners(StateForID) of
+                Learners ->
+                    log:log(error, "dupl. acceptor init for id ~p", [PaxosID]);
+                _ ->
+                    initialize(StateForID, ETSTableName, PaxosID, Learners)
             end
     end,
     State;
@@ -124,34 +132,35 @@ on({acceptor_initialize, PaxosID, Learners}, ETSTableName = State) ->
 % need Sender & PaxosID
 on({proposer_prepare, Proposer, PaxosID, InRound}, ETSTableName = State) ->
     ?TRACE("acceptor:prepare for paxos id: ~p round ~p~n", [PaxosID,InRound]),
-    {ErrCode, StateForID} = get_entry(PaxosID, ETSTableName),
-    case ErrCode of
-        new -> msg_delay:send_local(
-                 config:read(acceptor_noinit_timeout) div 1000, self(),
-                 {acceptor_delete_if_no_learner, PaxosID});
-        _ -> ok
+    case pdb:get(PaxosID, ETSTableName) of
+        undefined -> StateForID = state_new(PaxosID),
+                     msg_delay:send_local(
+                       config:read(acceptor_noinit_timeout) div 1000, self(),
+                       {acceptor_delete_if_no_learner, PaxosID});
+        StateForID -> ok
     end,
-    case acceptor_state:add_prepare_msg(StateForID, InRound) of
+    case state_add_prepare_msg(StateForID, InRound) of
         {ok, NewState} ->
-            set_entry(NewState, ETSTableName),
+            pdb:set(NewState, ETSTableName),
             msg_ack(Proposer, PaxosID, InRound,
-                    acceptor_state:get_value(NewState),
-                    acceptor_state:get_raccepted(NewState));
+                    state_get_value(NewState),
+                    state_get_raccepted(NewState));
         {dropped, NewerRound} -> msg_nack(Proposer, PaxosID, NewerRound)
     end,
     State;
 
-on({proposer_accept, Proposer, PaxosID, InRound, InProposal}, ETSTableName = State) ->
+on({?proposer_accept, Proposer, PaxosID, InRound, InProposal}, ETSTableName = State) ->
     ?TRACE("acceptor:accept for paxos id: ~p round ~p~n", [PaxosID, InRound]),
-    {ErrCode, StateForID} = get_entry(PaxosID, ETSTableName),
-    case ErrCode of
-        new -> msg_delay:send_local((config:read(tx_timeout) * 4) div 1000, self(),
-                         {acceptor_delete_if_no_learner, PaxosID});
-        _ -> ok
+    case pdb:get(PaxosID, ETSTableName) of
+        undefined -> StateForID = state_new(PaxosID),
+                     msg_delay:send_local(
+                       (config:read(tx_timeout) * 4) div 1000, self(),
+                       {acceptor_delete_if_no_learner, PaxosID});
+        StateForID -> ok
     end,
-    _ = case acceptor_state:add_accept_msg(StateForID, InRound, InProposal) of
+    case state_add_accept_msg(StateForID, InRound, InProposal) of
         {ok, NewState} ->
-            set_entry(NewState, ETSTableName),
+            pdb:set(NewState, ETSTableName),
             inform_learners(PaxosID, NewState);
         {dropped, NewerRound} -> msg_naccepted(Proposer, PaxosID, NewerRound)
     end,
@@ -164,51 +173,55 @@ on({acceptor_deleteids, ListOfPaxosIDs}, ETSTableName = State) ->
 
 on({acceptor_delete_if_no_learner, PaxosID}, ETSTableName = State) ->
     ?TRACE("acceptor:delete_if_no_learner~n", []),
-    {ErrCode, StateForID} = get_entry(PaxosID, ETSTableName),
-    case {ErrCode, acceptor_state:get_learners(StateForID)} of
-        {new, _} -> ok; %% already deleted
-        {_, []} ->
-            %% io:format("Deleting unhosted acceptor id~n"),
-            pdb:delete(PaxosID, ETSTableName);
-        {_, _} -> ok %% learners are registered
+    case pdb:get(PaxosID, ETSTableName) of
+        undefined -> ok; %% already deleted
+        StateForID ->
+            case state_get_learners(StateForID) of
+                [] ->
+                    %% io:format("Deleting unhosted acceptor id~n"),
+                    pdb:delete(PaxosID, ETSTableName);
+                [_|_] -> ok %% learners are registered
+            end
     end,
     State;
 
 on({acceptor_add_learner, PaxosID, Learner}, ETSTableName = State) ->
     ?TRACE("acceptor:add_learner~n", []),
-    {ErrCode, StateForID} = get_entry(PaxosID, ETSTableName),
-    case ErrCode of
-        new -> ok; %% do not support adding learners without prior initialize
-        ok ->
-            case acceptor_state:accepted(StateForID) of
-                true -> inform_learner(Learner,  PaxosID, StateForID);
+    case pdb:get(PaxosID, ETSTableName) of
+        undefined -> ok; %% do not support adding learners without prior initialize
+        StateForID ->
+            case state_accepted(StateForID) of
+                true -> inform_learner(Learner, PaxosID, StateForID);
                 false -> ok
             end,
-            NewLearners = [Learner | acceptor_state:get_learners(StateForID)],
-            NStateForID = acceptor_state:set_learners(StateForID, NewLearners),
-            set_entry(NStateForID, ETSTableName)
+            NewLearners = [Learner | state_get_learners(StateForID)],
+            NStateForID = state_set_learners(StateForID, NewLearners),
+            pdb:set(NStateForID, ETSTableName)
     end,
     State.
 
-get_entry(Id, TableName) ->
-    case pdb:get(Id, TableName) of
-        undefined -> {new, acceptor_state:new(Id)};
-        Entry -> {ok, Entry}
+-spec initialize(StateForID::acceptor_state(), ETSTableName::atom(),
+                 PaxosID::any(), Learners::[comm:mypid()]) -> ok.
+initialize(StateForID, ETSTableName, PaxosID, Learners) ->
+    NewState = state_set_learners(StateForID, Learners),
+    pdb:set(NewState, ETSTableName),
+    case state_accepted(NewState) of
+        true  -> inform_learners(PaxosID, NewState);
+        false -> ok
     end.
 
-set_entry(NewEntry, TableName) ->
-    pdb:set(NewEntry, TableName).
-
+-spec inform_learners(PaxosID::any(), acceptor_state()) -> ok.
 inform_learners(PaxosID, State) ->
     ?TRACE("acceptor:inform_learners: PaxosID ~p Learners ~p Decision ~p~n",
-           [PaxosID, acceptor_state:get_learners(State), acceptor_state:get_value(State)]),
-    [ inform_learner(X, PaxosID, State)
-      || X <- acceptor_state:get_learners(State) ].
+           [PaxosID, state_get_learners(State), state_get_value(State)]),
+    _ = [ inform_learner(X, PaxosID, State)
+            || X <- state_get_learners(State) ],
+    ok.
 
 inform_learner(Learner, PaxosID, StateForID) ->
     msg_accepted(Learner, PaxosID,
-                 acceptor_state:get_raccepted(StateForID),
-                 acceptor_state:get_value(StateForID)).
+                 state_get_raccepted(StateForID),
+                 state_get_value(StateForID)).
 
 %% @doc Checks whether config parameters exist and are valid.
 -spec check_config() -> boolean().

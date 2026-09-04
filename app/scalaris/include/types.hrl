@@ -1,4 +1,4 @@
-%  @copyright 2010-2011 Zuse Institute Berlin
+%  @copyright 2010-2012 Zuse Institute Berlin
 
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
@@ -18,29 +18,9 @@
 %% @end
 %% @version $Id$
 
--ifdef(term_not_builtin).
--type term() :: any().
--endif.
+% add type defs if required...
 
--ifdef(node_not_builtin).
--type node() :: erlang:node().
--endif.
-
--ifdef(module_not_builtin).
--type module() :: erlang:module().
--endif.
-
--ifdef(boolean_not_builtin).
--type boolean() :: bool().
--endif.
-
--ifdef(tid_not_builtin).
--type tid() :: ets:tid().
--endif.
-
--ifdef(types_not_builtin).
--type gb_set() :: gb_sets:gb_set().
--type queue() :: queue:queue().
--type gb_tree() :: gb_trees:gb_tree().
--type dict() :: dict:dictionary().
--endif.
+%% more restrictive (and correct) definition of the timestamp type:
+-type erlang_timestamp() :: {MegaSecs::non_neg_integer(),
+                             Secs::0..999999,
+                             MicroSecs::0..999999}.

@@ -1,5 +1,4 @@
-#!/usr/bin/python
-# Copyright 2011 Zuse Institute Berlin
+# Copyright 2011-2015 Zuse Institute Berlin
 #
 #    Licensed under the Apache License, Version 2.0 (the "License");
 #    you may not use this file except in compliance with the License.
@@ -13,12 +12,12 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
-import json
+import json, socket
 import scalaris
 
 class ConnectionWithTrace(scalaris.JSONConnection):
-    def __init__(self, url = scalaris.DEFAULT_URL, timeout = scalaris.DEFAULT_TIMEOUT):
-        scalaris.JSONConnection.__init__(self, url = scalaris.DEFAULT_URL, timeout = scalaris.DEFAULT_TIMEOUT)
+    def __init__(self, url = scalaris.DEFAULT_URL, timeout = socket.getdefaulttimeout()):
+        scalaris.JSONConnection.__init__(self, url = scalaris.DEFAULT_URL, timeout = timeout)
 
     def call(self, function, params):
         params = {'jsonrpc': '2.0',

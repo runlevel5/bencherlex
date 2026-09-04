@@ -1,4 +1,4 @@
-%  Copyright 2008-2011 Zuse Institute Berlin
+%  @copyright 2008-2014 Zuse Institute Berlin
 %
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
@@ -11,37 +11,31 @@
 %   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %   See the License for the specific language governing permissions and
 %   limitations under the License.
-%%%-------------------------------------------------------------------
-%%% File    : api_tx_concurrent_SUITE.erl
-%%% Author  : Thorsten Schuett <schuett@zib.de>
-%%% Description : Unit tests for src/api_tx
-%%%
-%%% Created :  18 Aug 2008 by Thorsten Schuett <schuett@zib.de>
-%%%-------------------------------------------------------------------
+
+%% @author Thorsten Schuett <schuett@zib.de>
+%% @doc    Unit tests for src/api_tx
+%% @end
+%% @version $Id$
 -module(api_tx_concurrent_SUITE).
 
 -author('schuett@zib.de').
--vsn('$Id: api_tx_concurrent_SUITE.erl 1502 2011-03-05 09:34:23Z schintke $ ').
+-vsn('$Id$').
 
--export([all/0, end_per_suite/1, inc/1, increment_test_2/1,
-         increment_test_4/1, increment_test_8/1, increment_test_n/2,
-         init_per_suite/1, process/3, process_iter/4, suite/0, wait_for_done/1]).
+-compile(export_all).
 
 -include("unittest.hrl").
 
 all() ->
     [increment_test_2, increment_test_4, increment_test_8].
 
-suite() -> [ {timetrap, {seconds, 120}} ].
+suite() -> [ {timetrap, {seconds, 620}} ].
 
 init_per_suite(Config) ->
-    Config2 = unittest_helper:init_per_suite(Config),
-    {priv_dir, PrivDir} = lists:keyfind(priv_dir, 1, Config2),
+    {priv_dir, PrivDir} = lists:keyfind(priv_dir, 1, Config),
     unittest_helper:make_ring(4, [{config, [{log_path, PrivDir}]}]),
-    Config2.
+    Config.
 
-end_per_suite(Config) ->
-    _ = unittest_helper:end_per_suite(Config),
+end_per_suite(_Config) ->
     ok.
 
 inc(Key) ->
@@ -62,9 +56,8 @@ process_iter(Parent, _Key, 0, AbortCount) ->
 process_iter(Parent, Key, Count, AbortCount) ->
     Result = inc(Key),
     case Result of
-        {ok}            -> process_iter(Parent, Key, Count - 1, AbortCount);
-        {fail, abort}   -> process_iter(Parent, Key, Count, AbortCount + 1);
-        {fail, timeout} -> process_iter(Parent, Key, Count, AbortCount + 1)
+        {ok}             -> process_iter(Parent, Key, Count - 1, AbortCount);
+        {fail, abort, _} -> process_iter(Parent, Key, Count, AbortCount + 1)
     end.
 
 increment_test_8(_Config) -> increment_test_n(_Config, 8).
@@ -76,7 +69,7 @@ increment_test_n(_Config, N) ->
     ?equals(api_tx:write("i", 0), {ok}),
 
     Self = self(),
-    Count = 100,
+    Count = 200 div N,
     _ = [ spawn(api_tx_concurrent_SUITE, process, [Self, Key, Count])
           || _ <- lists:seq(1, N) ],
 

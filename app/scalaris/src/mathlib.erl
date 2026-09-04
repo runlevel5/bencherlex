@@ -1,4 +1,4 @@
-% @copyright 2007-2011 Zuse Institute Berlin
+% @copyright 2007-2014 Zuse Institute Berlin
 
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
@@ -13,18 +13,26 @@
 %   limitations under the License.
 
 %% @author Marie Hoffmann <ozymandiaz147@googlemail.com>
+%% TODO change from camel case to prefix_infix_postfix()
 %% @doc Math utility functions.
-%% @version $Id: mathlib.erl 1445 2011-02-23 11:34:29Z kruber@zib.de $
+%% @version $Id$
 -module(mathlib).
 -author('ozymandiaz147@googlemail.com').
--vsn('$Id: mathlib.erl 1445 2011-02-23 11:34:29Z kruber@zib.de $').
+-vsn('$Id$').
 
 -export([closestPoints/1, euclideanDistance/1, euclideanDistance/2, u/1,
          vecAdd/2, vecSub/2, vecMult/2, vecWeightedAvg/4, zeros/1, median/1,
-        aggloClustering/3]).
+         nearestCentroid/2,
+        aggloClustering/2]).
+
+-export([factorial/1, binomial_coeff/2, gcd/2]).
+
+%% for type_check_SUITE
+-export([binomial_coeff_feeder/2,
+         factorial_feeder/1,
+         zeros_feeder/1]).
 
 -type(vector() :: [number(),...]).
--type(centroid() :: vector()).
 
 %% @doc Median of an unsorted non-empty list of numbers, i.e. a vector.
 -spec median(vector()) -> number().
@@ -73,78 +81,127 @@ euclideanDistance(V, W) ->
 u(V) ->
     vecMult(V, 1 / euclideanDistance(V)).
 
+%% @doc Get the nearest centroid to U from the list Centroids, including the euclidian
+%  distance. The function returns 'none' if no nearest centroid can be found. Ambiguity is
+%  resolved by picking the first one of the nearest centroids.
+-spec nearestCentroid(U::dc_centroids:centroid(), dc_centroids:centroids()) ->
+    {Distance::float(), NearestCentroid::dc_centroids:centroid()} | none.
+nearestCentroid(_U, []) -> none;
+nearestCentroid(U, [U|T]) -> nearestCentroid(U, T);
+nearestCentroid(U, [X|Centroids]) ->
+    CoordU = dc_centroids:get_coordinate(U),
+    CoordsX = dc_centroids:get_coordinate(X),
+    First = {euclideanDistance(CoordU, CoordsX), X},
+    lists:foldl(fun
+            (C, {CurrentDistance, _CurrentMin} = Current) ->
+                case C of
+                    U -> Current;
+                    _ -> CoordC = dc_centroids:get_coordinate(C),
+                         NewDistance = euclideanDistance(CoordU, CoordC),
+                         case NewDistance < CurrentDistance of
+                             true -> {NewDistance, C};
+                             false -> Current
+                         end
+                end
+        end, First, Centroids).
+
 %% @doc Find indices of closest centroids.
--spec closestPoints(Centroids::[centroid()])
-        -> {Min::number(), I::pos_integer(), J::pos_integer()} | {-1, -1, -1}.
-closestPoints([C1, C2 | Rest]) ->
-    closestPointsForI([C1, C2 | Rest], 1, 2, euclideanDistance(C1, C2), 1, 2);
-closestPoints(_) ->
-    {-1, -1, -1}.
+-spec closestPoints(dc_centroids:centroids())
+    -> {float(), dc_centroids:centroid(), dc_centroids:centroid()} | none.
+closestPoints([]) -> none;
+closestPoints([_]) -> none;
+closestPoints([First, Second|_] = Centroids) ->
+    FirstDist = dc_centroids:distance(First, Second),
+    lists:foldl(
+        fun
+            (Centroid, {CurrentMinDist, _, _} = Acc) ->
+                % get the centroid with minimum distance to Centroid. If this is less than
+                % the distance of the centroids in Acc, exchange
+                case nearestCentroid(Centroid, Centroids) of
+                    none -> Acc;
+                    {Dist, CentroidMin} ->
+                        case Dist < CurrentMinDist of
+                            true -> {Dist, Centroid, CentroidMin};
+                            false -> Acc
+                        end
+                end
+    end, {FirstDist, First, Second}, Centroids).
 
--spec closestPointsForI(Centroids::[centroid()], I::pos_integer(), J::pos_integer(),
-                        Min::number(), MinI::pos_integer(), MinJ::pos_integer())
-        -> {DistMin::number(), IMin::pos_integer(), JMin::pos_integer()}.
-closestPointsForI([First | Rest], I, J, Min, MinI, MinJ) ->
-    {Min1, MinI1, MinJ1} = closestPointsForJ(First, Rest, I, J, Min, MinI, MinJ),
-    I1 = I + 1,
-    J1 = J + 1,
-    closestPointsForI(Rest, I1, J1, Min1, MinI1, MinJ1);
-closestPointsForI([], _, _, Min, I, J) ->
-    {Min, I, J}.
-
--spec closestPointsForJ(First::centroid(), Rest::[centroid()],
-                        I::pos_integer(), J::pos_integer(),
-                        Min::number(), MinI::pos_integer(), MinJ::pos_integer())
-        -> {DistMin::number(), IMin::pos_integer(), JMin::pos_integer()}.
-closestPointsForJ(First, [Centroid | Rest], I, J, Min, MinI, MinJ) ->
-    Dist = euclideanDistance(First, Centroid),
-    {Min1, MinI1, MinJ1} = condExchange(Min, MinI, MinJ, Dist, I, J),
-    J1 = J + 1,
-    closestPointsForJ(First, Rest, I, J1, Min1, MinI1, MinJ1);
-closestPointsForJ(_, [], _, _, Min, MinI, MinJ) ->
-    {Min, MinI, MinJ}.
-
-%% @doc Update smallest distance and its indices.
--spec condExchange(Min::number(), MinI::pos_integer(), MinJ::pos_integer(),
-                   Dist::number(), DistI::pos_integer(), DistJ::pos_integer())
-        -> {DistMin::number(), IMin::integer(), JMin::integer()}.
-condExchange(Min, I, J, Dist, _, _) when Min =< Dist ->
-    {Min, I, J};
-
-condExchange(_, _, _, Dist, I, J) ->
-    {Dist, I, J}.
+-spec zeros_feeder(0..10000) -> {0..10000}.
+zeros_feeder(N) -> {N}.
 
 %% @doc Create a list with N zeros.
 -spec zeros(N::0) -> [];
            (N::pos_integer()) -> [0,...].
-zeros(0) ->
-    [];
-zeros(N) ->
-    [0 || _ <- lists:seq(1,N)].
+zeros(N) -> lists:duplicate(N, 0).
 
 %% @doc Get closest centroids and merge them if their distance is within Radius.
--spec aggloClustering(Centroids::[centroid()], Sizes::vector(),
-                      Radius::number()) -> {[centroid()], vector()}.
-aggloClustering(Centroids, Sizes, Radius) ->
-    {Min, I, J} = closestPoints(Centroids),
-    aggloClusteringHelper(Centroids, Sizes, Radius, Min, I, J).
+-spec aggloClustering(Centroids::dc_centroids:centroids(), Radius::number()) -> dc_centroids:centroids().
+aggloClustering(Centroids, Radius) when Radius >= 0 ->
+    case closestPoints(Centroids) of
+        none -> Centroids;
+        {Min, I, J} -> aggloClusteringHelper(Centroids, Radius, Min, I, J)
+    end.
 
 -spec aggloClusteringHelper
-        (Centroids::[centroid(),...], Sizes::vector(), Radius::number(),
-         Min::number(), I::pos_integer(), J::pos_integer()) -> {[centroid()], vector()};
-        (Centroids::[centroid()], Sizes::vector(), Radius::number(),
-         Min::-1, I::-1, J::-1) -> {[centroid()], vector()}.
+        (Centroids::[dc_centroids:centroid(),...], Radius::number(),
+         Min::float(), I::dc_centroids:centroid(), J::dc_centroids:centroid()) ->
+         dc_centroids:centroids().
 % Note: closestPoints/1 creates Min, I, J and only returns {-1, -1, -1} if
 % Centroids contains less than two elements. This is not the case in the first
 % pattern and we can thus assume these values are pos_integer().
-aggloClusteringHelper([_,_|_] = Centroids, [_,_|_] = Sizes, Radius, Min, I, J) when Min =< Radius ->
-    C1 = lists:nth(I, Centroids),
-    C2 = lists:nth(J, Centroids),
-    S1 = lists:nth(I, Sizes),
-    S2 = lists:nth(J, Sizes),
-    Centroids1 = [vecWeightedAvg(C1, C2, S1, S2) | tools:rmvTwo(Centroids, I, J)],
-    {Min1, I1, J1} = closestPoints(Centroids1),
-    aggloClusteringHelper(Centroids1, [S1 + S2 | tools:rmvTwo(Sizes, I, J)],
-                          Radius, Min1, I1, J1);
-aggloClusteringHelper(Centroids, Sizes, _Radius, _Min, _I, _J) ->
-    {Centroids, Sizes}.
+aggloClusteringHelper(Centroids, _Radius, 0.0, _, _) -> Centroids;
+aggloClusteringHelper(Centroids, Radius, Min, I, J) when Min =< Radius ->
+    {C1, S1} = dc_centroids:get_coordinate_and_relative_size(I),
+    {C2, S2} = dc_centroids:get_coordinate_and_relative_size(J),
+    NewCoordinate = vecWeightedAvg(C1, C2, S1, S2),
+    NewCentroid = dc_centroids:new(NewCoordinate, S1+S2),
+
+    NewCentroids = [NewCentroid | lists:subtract(Centroids, [I,J])],
+    case closestPoints(NewCentroids) of
+        none -> NewCentroids;
+        {Min1, I1, J1} ->
+            aggloClusteringHelper(NewCentroids, Radius, Min1, I1, J1)
+    end;
+aggloClusteringHelper(Centroids, _Radius, _Min, _I, _J) ->
+    Centroids.
+
+% @doc Calculates the binomial coefficient of n over k for n >= k.
+%      see http://rosettacode.org/wiki/Evaluate_binomial_coefficients#Erlang
+-spec binomial_coeff(non_neg_integer(), non_neg_integer()) -> integer().
+binomial_coeff(_, 0) -> 1;
+binomial_coeff(N, K) when N >= K ->
+  choose(N, K, 1, 1).
+
+-spec binomial_coeff_feeder(0..100, 0..100) ->
+                                   {non_neg_integer(), non_neg_integer()}.
+binomial_coeff_feeder(X, Y) ->
+    {erlang:max(X, Y), erlang:min(X, Y)}.
+
+-spec choose(non_neg_integer(), non_neg_integer(),
+             non_neg_integer(), non_neg_integer()) -> non_neg_integer().
+choose(N, K, K, Acc) ->
+  (Acc * (N-K+1)) div K;
+choose(N, K, I, Acc) ->
+  choose(N, K, I+1, (Acc * (N-I+1)) div I).
+
+-spec factorial_feeder(0..20) -> {0..20}.
+factorial_feeder(N) -> {N}.
+
+% @doc calculates N!
+-spec factorial(non_neg_integer()) -> pos_integer().
+factorial(N) -> factorial(N, 1).
+
+-compile({nowarn_unused_function, {factorial_feeder, 2}}).
+-spec factorial_feeder(0..20, pos_integer()) -> {0..20, pos_integer()}.
+factorial_feeder(N, Acc) -> {N, Acc}.
+
+-spec factorial(non_neg_integer(), pos_integer()) -> pos_integer().
+factorial(0, Acc) -> Acc;
+factorial(N, Acc) ->
+    factorial(N - 1, N * Acc).
+
+%% @doc Calculates the greatest common divisor of two integers.
+-spec gcd(non_neg_integer(), non_neg_integer()) -> non_neg_integer().
+gcd(A, 0) -> A;
+gcd(A, B) -> gcd(B, A rem B).

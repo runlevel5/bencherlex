@@ -72,7 +72,7 @@ rotate(LogWrapSize) ->
 accesslog(#sconf{servername=Srv}, Ip, Req, InH, OutH, Time) ->
     case ets:lookup(yaws_log, {access, Srv}) of
         [#log{amod=Mod, data=Data}] ->
-            try Mod:write_log(Srv, access, Data, {Ip, Req, InH, OutH, Time}) catch throw:CaughtT1 -> CaughtT1; error:CaughtR1:CaughtS1 -> {'EXIT', {CaughtR1, CaughtS1}}; exit:CaughtR1 -> {'EXIT', CaughtR1} end;
+            catch Mod:write_log(Srv, access, Data, {Ip, Req, InH, OutH, Time});
         _ ->
             ok
     end.
@@ -80,7 +80,7 @@ accesslog(#sconf{servername=Srv}, Ip, Req, InH, OutH, Time) ->
 authlog(#sconf{servername=Srv}, IP, Path, Item) ->
     case ets:lookup(yaws_log, {auth, Srv}) of
         [#log{amod=Mod, data=Data}] ->
-            try Mod:write_log(Srv, auth, Data, {IP, Path, Item}) catch throw:CaughtT2 -> CaughtT2; error:CaughtR2:CaughtS2 -> {'EXIT', {CaughtR2, CaughtS2}}; exit:CaughtR2 -> {'EXIT', CaughtR2} end;
+            catch Mod:write_log(Srv, auth, Data, {IP, Path, Item});
         _ ->
             ok
     end.
@@ -88,19 +88,28 @@ authlog(#sconf{servername=Srv}, IP, Path, Item) ->
 %%%----------------------------------------------------------------------
 %%% Internal functions
 %%%----------------------------------------------------------------------
+
 do_open_log(#sconf{servername=Srv, logger_mod=Mod}, Type, Dir) ->
-    case try Mod:open_log(Srv, Type, Dir) catch throw:CaughtT3 -> CaughtT3; error:CaughtR3:CaughtS3 -> {'EXIT', {CaughtR3, CaughtS3}}; exit:CaughtR3 -> {'EXIT', CaughtR3} end of
-        {true, Data} ->
-            AL = #log{id={Type, Srv}, amod=Mod, data=Data},
-            ets:insert(yaws_log, AL),
-            true;
+    Id = {Type, Srv},
+    case ets:lookup(yaws_log, Id) of
+        [] ->
+            case catch Mod:open_log(Srv, Type, Dir) of
+                {true, Data} ->
+                    AL = #log{id={Type, Srv}, amod=Mod, data=Data},
+                    ets:insert(yaws_log, AL),
+                    true;
+                _ ->
+                    false
+            end;
         _ ->
-            false
+            %% Already exists. Might be the case that both http and https
+            %% has been enabled and we don't want to open the same log twice.
+            true
     end.
 
 
 do_close_log(#log{id={Type, Srv}, amod=Mod, data=Data}) ->
-    try Mod:close_log(Srv, Type, Data) catch throw:CaughtT4 -> CaughtT4; error:CaughtR4:CaughtS4 -> {'EXIT', {CaughtR4, CaughtS4}}; exit:CaughtR4 -> {'EXIT', CaughtR4} end.
+    catch Mod:close_log(Srv, Type, Data).
 
 
 do_close_logs('$end_of_table') ->
@@ -116,4 +125,5 @@ do_rotate('$end_of_table', _) ->
 do_rotate(Id, LogWrapSize) ->
     [#log{id={Type, Srv}, amod=Mod, data=Data}=AL] = ets:lookup(yaws_log, Id),
     Data1 = Mod:wrap_log(Srv, Type, Data, LogWrapSize),
-    ets:insert(yaws_log, AL#log{data=Data1}).
+    ets:insert(yaws_log, AL#log{data=Data1}),
+    do_rotate(ets:next(yaws_log, Id), LogWrapSize).

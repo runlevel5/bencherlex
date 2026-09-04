@@ -1,5 +1,5 @@
 /**
- *  Copyright 2007-2011 Zuse Institute Berlin
+ *  Copyright 2007-2013 Zuse Institute Berlin
  *
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -14,6 +14,9 @@
  *   limitations under the License.
  */
 package de.zib.scalaris.examples.wikipedia.bliki;
+
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * Bean with the content to display in the jsp (only for editing articles).
@@ -32,9 +35,48 @@ public class WikiPageEditBean extends WikiPageBeanBase {
     private String preview = "";
     
     /**
+     * set of templates for the review content
+     */
+    private Set<String> templates = new HashSet<String>();
+    
+    /**
+     * set of transcludes (other than templates) for the review content
+     */
+    private Set<String> includes = new HashSet<String>();
+    
+    /**
      * the summary field of the site
      */
     private String summary = "";
+    
+    /**
+     * Creates a new (empty) bean.
+     */
+    public WikiPageEditBean() {
+        super();
+    }
+
+    /**
+     * Creates a new (empty) bean with the given start time.
+     * 
+     * @param serviceUser
+     *            service user
+     * @param startTime
+     *            the time when the request reached the servlet (in ms)
+     */
+    public WikiPageEditBean(String serviceUser, long startTime) {
+        super(serviceUser, startTime);
+    }
+
+    /**
+     * Creates a page bean from a given {@link WikiPageBeanBase}.
+     * 
+     * @param other
+     *            the page bean to copy properties from
+     */
+    public WikiPageEditBean(WikiPageBeanBase other) {
+        super(other);
+    }
 
     /**
      * @return the preview
@@ -76,5 +118,33 @@ public class WikiPageEditBean extends WikiPageBeanBase {
      */
     public void setNewPage(boolean isNewPage) {
         this.isNewPage = isNewPage;
+    }
+
+    /**
+     * @param templates
+     */
+    public void setTemplates(Set<String> templates) {
+        this.templates = templates;
+    }
+
+    /**
+     * @return the templates
+     */
+    public Set<String> getTemplates() {
+        return templates;
+    }
+
+    /**
+     * @param includes
+     */
+    public void setIncludes(Set<String> includes) {
+        this.includes = includes;
+    }
+
+    /**
+     * @return the includes
+     */
+    public Set<String> getIncludes() {
+        return includes;
     }
 }

@@ -1,4 +1,4 @@
-%% @copyright 2011, 2012 Zuse Institute Berlin
+%% @copyright 2011-2014 Zuse Institute Berlin
 
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
@@ -15,10 +15,10 @@
 %% @author Florian Schintke <schintke@zib.de>
 %% @doc API for inconsistent access to the replicated DHT items. This
 %%      is not compatible with the api_tx functions.
-%% @version $Id: api_rdht.erl 2693 2012-01-11 14:14:17Z schintke $
+%% @version $Id$
 -module(api_rdht).
 -author('kruber@zib.de').
--vsn('$Id: api_rdht.erl 2693 2012-01-11 14:14:17Z schintke $').
+-vsn('$Id$').
 
 -export([get_replica_keys/1]).
 -export([delete/1, delete/2]).
@@ -40,7 +40,7 @@ delete(Key) -> delete(Key, 2000).
 %%      inconsistencies for api_tx functions.
 -spec delete(client_key(), Timeout::pos_integer()) -> delete_result().
 delete(Key, Timeout) ->
-    ClientsId = {delete_client_id, util:get_global_uid()},
+    ClientsId = {delete_client_id, uid:get_global_uid()},
     ReplicaKeys = ?RT:get_replica_keys(?RT:hash_key(Key)),
     _ = [ api_dht_raw:unreliable_lookup(
             Replica, {delete_key, comm:this(), ClientsId, Replica})
@@ -51,31 +51,34 @@ delete(Key, Timeout) ->
 
 %% @doc collect the response for the delete requests
 -spec delete_collect_results(ReplicaKeys::[?RT:key()],
-                             ClientsId::{delete_client_id, util:global_uid()},
+                             ClientsId::{delete_client_id, uid:global_uid()},
                              Results::[ok | locks_set | undef])
                             -> delete_result().
 delete_collect_results([], _ClientsId, Results) ->
-    OKs = length([ok || R <- Results, R =:= ok]),
+    OKs = length([ok || ok <- Results]),
     {ok, OKs, Results};
-delete_collect_results(ReplicaKeys, ClientsId, Results) ->
+delete_collect_results([_|_] = ReplicaKeys, ClientsId, Results) ->
+    trace_mpath:thread_yield(),
     receive
-        {delete_key_response, ClientsId, Key, Result} ->
+        ?SCALARIS_RECV({delete_key_response, ClientsId, Key, Result}, %% ->
             case lists:member(Key, ReplicaKeys) of
                 true ->
                     delete_collect_results(lists:delete(Key, ReplicaKeys),
                                            ClientsId, [Result | Results]);
                 false ->
                     delete_collect_results(ReplicaKeys, ClientsId, Results)
-            end;
-        {timeout, ClientsId} ->
-            OKs = length([ok || R <- Results, R =:= ok]),
-            {fail, timeout, OKs, Results};
-        {delete_key_response, _, _, _} ->
+            end);
+        ?SCALARIS_RECV({timeout, ClientsId}, %% ->
+            begin
+               OKs = length([ok || ok <- Results]),
+               {fail, timeout, OKs, Results}
+            end);
+        ?SCALARIS_RECV({delete_key_response, _, _, _}, %% ->
             %% probably an outdated message: drop it.
-            delete_collect_results(ReplicaKeys, ClientsId, Results);
-        {timeout, _} ->
+            delete_collect_results(ReplicaKeys, ClientsId, Results));
+        ?SCALARIS_RECV({timeout, _}, %% ->
             %% probably an outdated message: drop it.
-            delete_collect_results(ReplicaKeys, ClientsId, Results)
+            delete_collect_results(ReplicaKeys, ClientsId, Results))
     end.
 
 -spec get_replica_keys(client_key()) -> [?RT:key()].

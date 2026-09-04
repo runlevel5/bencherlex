@@ -12,15 +12,15 @@
 %   See the License for the specific language governing permissions and
 %   limitations under the License.
 
-%%% @author Nico Kruber <kruber@zib.de>
-%%% @doc    Unit tests for the scalaris_cth module.
-%%% @end
+%% @author Nico Kruber <kruber@zib.de>
+%% @doc    Unit tests for the scalaris_cth module.
+%% @end
 %% @version $Id$
 -module(scalaris_cth_SUITE).
 -author('kruber@zib.de').
 -vsn('$Id$').
 
--export([all/0, end_per_suite/1, init_per_suite/1, suite/0, test_timeout/1]).
+-compile(export_all).
 
 -include("unittest.hrl").
 -include("scalaris.hrl").
@@ -35,10 +35,9 @@ suite() ->
     ].
 
 init_per_suite(Config) ->
-    unittest_helper:init_per_suite(Config).
+    Config.
 
-end_per_suite(Config) ->
-    _ = unittest_helper:end_per_suite(Config),
+end_per_suite(_Config) ->
     ok.
 
     

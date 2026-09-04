@@ -1,5 +1,5 @@
 /**
- *  Copyright 2007-2011 Zuse Institute Berlin
+ *  Copyright 2007-2013 Zuse Institute Berlin
  *
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -135,7 +135,7 @@ public class Revision implements Serializable {
     }
 
     /**
-     * Gets the un-compressed revision text.
+     * Gets the compressed revision text.
      * 
      * @return the text
      */

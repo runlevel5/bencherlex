@@ -1,5 +1,5 @@
 /**
- *  Copyright 2011 Zuse Institute Berlin
+ *  Copyright 2011-2013 Zuse Institute Berlin
  *
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -16,11 +16,10 @@
 package de.zib.scalaris.examples.wikipedia.bliki;
 
 import java.math.BigInteger;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.HashSet;
 
-import de.zib.scalaris.examples.wikipedia.RevisionResult;
 import de.zib.scalaris.examples.wikipedia.ScalarisDataHandler;
+import de.zib.scalaris.examples.wikipedia.ScalarisDataHandlerNormalised;
 import de.zib.scalaris.examples.wikipedia.ValueResult;
 
 /**
@@ -30,56 +29,8 @@ import de.zib.scalaris.examples.wikipedia.ValueResult;
  * @author Nico Kruber, kruber@zib.de
  */
 public class MyScalarisMagicWord extends MyMagicWord {
-    // statistics
-    @SuppressWarnings("javadoc")
-    public static final String MAGIC_NUMBER_ARTICLES = "NUMBEROFARTICLES";
 
-    @SuppressWarnings("javadoc")
-    public static final String MAGIC_NUMBER_PAGES = "NUMBEROFPAGES";
-
-    @SuppressWarnings("javadoc")
-    public static final String MAGIC_NUMBER_FILES = "NUMBEROFFILES";
-
-    @SuppressWarnings("javadoc")
-    public static final String MAGIC_PAGES_IN_CATEGORY = "PAGESINCATEGORY";
-
-    @SuppressWarnings("javadoc")
-    public static final String MAGIC_PAGES_IN_CAT = "PAGESINCAT";
-
-    @SuppressWarnings("javadoc")
-    public static final String MAGIC_NUMBER_USERS = "NUMBEROFUSERS";
-
-    @SuppressWarnings("javadoc")
-    public static final String MAGIC_NUMBER_ADMINS = "NUMBEROFADMINS";
-
-    @SuppressWarnings("javadoc")
-    public static final String MAGIC_PAGES_IN_NS = "PAGESINNS";
-
-    @SuppressWarnings("javadoc")
-    public static final String MAGIC_PAGES_IN_NAMESPACE = "PAGESINNAMESPACE";
-
-    @SuppressWarnings("javadoc")
-    public static final String MAGIC_REVISION_ID = "REVISIONID";
-
-    @SuppressWarnings("javadoc")
-    public static final String MAGIC_REVISION_DAY = "REVISIONDAY";
-
-    @SuppressWarnings("javadoc")
-    public static final String MAGIC_REVISION_DAY2 = "REVISIONDAY2";
-
-    @SuppressWarnings("javadoc")
-    public static final String MAGIC_REVISION_MONTH = "REVISIONMONTH";
-
-    @SuppressWarnings("javadoc")
-    public static final String MAGIC_REVISION_YEAR = "REVISIONYEAR";
-
-    @SuppressWarnings("javadoc")
-    public static final String MAGIC_REVISION_TIMESTAMP = "REVISIONTIMESTAMP";
-
-    @SuppressWarnings("javadoc")
-    public static final String MAGIC_PAGE_SIZE = "PAGESIZE";
-
-    private static List<String> MY_MAGIC_WORDS = new ArrayList<String>();
+    private static HashSet<String> MY_MAGIC_WORDS = new HashSet<String>(20);
 
     // private HashMap parameterValues = new HashMap();
 
@@ -92,7 +43,7 @@ public class MyScalarisMagicWord extends MyMagicWord {
         MY_MAGIC_WORDS.add(MAGIC_PAGES_IN_CAT);
         MY_MAGIC_WORDS.add(MAGIC_NUMBER_USERS);
         MY_MAGIC_WORDS.add(MAGIC_NUMBER_ADMINS);
-        MY_MAGIC_WORDS.add(MAGIC_PAGES_IN_NS);
+        MY_MAGIC_WORDS.add(MAGIC_PAGES_IN_NAMESPACE_NS);
         MY_MAGIC_WORDS.add(MAGIC_PAGES_IN_NAMESPACE);
         // page values
         MY_MAGIC_WORDS.add(MAGIC_REVISION_ID);
@@ -101,7 +52,6 @@ public class MyScalarisMagicWord extends MyMagicWord {
         MY_MAGIC_WORDS.add(MAGIC_REVISION_MONTH);
         MY_MAGIC_WORDS.add(MAGIC_REVISION_YEAR);
         MY_MAGIC_WORDS.add(MAGIC_REVISION_TIMESTAMP);
-        MY_MAGIC_WORDS.add(MAGIC_PAGE_SIZE);
     }
     
     public static boolean isMagicWord(String name) {
@@ -126,18 +76,25 @@ public class MyScalarisMagicWord extends MyMagicWord {
      * Process a magic word, returning the value corresponding to the magic
      * word.
      * 
-     * @param name      the template name, i.e. a magic word
-     * @param origParameter the template parameters
-     * @param model     the currently used model
+     * @param name
+     *            the template name, i.e. a magic word
+     * @param origParameter
+     *            the template parameters
+     * @param model
+     *            the currently used model
+     * @param hasParameter
+     *            whether a parameter was given or not (cannot distinguish from
+     *            <tt>parameter</tt> value alone)
      * 
      * @return the value of the magic word
      * 
-     * @see <a href="http://meta.wikimedia.org/wiki/Help:Magic_words">http://meta.wikimedia.org/wiki/Help:Magic_words</a>
+     * @see <a
+     *      href="http://meta.wikimedia.org/wiki/Help:Magic_words">http://meta.wikimedia.org/wiki/Help:Magic_words</a>
      */
     public static String processMagicWord(final String name,
-            final String origParameter, final MyScalarisWikiModel model) {
+            final String origParameter, final MyScalarisWikiModel model, boolean hasParameter) {
         if (!isMyMagicWord(name)) {
-            return MyMagicWord.processMagicWord(name, origParameter, model);
+            return MyMagicWord.processMagicWord(name, origParameter, model, hasParameter);
         }
         
         // check whether numbers should be printed in raw format and
@@ -153,19 +110,10 @@ public class MyScalarisMagicWord extends MyMagicWord {
         } else {
             parameter = origParameter;
         }
-        
+
         /*
          * Technical metadata / Latest revision to current page
          */
-        if (name.equals(MAGIC_PAGE_SIZE)) {
-            RevisionResult getRevResult = ScalarisDataHandler.getRevision(
-                    model.connection, parameter, model.getNamespace());
-            model.addStats(getRevResult.stats);
-            int size = 0;
-            if (getRevResult.success) {
-                size = getRevResult.revision.unpackedText().getBytes().length;
-            }
-            return model.formatStatisticNumber(rawNumber, size);
 //      } else if (name.equals(MAGIC_REVISION_ID)) {
 //          // TODO: implement
 //          return null;
@@ -186,13 +134,14 @@ public class MyScalarisMagicWord extends MyMagicWord {
 //          return null;
 //          {{REVISIONUSER}}
 //          {{PROTECTIONLEVEL:action}}
-
+        
         /*
          * Statistics / Entire wiki
          */
-        } else if (name.equals(MAGIC_NUMBER_PAGES)) {
+        if (name.equals(MAGIC_NUMBER_PAGES)) {
             ValueResult<BigInteger> pageCountResult = ScalarisDataHandler.getPageCount(model.connection);
             model.addStats(pageCountResult.stats);
+            model.addInvolvedKeys(pageCountResult.involvedKeys);
             if (pageCountResult.success) {
                 return model.formatStatisticNumber(rawNumber, pageCountResult.value);
             }
@@ -200,6 +149,7 @@ public class MyScalarisMagicWord extends MyMagicWord {
             ValueResult<BigInteger> pageCountResult = ScalarisDataHandler
                     .getArticleCount(model.connection);
             model.addStats(pageCountResult.stats);
+            model.addInvolvedKeys(pageCountResult.involvedKeys);
             if (pageCountResult.success) {
                 return model.formatStatisticNumber(rawNumber, pageCountResult.value);
             }
@@ -213,18 +163,19 @@ public class MyScalarisMagicWord extends MyMagicWord {
             return model.formatStatisticNumber(rawNumber, 0);
 //            {{NUMBEROFACTIVEUSERS}}
         } else if (name.equals(MAGIC_PAGES_IN_CATEGORY) || name.equals(MAGIC_PAGES_IN_CAT)) {
-            String category = MyWikiModel.createFullPageName(
-                    model.getCategoryNamespace(), parameter.trim());
-            ValueResult<BigInteger> catListResult = ScalarisDataHandler
-                    .getPagesInCategoryCount(model.connection, category,
-                            model.getNamespace());
+            NormalisedTitle category = new NormalisedTitle(
+                    MyNamespace.CATEGORY_NAMESPACE_KEY,
+                    MyWikiModel.normaliseName(parameter.trim()));
+            ValueResult<BigInteger> catListResult = ScalarisDataHandlerNormalised
+                    .getPagesInCategoryCount(model.connection, category);
             model.addStats(catListResult.stats);
+            model.addInvolvedKeys(catListResult.involvedKeys);
             if (catListResult.success) {
                 return model.formatStatisticNumber(rawNumber, catListResult.value);
             }
 //            {{NUMBERINGROUP:groupname}}
 //            {{NUMINGROUP:groupname}}
-//        } else if (name.equals(MAGIC_PAGES_IN_NAMESPACE) || name.equals(MAGIC_PAGES_IN_NS)) {
+//        } else if (name.equals(MAGIC_PAGES_IN_NAMESPACE) || name.equals(MAGIC_PAGES_IN_NAMESPACE_NS)) {
 //            // TODO: implement
 //            return null;
         }

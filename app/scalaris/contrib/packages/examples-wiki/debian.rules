@@ -5,21 +5,18 @@
 # Uncomment this to turn on verbose mode.
 #export DH_VERBOSE=1
 
-# This is the debhelper compatibility version to use.
-export DH_COMPAT=4
-
+build-arch: build
+build-indep: build
 build: build-stamp
 build-stamp:
 	dh_testdir
 
 	# Add here commands to compile the package.
-	export ANT_OPTS=-Dfile.encoding=utf8
-
-	ln -s /usr/share/java/servlet-api-2.5.jar ./contrib/jetty-libs/servlet-api-2.5.jar
 	ln -s /usr/share/java/scalaris/scalaris.jar ./contrib/
 	JINTERFACE_VERSION=`ls /usr/share/java/scalaris/lib/ | grep ^OtpErlang- | sed "s|OtpErlang-||" | sed "s|.jar||"`; \
 	ln -s /usr/share/java/scalaris/lib/OtpErlang-$$JINTERFACE_VERSION.jar ./contrib/
-	ant build
+	ANT_OPTS="-Dfile.encoding=utf8 -Dant.build.javac.source=1.6 -Dant.build.javac.target=1.6" \
+	  ant build
 
 	touch build-stamp
 
@@ -38,7 +35,7 @@ BUILD_DIR_TOMCAT6:=$(CURDIR)/debian/scalaris-examples-wiki-tomcat6
 install: build
 	dh_testdir
 	dh_testroot
-	dh_clean -k
+	dh_prep
 	dh_installdirs
 
 	# Tomcat 5:
@@ -56,10 +53,6 @@ install: build
 
 # Build architecture-independent files here.
 binary-indep: build install
-	# We have nothing to do by default.
-
-# Build architecture-dependent files here.
-binary-arch: build install
 	dh_testdir
 	dh_testroot
 #	dh_installdebconf
@@ -87,6 +80,10 @@ binary-arch: build install
 	dh_gencontrol
 	dh_md5sums
 	dh_builddeb
+
+# Build architecture-dependent files here.
+binary-arch: build install
+	# We have nothing to do by default.
 
 binary: binary-indep binary-arch
 .PHONY: build clean binary-indep binary-arch binary install

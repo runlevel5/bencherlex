@@ -1,4 +1,4 @@
-% @copyright 2007-2011 Zuse Institute Berlin
+% @copyright 2007-2014 Zuse Institute Berlin
 
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 %% @author Thorsten Schuett <schuett@zib.de>
 %% @doc Load generator
 %% @end
+%% @version $Id$
 -module(bench_load).
 -author('schuett@zib.de').
 -vsn('$Id$').
@@ -29,10 +30,15 @@ start(Gap) ->
 
 -spec loop(Gap::pos_integer(), [pid()]) -> ok.
 loop(Gap, Pids) ->
+    trace_mpath:thread_yield(),
     receive
-        {load_stop} ->
-            _ = [erlang:exit(Pid, kill) || Pid <- Pids],
-            ok
+        ?SCALARIS_RECV(
+            {load_stop}, %%->
+            begin
+                _ = [erlang:exit(Pid, kill) || Pid <- Pids],
+                ok
+            end
+          )
     after Gap ->
             Pid = spawn_new(),
             loop(Gap, [Pid | Pids])

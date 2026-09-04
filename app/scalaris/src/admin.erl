@@ -1,4 +1,4 @@
-% @copyright 2008-2011 Zuse Institute Berlin
+% @copyright 2008-2019 Zuse Institute Berlin
 
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
@@ -14,18 +14,20 @@
 
 %% @author Thorsten Schuett <schuett@zib.de>
 %% @doc Aministrative helper functions (mostly for debugging)
-%% @version $Id: admin.erl 2678 2012-01-10 13:51:02Z kruber@zib.de $
+%% @version $Id$
 -module(admin).
 -author('schuett@zib.de').
--vsn('$Id: admin.erl 2678 2012-01-10 13:51:02Z kruber@zib.de $').
+-vsn('$Id$').
 
--export([add_node/1, add_node_at_id/1, add_nodes/1,
-         del_node/2, del_nodes/1, del_nodes/2, del_nodes_by_name/2,
+-export([add_node/1, add_node_at_id/1, add_nodes/1, add_nodes_at_ids/1,
+         add_remaining_symmetric_nodes/0,
+         del_node/2, del_nodes/2, del_nodes_by_name/2,
          get_dht_node_specs/0,
+         wait_for_stable_ring/1,
          check_ring/0, check_ring_deep/0, nodes/0, start_link/0, start/0, get_dump/0,
          get_dump_bw/0, diff_dump/2, print_ages/0,
-         check_routing_tables/1, dd_check_ring/1,dd_check_ring/0,
-         number_of_nodes/0]).
+         number_of_nodes/0,
+         check_leases/0, check_leases/1]).
 
 -include("scalaris.hrl").
 
@@ -38,24 +40,35 @@
          'UnknownPreds:', UnknownPreds::nodelist:snodelist(),
          'UnknownSuccs:', UnknownSuccs::nodelist:snodelist()}.
 
-%%====================================================================
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% API functions
-%%====================================================================
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %% userdevguide-begin admin:add_nodes
 % @doc add new Scalaris nodes on the local node
 -spec add_node_at_id(?RT:key()) -> pid_groups:groupname() | {error, term()}.
 add_node_at_id(Id) ->
-    add_node([{{dht_node, id}, Id}, {skip_psv_lb}]).
+    add_node([{{dht_node, id}, Id}, {skip_psv_lb}, {add_node}]).
 
 -spec add_node([tuple()]) -> pid_groups:groupname() | {error, term()}.
 add_node(Options) ->
-    DhtNodeId = randoms:getRandomString(),
-    Desc = util:sup_supervisor_desc(
-             DhtNodeId, config:read(dht_node_sup), start_link,
-             [[{my_sup_dht_node_id, DhtNodeId} | Options]]),
-    case supervisor:start_child(main_sup, Desc) of
-        {ok, _Child, Group}           -> Group;
+    DhtNodeId = case lists:keyfind({dht_node, id}, 1, Options) of
+                    %% supervisor Id for a dht_node has to be a string
+                    {{dht_node, id}, Id} when is_integer(Id) -> integer_to_list(Id);
+                    {{dht_node, id}, Id} -> Id;
+                    _ -> randoms:getRandomString()
+                end,
+    Group = pid_groups:new(dht_node),
+    Desc = sup:supervisor_desc(
+             DhtNodeId, sup_dht_node, start_link,
+             [{Group,
+               [{my_sup_dht_node_id, DhtNodeId}, {add_node} | Options]}]),
+    Sup = erlang:whereis(main_sup),
+    case sup:start_sup_as_child([" +"], Sup, Desc) of
+        {ok, _Child, Group}           ->
+            DhtNodePid = pid_groups:pid_of(Group, dht_node),
+            comm:send_local(DhtNodePid, {join, start}),
+            Group;
         {error, already_present}      -> add_node(Options); % try again, different Id
         {error, {already_started, _}} -> add_node(Options); % try again, different Id
         {error, _Error} = X           -> X
@@ -65,8 +78,33 @@ add_node(Options) ->
 add_nodes(0) -> {[], []};
 add_nodes(Count) ->
     Results = [add_node([]) || _X <- lists:seq(1, Count)],
-    lists:partition(fun(E) -> not is_tuple(E) end, Results).
+    lists:partition(fun(E) -> case E of
+                                  {error, _} -> false;
+                                  _ -> true
+                              end end, Results).
 %% userdevguide-end admin:add_nodes
+
+-spec add_nodes_at_ids(list(?RT:key())) -> {[pid_groups:groupname()], [{error, term()}]}.
+add_nodes_at_ids([]) -> {[], []};
+add_nodes_at_ids(Keys) ->
+    Results = [add_node_at_id(Key) || Key <- Keys],
+    lists:partition(fun(E) -> case E of
+                                  {error, _} -> false;
+                                  _ -> true
+                              end end, Results).
+
+% @doc if you started a single firstnode.sh you can add the remaining symmetric r-1 nodes in the local VM,
+%       for example to interactively run a unittest scenario step by step.
+-spec add_remaining_symmetric_nodes() -> {[pid_groups:groupname()], [{error, term()}]}.
+add_remaining_symmetric_nodes() ->
+    ?ASSERT2(1 =:= admin:number_of_nodes(), more_than_one_dht_node),
+    DHTNode = pid_groups:find_a(dht_node),
+    comm:send_local(DHTNode, {get_state, comm:this(), node_id}),
+    receive
+        ?SCALARIS_RECV({get_state_response, Id}, Id)
+    end,
+    Keys = ?RT:get_replica_keys(Id),
+    add_nodes_at_ids([X || X <- Keys, X =/= Id]).
 
 -spec get_dht_node_specs()
         -> [{Id::term() | undefined, Child::pid() | undefined,
@@ -75,12 +113,6 @@ get_dht_node_specs() ->
     % note: only sup_dht_node children have strings as identifiers!
     [Spec || {Id, Pid, _Type, _} = Spec <- supervisor:which_children(main_sup),
              is_pid(Pid), is_list(Id)].
-
-%% @doc Deletes Scalaris nodes from the current VM.
-%%      Provided for convenience and backwards-compatibility - kills the node,
-%%      i.e. _no_ graceful leave!
--spec del_nodes(Count::integer()) -> [ok | {error, not_found}].
-del_nodes(Count) -> del_nodes(Count, false).
 
 %% @doc Deletes Scalaris nodes from the current VM.
 -spec del_nodes(Count::non_neg_integer(), Graceful::boolean())
@@ -98,15 +130,16 @@ del_nodes(Count, Graceful, Prev) ->
     case util:random_subset(Count, get_dht_node_specs()) of
         [] -> Prev;
         [_|_] = Specs ->
-            Successful =
-                lists:foldr(fun(Spec = {_Id, Pid, _Type, _}, Successful) ->
+            {Successful, NoPartner} =
+                lists:foldr(fun(Spec = {_Id, Pid, _Type, _}, {Successful, NoPartner}) ->
                                     Name = pid_groups:group_of(Pid),
                                     case del_node(Spec, Graceful) of
-                                        ok -> [Name | Successful];
-                                        {error, not_found} -> Successful
+                                        ok -> {[Name | Successful], NoPartner};
+                                        {error, not_found} -> {Successful, NoPartner};
+                                        {error, no_partner_found} -> {Successful, [Name | NoPartner]}
                                     end
-                            end, [], Specs),
-            Missing = Count - length(Successful),
+                            end, {[], []}, Specs),
+            Missing = Count - length(Successful) - length(NoPartner),
             del_nodes(Missing, Graceful, Successful)
     end.
 
@@ -115,15 +148,29 @@ del_nodes(Count, Graceful, Prev) ->
 del_nodes_by_name(Names, Graceful) ->
     % note: specs selected now may not be available anymore when trying to
     % delete them during concurrent executions
-    Specs = [Spec || {_Id, Pid, _Type, _} = Spec <- get_dht_node_specs(),
-                     lists:member(pid_groups:group_of(Pid), Names)],
+    Specs = [{Spec, pid_groups:group_of(Pid)}
+             || {_Id, Pid, _Type, _} = Spec <- get_dht_node_specs(),
+                lists:member(pid_groups:group_of(Pid), Names)],
     case Specs of
         [] -> {[], []};
-        [_|_] ->
+        [_|_] when Graceful ->
             lists:foldr(
-              fun(Spec = {_Id, Pid, _Type, _}, {Ok, NotFound}) ->
-                      Name = pid_groups:group_of(Pid),
+              fun({Spec, Name}, {Ok, NotFound}) ->
                       case del_node(Spec, Graceful) of
+                          ok -> {[Name | Ok], NotFound};
+                          {error, not_found} -> {Ok, [Name | NotFound]};
+                          {error, no_partner_found} -> {Ok, NotFound}
+                      end
+              end, {[], []}, Specs);
+        [_|_] when not Graceful ->
+            Pids = [Pid || {{_Id, Pid, _Type, _}, _Name} <- Specs],
+            AllChildren = lists:flatmap(fun sup:sup_get_all_children/1, Pids),
+            comm:send_local(erlang:whereis(fd), {del_all_subscriptions, AllChildren}),
+            sup:sup_terminate_childs(Pids),
+            lists:foldr(
+              fun({{Id, _Pid, _Type, _}, Name}, {Ok, NotFound}) ->
+                      _ = supervisor:terminate_child(main_sup, Id),
+                      case supervisor:delete_child(main_sup, Id) of
                           ok -> {[Name | Ok], NotFound};
                           {error, not_found} -> {Ok, [Name | NotFound]}
                       end
@@ -133,22 +180,52 @@ del_nodes_by_name(Names, Graceful) ->
 %% @doc Delete a single node.
 -spec del_node({Id::term() | undefined, Child::pid() | undefined,
                 Type::worker | supervisor, Modules::[module()] | dynamic},
-               Graceful::boolean()) -> ok | {error, not_found}.
+               Graceful::boolean()) -> ok | {error, not_found | no_partner_found}.
 del_node({Id, Pid, _Type, _}, Graceful) ->
     case Graceful of
         true ->
             Group = pid_groups:group_of(Pid),
             case pid_groups:pid_of(Group, dht_node) of
                 failed  -> {error, not_found};
-                DhtNode -> comm:send_local(DhtNode, {leave})
+                DhtNode ->
+                    UId = uid:get_pids_uid(),
+                    Self = comm:reply_as(comm:this(), 3, {leave_result, UId, '_'}),
+                    comm:send_local(DhtNode, {leave, Self}),
+                    trace_mpath:thread_yield(),
+                    receive
+                        ?SCALARIS_RECV(
+                            {leave_result, UId, {move, result, leave, ok}}, %% ->
+                            ok
+                          );
+                        ?SCALARIS_RECV(
+                            {leave_result, UId, {move, result, leave, leave_no_partner_found}}, %% ->
+                            {error, no_partner_found}
+                          )
+                    end
             end;
         false ->
-            util:supervisor_terminate_childs(Pid),
+            sup:sup_terminate_childs(Pid),
             _ = supervisor:terminate_child(main_sup, Id),
             supervisor:delete_child(main_sup, Id)
     end.
 
-%% @doc Contact mgmt server and check that each node's successor is correct.
+-spec wait_for_stable_ring(non_neg_integer()) -> ok.
+wait_for_stable_ring(NrOfNodes) ->
+    Fun = fun() ->
+                  case config:read(leases) of
+                      true ->
+                          (number_of_nodes() =:= NrOfNodes) andalso
+                              (check_leases() =:= true);
+                      _ ->
+                          (number_of_nodes() =:= NrOfNodes) andalso
+                              (check_ring() =:= ok) andalso
+                              (check_ring_deep() =:= ok)
+                  end
+          end,
+    util:wait_for(Fun).
+
+%% @doc Contact mgmt server and check that each node's successor and predecessor
+%%      are correct.
 -spec check_ring() -> {error, string()} | ok.
 check_ring() ->
     Nodes = statistics:get_ring_details(),
@@ -159,18 +236,23 @@ check_ring() ->
 
 -spec check_ring_foldl(NodeState::statistics:ring_element(),
                        Acc::first | ?RT:key())
-        -> first | {error, Reason::string()} | ?RT:key().
+        -> first | {error, Reason::string()} | {Pred::?RT:key(), PredsSucc::?RT:key()}.
 check_ring_foldl({ok, NodeDetails}, first) ->
-    node:id(node_details:get(NodeDetails, succ));
+    {node:id(node_details:get(NodeDetails, node)),
+     node:id(node_details:get(NodeDetails, succ))};
 check_ring_foldl(_, {error, Message}) ->
     {error, Message};
-check_ring_foldl({ok, NodeDetails}, PredsSucc) ->
+check_ring_foldl({ok, NodeDetails}, {Pred, PredsSucc}) ->
+    MyPredId = node:id(node_details:get(NodeDetails, pred)),
     MyId = node:id(node_details:get(NodeDetails, node)),
     if
-        MyId =:= PredsSucc ->
-            node:id(node_details:get(NodeDetails, succ));
+        MyId =/= PredsSucc ->
+            {error, lists:flatten(io_lib:format("MyID ~p didn't match preds succ ~p", [MyId, PredsSucc]))};
+        MyPredId =/= Pred ->
+            {error, lists:flatten(io_lib:format("MyPredID ~p didn't match preds id ~p", [MyPredId, Pred]))};
         true ->
-            {error, lists:flatten(io_lib:format("MyID ~p didn't match preds succc ~p", [MyId, PredsSucc]))}
+            {node:id(node_details:get(NodeDetails, node)),
+             node:id(node_details:get(NodeDetails, succ))}
     end;
 check_ring_foldl({failed, _}, Previous) ->
     Previous.
@@ -214,66 +296,103 @@ check_ring_deep_foldl({failed, _}, Previous) ->
 check_ring_deep_foldl(_, Previous) ->
     Previous.
 
+-spec check_leases() -> boolean().
+check_leases() ->
+    lease_checker:check_leases_for_all_nodes() andalso
+        lease_checker:check_leases_for_the_ring().
+
+-spec check_leases(pos_integer()) -> boolean().
+check_leases(TargetSize) ->
+    lease_checker:check_leases_for_all_nodes() andalso
+        lease_checker:check_leases_for_the_ring(TargetSize).
+
 -spec number_of_nodes() -> non_neg_integer() | timeout.
 number_of_nodes() ->
     mgmt_server:number_of_nodes(),
+    trace_mpath:thread_yield(),
     receive
-        {get_list_length_response, X} -> X
+        ?SCALARIS_RECV(
+            {get_list_length_response, X}, %% ->
+            X
+          )
     after
         5000 -> timeout
     end.
 
-%%===============================================================================
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%=
 % % comm_logger functions
-% %===============================================================================
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%=
 % @doc returns communications information. the comm-layer logs for
 % each message-tag how many message were sent and how large were these
 % messages in total. get_dump/0 returns a map from message-tag to
 % message-count and message-size and a timestamp when the measurement
 % was started.
--spec get_dump() -> {gb_tree(), {integer(), integer(), integer()}}.
+-spec get_dump() -> {Received::comm_logger:stat_tree(), Sent::comm_logger:stat_tree(), erlang_timestamp()}.
 get_dump() ->
     Servers = util:get_proc_in_vms(admin_server),
     _ = [comm:send(Server, {get_comm_layer_dump, comm:this()})
          || Server <- Servers],
     %% list({Map, StartTime})
-    Dumps = [receive
-                 {get_comm_layer_dump_response, Dump} ->
-                     Dump
-             end || _ <- Servers],
-    StartTime = lists:min([Start || {_, Start} <- Dumps]),
-    Keys = lists:usort(lists:flatten([gb_trees:keys(Map) || {Map, _} <- Dumps])),
+    Dumps = [  begin
+                   trace_mpath:thread_yield(),
+                   receive
+                       ?SCALARIS_RECV(
+                          {get_comm_layer_dump_response, Dump}, %% ->
+                          Dump
+                         )
+                       end
+               end || _ <- Servers],
+    StartTime = lists:min([Start || {_, _, Start} <- Dumps]),
+    GetKeys =
+        fun(DumpsX, ElementX) ->
+                lists:usort(
+                  lists:flatmap(fun(X) -> gb_trees:keys(element(ElementX, X)) end,
+                                DumpsX))
+        end,
+    ReceivedKeys = GetKeys(Dumps, 1),
+    SentKeys = GetKeys(Dumps, 2),
     {lists:foldl(fun (Tag, Map) ->
-                         gb_trees:enter(Tag, get_aggregate(Tag, Dumps), Map)
-                 end, gb_trees:empty(), Keys), StartTime}.
+                         gb_trees:enter(Tag, get_aggregate(Tag, Dumps, 1), Map)
+                 end, gb_trees:empty(), ReceivedKeys),
+     lists:foldl(fun (Tag, Map) ->
+                         gb_trees:enter(Tag, get_aggregate(Tag, Dumps, 2), Map)
+                 end, gb_trees:empty(), SentKeys),
+     StartTime}.
 
-% @doc returns communications information. similar to get_dump_bw/0 it
+% @doc returns communications information. similar to get_dump/0 it
 % returns message statistics per message-tag, but it scales all values
 % by the elapsed time. so it returns messages per second and bytes per
 % second for each message-tag
--spec get_dump_bw() -> list({atom(), float(), float()}).
+-spec get_dump_bw() -> {Received::[{atom(), float(), float()}], Sent::[{atom(), float(), float()}]}.
 get_dump_bw() ->
-    {Map, StartTime} = get_dump(),
-    RunTime = timer:now_diff(erlang:timestamp(), StartTime),
-    [{Tag, Size / RunTime, Count / RunTime} || {Tag, {Size, Count}} <- gb_trees:to_list(Map)].
+    {Received, Sent, StartTime} = get_dump(),
+    RunTime = timer:now_diff(os:timestamp(), StartTime),
+    AggFun =
+        fun(Map) ->
+                [{Tag, Size / RunTime, Count / RunTime} || {Tag, {Size, Count}} <- gb_trees:to_list(Map)]
+        end,
+    {AggFun(Received), AggFun(Sent)}.
 
-get_aggregate(_Tag, []) ->
+get_aggregate(_Tag, [], _Element) ->
     {0, 0};
-get_aggregate(Tag, [{Dump, _} | Rest]) ->
-    case gb_trees:lookup(Tag, Dump) of
+get_aggregate(Tag, [Dump | Rest], Element) ->
+    Map = element(Element, Dump),
+    case gb_trees:lookup(Tag, Map) of
         none ->
-            get_aggregate(Tag, Rest);
+            get_aggregate(Tag, Rest, Element);
         {value, {Size, Count}} ->
-            {AggSize, AggCount} = get_aggregate(Tag, Rest),
+            {AggSize, AggCount} = get_aggregate(Tag, Rest, Element),
             {AggSize + Size, AggCount + Count}
     end.
 
--spec diff_dump(gb_tree(), gb_tree()) -> list({atom(), integer(), integer()}).
+-spec diff_dump(Before::comm_logger:stat_tree(), After::comm_logger:stat_tree())
+        -> [{Tag::atom(), Size::integer(), Count::integer()}].
 diff_dump(BeforeDump, AfterDump) ->
-    Tags = lists:usort(lists:flatten([gb_trees:keys(BeforeDump),
-                                      gb_trees:keys(AfterDump)])),
+    Tags = lists:usort(gb_trees:keys(BeforeDump) ++ gb_trees:keys(AfterDump)),
     diff(Tags, BeforeDump, AfterDump).
 
+-spec diff(Tags::[atom()], Before::comm_logger:stat_tree(), After::comm_logger:stat_tree())
+        -> [{Tag::atom(), Size::integer(), Count::integer()}].
 diff([], _Before, _After) ->
     [];
 diff([Tag | Rest], Before, After) ->
@@ -285,9 +404,9 @@ diff([Tag | Rest], Before, After) ->
             [{Tag, NewSize - Size, NewCount - Count} | diff(Rest, Before, After)]
     end.
 
-%%=============================================================================
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% admin server functions
-%%=============================================================================
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -spec start_link() -> {ok, pid()}.
 start_link() ->
     {ok, spawn_link(?MODULE, start, [])}.
@@ -298,65 +417,70 @@ start() ->
     loop().
 
 loop() ->
+    trace_mpath:thread_yield(),
     receive
-        {halt, N} ->
-            init:stop(N),
-            receive nothing -> ok end;
-        {get_comm_layer_dump, Sender} ->
-            comm:send(Sender, {get_comm_layer_dump_response,
+        ?SCALARIS_RECV(
+            {halt, N}, %% ->
+            begin
+                init:stop(N),
+                receive nothing -> ok end % wait forever
+            end
+          );
+        ?SCALARIS_RECV(
+            {get_comm_layer_dump, Sender}, %% ->
+            begin
+                comm:send(Sender, {get_comm_layer_dump_response,
                                   comm_logger:dump()}),
-            loop()
+                loop()
+            end
+          )
     end.
 
 % @doc contact mgmt server and list the known ip addresses
--spec nodes() -> list().
+-spec(nodes() -> list()).
 nodes() ->
     mgmt_server:node_list(),
-    Nodes = receive
-                {get_list_response, List} ->
-                    lists:usort([IP || {IP, _, _} <- List])
+    Nodes = begin
+                trace_mpath:thread_yield(),
+                receive
+                    ?SCALARIS_RECV(
+                       {get_list_response, List}, %% ->
+                       lists:usort([IP || {IP, _, _} <- List])
+                      )
+                    end
             end,
     Nodes.
 
-%%=============================================================================
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Debug functions
-%%=============================================================================
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 -spec print_ages() -> ok.
 print_ages() ->
     mgmt_server:node_list(),
-    _ = receive
-            {get_list_response, List} ->
-                [ comm:send(Node, {get_ages, self()}, [{group_member, cyclon}]) || Node <- List ]
+    _ = begin
+            trace_mpath:thread_yield(),
+            receive
+                ?SCALARIS_RECV(
+                   {get_list_response, List}, %% ->
+                   [ comm:send(Node, {cb_msg, {gossip_cyclon, default}, {get_ages, self()}},
+                               [{group_member, gossip}]) || Node <- List ]
+                  )
+                end
         end,
     worker_loop().
 
 -spec worker_loop() -> ok.
 worker_loop() ->
+    trace_mpath:thread_yield(),
     receive
-        {cy_ages, Ages} ->
-            io:format("~p~n", [Ages]),
-            worker_loop()
+        ?SCALARIS_RECV(
+            {cy_ages, Ages}, %% ->
+            begin
+                io:format("~p~n", [Ages]),
+                worker_loop()
+            end
+          )
         after 400 ->
             ok
     end.
-
-%% TODO: the message this method sends is not received anywhere - either delete or update it! 
--spec check_routing_tables(any()) -> ok.
-check_routing_tables(Port) ->
-    mgmt_server:node_list(),
-    _ = receive
-            {get_list_response, List} ->
-                [ comm:send(Node, {check, Port}, [{group_member, routing_table}]) || Node <- List ]
-        end,
-    ok.
-
--spec dd_check_ring() -> {token_on_the_way}.
-dd_check_ring() ->
-    dd_check_ring(0).
-
--spec dd_check_ring(non_neg_integer()) -> {token_on_the_way}.
-dd_check_ring(Token) ->
-    One = pid_groups:find_a(dht_node),
-    _ = comm:send_local(One, {rm, init_check_ring, Token}),
-    {token_on_the_way}.

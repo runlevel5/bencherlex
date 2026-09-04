@@ -1,6 +1,5 @@
-%  @copyright 2010-2011 Zuse Institute Berlin
-%  @end
-%
+%  @copyright 2010-2015 Zuse Institute Berlin
+
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
 %   You may obtain a copy of the License at
@@ -12,21 +11,17 @@
 %   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %   See the License for the specific language governing permissions and
 %   limitations under the License.
-%%%-------------------------------------------------------------------
-%%% File    dn_cache_SUITE.erl
-%%% @author Nico Kruber <kruber@zib.de>
-%%% @doc    Test suite for the dn_cache module.
-%%% @end
-%%% Created : 26 Aug 2010 by Nico Kruber <kruber@zib.de>
-%%%-------------------------------------------------------------------
-%% @version $Id: dn_cache_SUITE.erl 2059 2011-08-02 17:54:21Z kruber@zib.de $
+
+%% @author Nico Kruber <kruber@zib.de>
+%% @doc    Test suite for the dn_cache module.
+%% @end
+%% @version $Id$
 -module(dn_cache_SUITE).
 
 -author('kruber@zib.de').
--vsn('$Id: dn_cache_SUITE.erl 2059 2011-08-02 17:54:21Z kruber@zib.de $ ').
+-vsn('$Id$').
 
--export([all/0, dn_detection/1, end_per_suite/1, fake_node/0, fake_process/0,
-         init_per_suite/1, suite/0]).
+-compile(export_all).
 
 -include("scalaris.hrl").
 -include("unittest.hrl").
@@ -40,21 +35,19 @@ suite() ->
     ].
 
 init_per_suite(Config) ->
-    Config2 = unittest_helper:init_per_suite(Config),
-    unittest_helper:start_minimal_procs(Config2, [], true).
+    unittest_helper:start_minimal_procs(Config, [], true).
 
 end_per_suite(Config) ->
-    unittest_helper:stop_minimal_procs(Config),
-    _ = unittest_helper:end_per_suite(Config),
+    _ = unittest_helper:stop_minimal_procs(Config),
     ok.
 
 dn_detection(Config) ->
-    pid_groups:join_as("dn_cache_group", node),
+    pid_groups:join_as(dn_cache_group, node),
     config:write(zombieDetectorInterval, 10),
     NodePid = fake_node(),
     NodePidG = comm:make_global(NodePid),
     Node = node:new(NodePidG, ?RT:hash_key("0"), 0),
-    {ok, _DNCachePid} = dn_cache:start_link("dn_cache_group"),
+    {ok, _DNCachePid} = dn_cache:start_link(dn_cache_group),
     
     dn_cache:subscribe(),
     comm:send(NodePidG, {sleep}),
@@ -71,12 +64,14 @@ dn_detection(Config) ->
     Config.
 
 fake_node() ->
-    unittest_helper:start_subprocess(fun() -> pid_groups:join_as("dn_cache_group", node) end, fun fake_process/0).
+    element(1, unittest_helper:start_subprocess(
+              fun() -> pid_groups:join_as(dn_cache_group, node) end,
+              fun fake_process/0)).
 
 fake_process() ->
     receive
         {ping, Pid} ->
-            comm:send(Pid, {pong}),
+            comm:send(Pid, {pong, dht_node}),
             fake_process();
         {sleep} ->
             receive

@@ -1,5 +1,5 @@
 /**
- *  Copyright 2011 Zuse Institute Berlin
+ *  Copyright 2011-2013 Zuse Institute Berlin
  *
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 package de.zib.scalaris.examples.wikipedia;
 
+import de.zib.scalaris.examples.wikipedia.bliki.WikiPageBeanBase;
 import de.zib.scalaris.examples.wikipedia.bliki.WikiServlet;
 import de.zib.scalaris.examples.wikipedia.data.SiteInfo;
 import de.zib.scalaris.examples.wikipedia.plugin.WikiEventHandler;
@@ -48,28 +49,47 @@ public interface WikiServletContext {
     public abstract String getVersion();
 
     /**
-     * Gets the base URL for the wiki servlet relative to the servlet's context
-     * path.
+     * Gets the version of the DB used by the wiki servlet.
      * 
-     * @return the wikibaseurl
+     * @return the version
      */
-    public abstract String getWikibaseurl();
+    public abstract String getDbVersion();
+
+    /**
+     * Gets the version of the Server running the wiki servlet.
+     * 
+     * @return the version
+     */
+    public abstract String getServerVersion();
+
+    /**
+     * Gets the version of the bliki rendering library used by the wiki servlet.
+     * 
+     * @return the version
+     */
+    public abstract String getBlikiVersion();
 
     /**
      * Gets the base URL for links to articles relative to the servlet's context
      * path.
      * 
+     * @param page
+     *            the page to get the URL for
+     * 
      * @return the linkbaseurl
      */
-    public abstract String getLinkbaseurl();
+    public abstract String getLinkbaseurl(WikiPageBeanBase page);
 
     /**
      * Gets the base URL for links to images relative to the servlet's context
      * path.
      * 
+     * @param page
+     *            the page to get the URL for
+     * 
      * @return the imagebaseurl
      */
-    public abstract String getImagebaseurl();
+    public abstract String getImagebaseurl(WikiPageBeanBase page);
 
     /**
      * Adds the given event handler to the list of event handlers.
@@ -78,4 +98,20 @@ public interface WikiServletContext {
      *            the event handler to add
      */
     public abstract void registerEventHandler(WikiEventHandler handler);
+    
+    /**
+     * Called at the end of each <tt>jsp</tt> for storing user requests.
+     * 
+     * Adds a user request to the user request log if enabled by setting
+     * {@link Options#LOG_USER_REQS} to a value larger than <tt>0</tt>. Also
+     * calls {@link WikiEventHandler#onPageView(WikiPageBeanBase, Object)} for
+     * each registered event handler no matter what
+     * {@link Options#LOG_USER_REQS} is set.
+     * 
+     * @param page
+     *            some info on the shown page
+     * @param servertime
+     *            time spend in the web server
+     */
+    public abstract void storeUserReq(WikiPageBeanBase page, long servertime);
 }

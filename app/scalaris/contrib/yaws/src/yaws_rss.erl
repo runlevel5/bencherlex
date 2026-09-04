@@ -227,7 +227,7 @@ handle_call({close, DB}, _From, State) ->
     {reply, ok, State};
 %%
 handle_call({close, DBMod, DBname}, _From, State) ->
-    try apply(DBMod, close, [DBname]) catch _:_ -> ok end,
+    catch apply(DBMod, close, [DBname]),
     {reply, ok, State};
 %%
 handle_call({insert, Args}, _From, State) ->
@@ -292,7 +292,7 @@ do_open_dir(State, App, Opts) ->
                 false ->
                     {State, {error, "not a proper dets file"}};
                 _     ->
-                    case try dets:open_file(?DB, [{file, File}]) catch throw:CaughtT2 -> CaughtT2; error:CaughtR2:CaughtS2 -> {'EXIT', {CaughtR2, CaughtS2}}; exit:CaughtR2 -> {'EXIT', CaughtR2} end of
+                    case catch dets:open_file(?DB, [{file, File}]) of
                         {ok,DB} = Res   ->
                             {State#s{
                                open_apps = u_insert(App, State#s.open_apps),
@@ -307,7 +307,7 @@ do_open_dir(State, App, Opts) ->
                     end
             end;
         DBmod ->
-            {State, try apply(DBmod, open, Opts) catch throw:CaughtT3 -> CaughtT3; error:CaughtR3:CaughtS3 -> {'EXIT', {CaughtR3, CaughtS3}}; exit:CaughtR3 -> {'EXIT', CaughtR3} end}
+            {State, catch apply(DBmod, open, Opts)}
     end.
 
 get_db_file(Opts) ->
@@ -324,7 +324,8 @@ set_counter(DB, N) ->
     dets:insert(DB, {counter, N}).
 
 do_insert(State, {App, {DbMod,Tag}, Title, Link, Desc, Creator, GregSecs}) ->
-    {State, try apply(DbMod, insert, [App, Tag,Title,Link,Desc,Creator,GregSecs]) catch throw:CaughtT4 -> CaughtT4; error:CaughtR4:CaughtS4 -> {'EXIT', {CaughtR4, CaughtS4}}; exit:CaughtR4 -> {'EXIT', CaughtR4} end};
+    {State, catch apply(DbMod, insert, [App, Tag,Title,Link,
+                                        Desc,Creator,GregSecs])};
 do_insert(State, {App, Tag, Title, Link, Desc, Creator, GregSecs}) ->
     case lists:member(App, State#s.open_apps) of
         true ->
@@ -343,11 +344,12 @@ do_insert(State, {App, Tag, Title, Link, Desc, Creator, GregSecs}) ->
 
 
 do_retrieve(State, App, {DbMod,Tag}) ->
-    {State, try apply(DbMod, retrieve, [App, Tag]) catch throw:CaughtT5 -> CaughtT5; error:CaughtR5:CaughtS5 -> {'EXIT', {CaughtR5, CaughtS5}}; exit:CaughtR5 -> {'EXIT', CaughtR5} end};
+    {State, catch apply(DbMod, retrieve, [App, Tag])};
 do_retrieve(State, App, Tag) ->
     case lists:member(App, State#s.open_apps) of
         true ->
-            F = fun(?ITEM(Xa, Xt, _Counter, Item), Acc) when Xa == App, Xt == Tag ->
+            F = fun(?ITEM(Xa, Xt, _Counter, Item), Acc)
+                      when Xa == App, Xt == Tag ->
                         [Item|Acc];
                    (_, Acc) ->
                         Acc
@@ -409,29 +411,35 @@ to_xml([]) ->
 %%%
 w3cdtf(GregSecs) ->    Date = calendar:gregorian_seconds_to_datetime(GregSecs),
                        {{Y, Mo, D},{H, Mi, S}} = Date,
-                       [UDate|_] = calendar:local_time_to_universal_time_dst(Date),
-                       {DiffD,{DiffH,DiffMi,_}}=calendar:time_difference(UDate,Date),
+                       [UDate|_] = calendar:local_time_to_universal_time_dst(
+                                     Date),
+                       {DiffD,{DiffH,DiffMi,_}}=calendar:time_difference(
+                                                  UDate,Date),
                        w3cdtf_diff(Y, Mo, D, H, Mi, S, DiffD, DiffH, DiffMi).
 
 %%%  w3cdtf's helper function
-w3cdtf_diff(Y, Mo, D, H, Mi, S, _DiffD, DiffH, DiffMi) when DiffH < 12,  DiffH /= 0 ->
+w3cdtf_diff(Y, Mo, D, H, Mi, S, _DiffD, DiffH, DiffMi)
+  when DiffH < 12,  DiffH /= 0 ->
     i2l(Y) ++ "-" ++ add_zero(Mo) ++ "-" ++ add_zero(D) ++ "T" ++
         add_zero(H) ++ ":" ++ add_zero(Mi) ++ ":"  ++
         add_zero(S) ++ "+" ++ add_zero(DiffH) ++ ":"  ++ add_zero(DiffMi);
 
-w3cdtf_diff(Y, Mo, D, H, Mi, S, DiffD, DiffH, DiffMi) when DiffH > 12,  DiffD == 0 ->
+w3cdtf_diff(Y, Mo, D, H, Mi, S, DiffD, DiffH, DiffMi)
+  when DiffH > 12,  DiffD == 0 ->
     i2l(Y) ++ "-" ++ add_zero(Mo) ++ "-" ++ add_zero(D) ++ "T" ++
         add_zero(H) ++ ":" ++ add_zero(Mi) ++ ":"  ++
         add_zero(S) ++ "+" ++ add_zero(DiffH) ++ ":"  ++
         add_zero(DiffMi);
 
-w3cdtf_diff(Y, Mo, D, H, Mi, S, DiffD, DiffH, DiffMi) when DiffH > 12,  DiffD /= 0, DiffMi /= 0 ->
+w3cdtf_diff(Y, Mo, D, H, Mi, S, DiffD, DiffH, DiffMi)
+  when DiffH > 12,  DiffD /= 0, DiffMi /= 0 ->
     i2l(Y) ++ "-" ++ add_zero(Mo) ++ "-" ++ add_zero(D) ++ "T" ++
         add_zero(H) ++ ":" ++ add_zero(Mi) ++ ":"  ++
         add_zero(S) ++ "-" ++ add_zero(23-DiffH) ++
         ":" ++ add_zero(60-DiffMi);
 
-w3cdtf_diff(Y, Mo, D, H, Mi, S, DiffD, DiffH, DiffMi) when DiffH > 12,  DiffD /= 0, DiffMi == 0 ->
+w3cdtf_diff(Y, Mo, D, H, Mi, S, DiffD, DiffH, DiffMi)
+  when DiffH > 12,  DiffD /= 0, DiffMi == 0 ->
     i2l(Y) ++ "-" ++ add_zero(Mo) ++ "-" ++ add_zero(D) ++ "T" ++
         add_zero(H) ++ ":" ++ add_zero(Mi) ++ ":"  ++
         add_zero(S) ++ "-" ++ add_zero(24-DiffH) ++

@@ -1,4 +1,5 @@
-%% Copyright (C) 2003 Joakim GrebenÃ¶ <jocke@gleipnir.com>.
+%% -*- coding: latin-1 -*-
+%% Copyright (C) 2003 Joakim Grebenö <jocke@gleipnir.com>.
 %% All rights reserved.
 %%
 %% Copyright (C) 2006 Gaspar Chilingarov <nm@web.am>
@@ -114,45 +115,46 @@ parse_request(Args) ->
 handle_payload(Args, Handler, Type) ->
     RpcType = recognize_rpc_type(Args),
     %% haXe parameters are URL encoded
-    PL = binary_to_list(Args#arg.clidata),
+    PL = unicode:characters_to_list(Args#arg.clidata),
     {Payload,DecodedStr} =
-	case RpcType of
-	    T when T==haxe; T==json ->
+        case RpcType of
+            T when T==haxe; T==json ->
                 ?Debug("rpc ~p call ~p~n", [T, PL]),
-		{PL, yaws_api:url_decode(PL)};
-	    soap_dime ->
-		[{_,_,_,Req}|As] = yaws_dime:decode(Args#arg.clidata),
-		{Args#arg.clidata, {binary_to_list(Req), As}};
-	    _ ->
+                {PL, yaws_api:url_decode(PL)};
+            soap_dime ->
+                [{_,_,_,Req}|As] = yaws_dime:decode(Args#arg.clidata),
+                {Args#arg.clidata, {binary_to_list(Req), As}};
+            _ ->
                 ?Debug("rpc plaintext call ~p~n", [PL]),
                 {PL, PL}
-	end,
+        end,
     case decode_handler_payload(RpcType, DecodedStr) of
         Batch when RpcType == json, is_list(Batch) ->
             BatchRes =
-                lists:foldl(fun(Req, Acc) ->
-                                    Result = check_decoded_payload(Args, Handler,
-                                                                   Req, Payload,
-                                                                   Type, json),
-                                    case Result of
-                                        empty ->
-                                            Acc;
-                                        {result, _Code, Send} ->
-                                            [Send|Acc];
-                                        {send, S} ->
-                                            %% TODO: it would be better if
-                                            %% Result was never of the
-                                            %% {send, ...} variety because
-                                            %% it requires us to take the
-                                            %% content out via searching.
-                                            case lists:keysearch(content,1,S) of
-                                                {value, {content, _, Send}} ->
-                                                    [Send|Acc];
-                                                _ ->
-                                                    Acc
-                                            end
-                                    end
-                            end, [], Batch),
+                lists:foldl(
+                  fun(Req, Acc) ->
+                          Result = check_decoded_payload(Args, Handler,
+                                                         Req, Payload,
+                                                         Type, json),
+                          case Result of
+                              empty ->
+                                  Acc;
+                              {result, _Code, Send} ->
+                                  [Send|Acc];
+                              {send, S} ->
+                                  %% TODO: it would be better if
+                                  %% Result was never of the
+                                  %% {send, ...} variety because
+                                  %% it requires us to take the
+                                  %% content out via searching.
+                                  case lists:keysearch(content,1,S) of
+                                      {value, {content, _, Send}} ->
+                                          [Send|Acc];
+                                      _ ->
+                                          Acc
+                                  end
+                          end
+                  end, [], Batch),
             case BatchRes of
                 [] ->
                     %% all notifications, no replies
@@ -200,10 +202,10 @@ check_decoded_payload(Args, Handler, DecodedResult, Payload, Type, RpcType) ->
 %%% and if those are absent we assume the request is JSON.
 recognize_rpc_type(Args) ->
     case (Args#arg.headers)#headers.content_type of
-	"application/dime" -> soap_dime;
-	_ ->
-	    OtherHeaders = ((Args#arg.headers)#headers.other),
-	    recognize_rpc_hdr([{X,Y,yaws:to_lower(Z),Q,W} ||
+        "application/dime" -> soap_dime;
+        _ ->
+            OtherHeaders = ((Args#arg.headers)#headers.other),
+            recognize_rpc_hdr([{X,Y,yaws:to_lower(Z),Q,W} ||
                                   {X,Y,Z,Q,W} <- OtherHeaders])
     end.
 
@@ -229,7 +231,7 @@ eval_payload(Args, {M, F}, Payload, {session, CookieName}, ID, RpcType) ->
                 end
         end,
     CbackFun = callback_fun(M, F, Args, Payload, SessionValue, RpcType),
-    case try CbackFun() catch throw:CaughtT1 -> CaughtT1; error:CaughtR1:CaughtS1 -> {'EXIT', {CaughtR1, CaughtS1}}; exit:CaughtR1 -> {'EXIT', CaughtR1} end of
+    case catch CbackFun() of
         {'EXIT', {function_clause, _}} when RpcType == json ->
             case ID of
                 undefined ->
@@ -264,14 +266,15 @@ eval_payload(Args, {M, F}, Payload, {session, CookieName}, ID, RpcType) ->
             %% be compatible with xmlrpc module
             CO = handle_cookie(Cookie, CookieName, SessionValue,
                                NewSessionValue, M, F),
-            {send, encode_send(Args, RespCode, ResponsePayload, CO, ID, RpcType)}
+            {send, encode_send(Args, RespCode,
+                               ResponsePayload, CO, ID, RpcType)}
     end;
 
 %%%
 %%% call handler/2 without session support
 %%%
 eval_payload(Args, {M, F}, Payload, simple, ID, RpcType) ->
-    case try M:F(Args#arg.state, Payload) catch throw:CaughtT2 -> CaughtT2; error:CaughtR2:CaughtS2 -> {'EXIT', {CaughtR2, CaughtS2}}; exit:CaughtR2 -> {'EXIT', CaughtR2} end of
+    case catch M:F(Args#arg.state, Payload) of
         {'EXIT', Reason} ->
             ?ERROR_LOG({M, F, {'EXIT', Reason}}),
             {send, send(Args, 500)};
@@ -314,7 +317,7 @@ handle_cookie(Cookie, CookieName, SessionValue, NewSessionValue, M, F) ->
 
 %%% Make it possible for callback module to set Cookie Expire string!
 get_expire(M, F) ->
-    case try M:F(cookie_expire) catch throw:CaughtT3 -> CaughtT3; error:CaughtR3:CaughtS3 -> {'EXIT', {CaughtR3, CaughtS3}}; exit:CaughtR3 -> {'EXIT', CaughtR3} end of
+    case catch M:F(cookie_expire) of
         Expire when is_list(Expire) -> Expire;
         _                        -> false
     end.
@@ -349,14 +352,19 @@ send(Args, StatusCode, RpcType) ->
 
 send(Args, StatusCode, Payload, AddOn, RpcType) when not is_list(AddOn) ->
     send(Args, StatusCode, Payload, [AddOn], RpcType);
-send(_Args, StatusCode, Payload, AddOnData, RpcType) ->
+send(Args, StatusCode, Payload, AddOnData, RpcType) ->
     [{status, StatusCode},
-     content_hdr(RpcType, Payload),
+     content_hdr(RpcType, Args, Payload),
      {header, {content_length, lists:flatlength(Payload)}}] ++ AddOnData.
 
-content_hdr(json, Payload) -> {content, "application/json", Payload};
-content_hdr(_, Payload)    -> {content, "application/xml", Payload}.
-%% FIXME  would like to add charset info here !!
+content_hdr(json, _Args, Payload) -> {content, "application/json", Payload};
+content_hdr(soap, Args, Payload) ->
+    CallerContentType = (Args#arg.headers)#headers.content_type,
+    %% drop caller charset info if present, may not
+    %% be appropriate for the response
+    ContentType = hd(string:tokens(CallerContentType, ";")),
+    {content, ContentType, Payload};
+content_hdr(_, _Args, Payload) -> {content, "text/xml", Payload}.
 
 encode_handler_payload({Xml,[]}, _ID, soap_dime) ->
     {ok, Xml, soap};

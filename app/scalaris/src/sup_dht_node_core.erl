@@ -1,4 +1,4 @@
-%  @copyright 2007-2011 Zuse Institute Berlin
+%  @copyright 2007-2015 Zuse Institute Berlin
 
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
@@ -21,48 +21,95 @@
 %%         Note that the DB is needed by the dht_node (and not vice-versa) and
 %%         is thus started at first.
 %% @end
-%% @version $Id: sup_dht_node_core.erl 2641 2012-01-03 15:01:13Z kruber@zib.de $
+%% @version $Id$
 -module(sup_dht_node_core).
 -author('schuett@zib.de').
--vsn('$Id: sup_dht_node_core.erl 2641 2012-01-03 15:01:13Z kruber@zib.de $').
+-vsn('$Id$').
 
 -behaviour(supervisor).
 
 -export([start_link/2, init/1, check_config/0]).
+-export([supspec/1, childs/1]).
 
 -spec start_link(pid_groups:groupname(), Options::[tuple()]) ->
                         {ok, Pid::pid()} | ignore |
                         {error, Error::{already_started, Pid::pid()} |
                                        shutdown | term()}.
 start_link(DHTNodeGroup, Options) ->
-    supervisor:start_link(?MODULE, {DHTNodeGroup, Options}).
+    supervisor:start_link(?MODULE, [DHTNodeGroup, Options]).
 
 %% userdevguide-begin sup_dht_node_core:init
--spec init({pid_groups:groupname(), Options::[tuple()]}) ->
+-spec init([{pid_groups:groupname(), Options::[tuple()]}]) ->
                   {ok, {{one_for_all, MaxRetries::pos_integer(),
                          PeriodInSeconds::pos_integer()},
                         [ProcessDescr::supervisor:child_spec()]}}.
-init({DHTNodeGroup, Options}) ->
+init([DHTNodeGroup, _Options] = X) ->
     pid_groups:join_as(DHTNodeGroup, ?MODULE),
-    PaxosProcesses = util:sup_supervisor_desc(sup_paxos, sup_paxos,
-                                              start_link, [DHTNodeGroup, []]),
+    supspec(X).
+%% userdevguide-end sup_dht_node_core:init
+
+-spec supspec(any()) -> {ok, {{one_for_all, MaxRetries::pos_integer(),
+                         PeriodInSeconds::pos_integer()}, []}}.
+supspec(_) ->
+    {ok, {{one_for_all, 10, 1}, []}}.
+
+-spec childs([{pid_groups:groupname(), Options::[tuple()]}]) ->
+                    [ProcessDescr::supervisor:child_spec()].
+childs([DHTNodeGroup, Options]) ->
+    PaxosProcesses = sup:supervisor_desc(sup_paxos, sup_paxos,
+                                              start_link, [{DHTNodeGroup, []}]),
     DHTNodeModule = config:read(dht_node),
-    DHTNode = util:sup_worker_desc(dht_node, DHTNodeModule, start_link,
+    DHTNode = sup:worker_desc(dht_node, DHTNodeModule, start_link,
                                    [DHTNodeGroup, Options]),
-    DHTNodeMonitor = util:sup_worker_desc(
+    %% rbrcseq process working on the kv DB
+
+    KV_RBRcseq = sup:worker_desc(
+                   kv_db, rbrcseq,
+                   start_link,
+                   [DHTNodeGroup,
+                    _PidGroupsNameKV = kv_db,
+                    _DBSelectorKV = kv_db]),
+    %% rbrcseq process working on the lease_db1 DB
+    Lease_RBRcseqs = [sup:worker_desc(
+                   {lease_db, Id}, rbrcseq,
+                   start_link,
+                   [DHTNodeGroup,
+                    _PidGroupsNameL1 = {lease_db, Id},
+                    _DBSelectorL1 = {lease_db, Id}])
+        || Id <- lists:seq(1, config:read(replication_factor))],
+
+    Tx_RBRcseqs = [sup:worker_desc(
+                   {tx_id, Id}, rbrcseq,
+                   start_link,
+                   [DHTNodeGroup,
+                    _PidGroupsNameL1 = {tx_id, Id},
+                    _DBSelectorL1 = {tx_id, Id}])
+                   || Id <- lists:seq(1, config:read(replication_factor))],
+
+    %% crdt process  working on the kv DB
+    Crdt_KVcseq = sup:worker_desc(crdt_db, crdt:proposer_module(),
+                                start_link,
+                                [DHTNodeGroup,
+                                 _PidGroupsNameCrdt = crdt_db,
+                                 _DBSelectorCrdt = crdt_db]),
+
+    DHTNodeMonitor = sup:worker_desc(
                        dht_node_monitor, dht_node_monitor, start_link,
                        [DHTNodeGroup, Options]),
     TX =
-        util:sup_supervisor_desc(sup_dht_node_core_tx, sup_dht_node_core_tx, start_link,
+        sup:supervisor_desc(sup_dht_node_core_tx, sup_dht_node_core_tx, start_link,
                                  [DHTNodeGroup]),
-    {ok, {{one_for_all, 10, 1},
-          [
-           PaxosProcesses,
-           DHTNodeMonitor,
-           DHTNode,
-           TX
-          ]}}.
-%% userdevguide-end sup_dht_node_core:init
+    lists:flatten([
+     PaxosProcesses,
+     KV_RBRcseq,
+     Lease_RBRcseqs,
+     Tx_RBRcseqs,
+     Crdt_KVcseq,
+     DHTNodeMonitor,
+     DHTNode,
+     TX
+    ]).
+
 
 %% @doc Checks whether config parameters for the sup_dht_node_core supervisor
 %%      exist and are valid.

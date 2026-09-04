@@ -1,5 +1,5 @@
 /**
- *  Copyright 2007-2011 Zuse Institute Berlin
+ *  Copyright 2007-2013 Zuse Institute Berlin
  *
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -15,32 +15,35 @@
  */
 package de.zib.scalaris.examples.wikipedia.data.xml;
 
-import java.util.ArrayList;
 import java.util.Calendar;
-import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 import de.zib.scalaris.AbortException;
 import de.zib.scalaris.Connection;
 import de.zib.scalaris.ConnectionException;
 import de.zib.scalaris.ConnectionFactory;
-import de.zib.scalaris.TimeoutException;
 import de.zib.scalaris.Transaction;
 import de.zib.scalaris.TransactionSingleOp;
 import de.zib.scalaris.UnknownException;
 import de.zib.scalaris.examples.wikipedia.ScalarisDataHandler;
+import de.zib.scalaris.examples.wikipedia.ScalarisDataHandlerNormalised;
+import de.zib.scalaris.examples.wikipedia.ScalarisDataHandlerUnnormalised;
+import de.zib.scalaris.examples.wikipedia.ScalarisOpType;
 import de.zib.scalaris.examples.wikipedia.ValueResult;
+import de.zib.scalaris.examples.wikipedia.bliki.MyNamespace.NamespaceEnum;
+import de.zib.scalaris.examples.wikipedia.bliki.NormalisedTitle;
 import de.zib.scalaris.examples.wikipedia.data.Page;
 import de.zib.scalaris.examples.wikipedia.data.Revision;
 import de.zib.scalaris.examples.wikipedia.data.ShortRevision;
 import de.zib.scalaris.examples.wikipedia.data.SiteInfo;
+import de.zib.scalaris.operations.WriteOp;
 
 /**
  * Provides abilities to read an xml wiki dump file and write its contents to
@@ -52,7 +55,8 @@ public class WikiDumpToScalarisHandler extends WikiDumpPageHandler {
     private static final int MAX_SCALARIS_CONNECTIONS = Runtime.getRuntime().availableProcessors() * 2;
     private ArrayBlockingQueue<TransactionSingleOp> scalaris_single = new ArrayBlockingQueue<TransactionSingleOp>(MAX_SCALARIS_CONNECTIONS);
     private ArrayBlockingQueue<Transaction> scalaris_tx = new ArrayBlockingQueue<Transaction>(MAX_SCALARIS_CONNECTIONS);
-    private ExecutorService executor = Executors.newFixedThreadPool(MAX_SCALARIS_CONNECTIONS);
+    private ExecutorService executor = createExecutor(MAX_SCALARIS_CONNECTIONS);
+    private ExecutorService pageListExecutor = createExecutor(1);
 
     /**
      * Sets up a SAX XmlHandler exporting all parsed pages except the ones in a
@@ -139,18 +143,32 @@ public class WikiDumpToScalarisHandler extends WikiDumpPageHandler {
                 scalaris_tx.put(new Transaction(connection));
             }
         } catch (ConnectionException e) {
-            System.err.println("Connection to Scalaris failed");
+            error("Connection to Scalaris failed");
             throw new RuntimeException(e);
         } catch (InterruptedException e) {
-            System.err.println("Interrupted while setting up multiple connections to Scalaris");
+            error("Interrupted while setting up multiple connections to Scalaris");
             throw new RuntimeException(e);
         }
     }
 
     /**
-     * @param siteinfo
-     * @throws RuntimeException
+     * Creates a new {@link ThreadPoolExecutor} used during the import to
+     * process import jobs.
+     * 
+     * @param nThreads
+     *            the (fixed) number of threads to use
+     * 
+     * @return a {@link ThreadPoolExecutor} with a bounded queue of length
+     *         <tt>nThreads * 10</tt> that runs the job in the calling task if
+     *         the queue is full
      */
+    public static ThreadPoolExecutor createExecutor(int nThreads) {
+        return new ThreadPoolExecutor(nThreads, nThreads, 0L,
+                TimeUnit.MILLISECONDS, new ArrayBlockingQueue<Runnable>(
+                        nThreads * 10),
+                new ThreadPoolExecutor.CallerRunsPolicy());
+    }
+
     @Override
     protected void doExport(SiteInfo siteinfo) throws RuntimeException {
         String key = ScalarisDataHandler.getSiteInfoKey();
@@ -158,58 +176,49 @@ public class WikiDumpToScalarisHandler extends WikiDumpPageHandler {
         try {
             scalaris_single = this.scalaris_single.take();
         } catch (InterruptedException e) {
-            System.err.println("write of " + key + " interrupted while getting connection to Scalaris");
+            error("write of " + key + " interrupted while getting connection to Scalaris");
             throw new RuntimeException(e);
         }
         try {
             scalaris_single.write(key, siteinfo);
         } catch (ConnectionException e) {
-            System.err.println("write of " + key + " failed with connection error");
-        } catch (TimeoutException e) {
-            System.err.println("write of " + key + " failed with timeout");
+            error("write of " + key + " failed with connection error");
         } catch (AbortException e) {
-            System.err.println("write of " + key + " failed with abort");
+            error("write of " + key + " failed with abort");
         } catch (UnknownException e) {
-            System.err.println("write of " + key + " failed with unknown");
+            error("write of " + key + " failed with unknown");
         }
         if (scalaris_single != null) {
             try {
                 this.scalaris_single.put(scalaris_single);
             } catch (InterruptedException e) {
-                System.err.println("Interrupted while putting back a connection to Scalaris");
+                error("Interrupted while putting back a connection to Scalaris");
                 throw new RuntimeException(e);
             }
         }
     }
     
-    /**
-     * @param page
-     * @param revisions
-     * @param revisions_short
-     * @throws UnsupportedOperationException
-     */
     @Override
     protected void doExport(Page page, List<Revision> revisions,
-            List<ShortRevision> revisions_short)
+            List<ShortRevision> revisions_short, NormalisedTitle title)
             throws UnsupportedOperationException {
         // do not make the translog too full -> write revisions beforehand,
         // ignore the (rest of the) page if a failure occured
         TransactionSingleOp.RequestList requests = new TransactionSingleOp.RequestList();
         for (Revision rev : revisions) {
-            String key = ScalarisDataHandler.getRevKey(page.getTitle(), rev.getId(), wikiModel.getNamespace());
-            requests.addWrite(key, rev);
+            if (rev.getId() != page.getCurRev().getId()) {
+                String key = ScalarisDataHandlerUnnormalised.getRevKey(page.getTitle(), rev.getId(), wikiModel.getNamespace());
+                requests.addOp(new WriteOp(key, rev));
+            }
         }
-        requests.addWrite(ScalarisDataHandler.getRevListKey(page.getTitle(), wikiModel.getNamespace()), revisions_short);
-        requests.addWrite(ScalarisDataHandler.getPageKey(page.getTitle(), wikiModel.getNamespace()), page);
-        Runnable worker = new MyScalarisSingleRunnable(requests, scalaris_single, "revisions and page of " + page.getTitle());
+        requests.addOp(new WriteOp(ScalarisDataHandlerUnnormalised.getRevListKey(page.getTitle(), wikiModel.getNamespace()), revisions_short));
+        requests.addOp(new WriteOp(ScalarisDataHandlerUnnormalised.getPageKey(page.getTitle(), wikiModel.getNamespace()), page));
+        Runnable worker = new MyScalarisSingleRunnable(this, requests,
+                scalaris_single, "revisions and page of " + page.getTitle());
         executor.execute(worker);
-        newPages.add(wikiModel.normalisePageTitle(page.getTitle()));
-        // simple article filter: only pages in main namespace:
-        if (wikiModel.getNamespace(page.getTitle()).isEmpty()) {
-            newArticles.add(wikiModel.normalisePageTitle(page.getTitle()));
-        }
+        newPages.get(NamespaceEnum.fromId(title.namespace)).add(title);
         // only export page list every UPDATE_PAGELIST_EVERY pages:
-        if ((newPages.size() % UPDATE_PAGELIST_EVERY) == 0) {
+        if ((pageCount % UPDATE_PAGELIST_EVERY) == 0) {
             updatePageLists();
         }
     }
@@ -229,96 +238,122 @@ public class WikiDumpToScalarisHandler extends WikiDumpPageHandler {
         Runnable worker;
         
         // list of pages:
-        scalaris_key = ScalarisDataHandler.getPageListKey();
-        worker = new MyScalarisAddToPageListRunnable(scalaris_key, newPages, scalaris_tx, ScalarisDataHandler.getPageCountKey());
-        executor.execute(worker);
-        newPages = new ArrayList<String>(UPDATE_PAGELIST_EVERY);
+        for(NamespaceEnum ns : NamespaceEnum.values()) {
+            scalaris_key = ScalarisDataHandler.getPageListKey(ns.getId());
+            worker = new MyScalarisAddToPageListRunnable(this, scalaris_key,
+                    newPages.get(ns), scalaris_tx, ScalarisOpType.PAGE_LIST,
+                    ScalarisDataHandler.getPageCountKey(ns.getId()),
+                    ScalarisOpType.PAGE_COUNT);
+            pageListExecutor.execute(worker);
+        }
+        initNewPagesList();
         
-        // list of articles:
-        scalaris_key = ScalarisDataHandler.getArticleListKey();
-        worker = new MyScalarisAddToPageListRunnable(scalaris_key, newArticles, scalaris_tx, ScalarisDataHandler.getArticleCountKey());
-        executor.execute(worker);
-        newArticles = new ArrayList<String>(UPDATE_PAGELIST_EVERY);
+        // articles count:
+        TransactionSingleOp.RequestList requests = new TransactionSingleOp.RequestList();
+        requests.addOp(new WriteOp(ScalarisDataHandler.getArticleCountKey(), articleCount));
+        worker = new MyScalarisSingleRunnable(this, requests, scalaris_single, "ARTICLE_COUNT");
+        pageListExecutor.execute(worker);
         
         // list of pages in each category:
-        for (Entry<String, List<String>> category: newCategories.entrySet()) {
-            final String catName = category.getKey();
-            scalaris_key = ScalarisDataHandler.getCatPageListKey(catName, wikiModel.getNamespace());
-            worker = new MyScalarisAddToPageListRunnable(scalaris_key, category.getValue(), scalaris_tx, ScalarisDataHandler.getCatPageCountKey(catName, wikiModel.getNamespace()));
-            executor.execute(worker);
+        for (Entry<NormalisedTitle, List<NormalisedTitle>> category: newCategories.entrySet()) {
+            scalaris_key = ScalarisDataHandlerNormalised.getCatPageListKey(category.getKey());
+            worker = new MyScalarisAddToPageListRunnable(this, scalaris_key,
+                    category.getValue(), scalaris_tx, ScalarisOpType.CATEGORY_PAGE_LIST,
+                    ScalarisDataHandlerNormalised.getCatPageCountKey(category.getKey()),
+                    ScalarisOpType.CATEGORY_PAGE_COUNT);
+            pageListExecutor.execute(worker);
         }
-        newCategories = new HashMap<String, List<String>>(NEW_CATS_HASH_DEF_SIZE);
 
         // list of pages a template is used in:
-        for (Entry<String, List<String>> template: newTemplates.entrySet()) {
-            scalaris_key = ScalarisDataHandler.getTplPageListKey(template.getKey(), wikiModel.getNamespace());
-            worker = new MyScalarisAddToPageListRunnable(scalaris_key, template.getValue(), scalaris_tx);
-            executor.execute(worker);
+        for (Entry<NormalisedTitle, List<NormalisedTitle>> template: newTemplates.entrySet()) {
+            scalaris_key = ScalarisDataHandlerNormalised.getTplPageListKey(template.getKey());
+            worker = new MyScalarisAddToPageListRunnable(this, scalaris_key,
+                    template.getValue(), scalaris_tx,
+                    ScalarisOpType.TEMPLATE_PAGE_LIST, null, null);
+            pageListExecutor.execute(worker);
         }
-        newTemplates = new HashMap<String, List<String>>(NEW_TPLS_HASH_DEF_SIZE);
         
         // list of pages linking to other pages:
-        for (Entry<String, List<String>> backlinks: newBackLinks.entrySet()) {
-            scalaris_key = ScalarisDataHandler.getBackLinksPageListKey(backlinks.getKey(), wikiModel.getNamespace());
-            worker = new MyScalarisAddToPageListRunnable(scalaris_key, backlinks.getValue(), scalaris_tx);
-            executor.execute(worker);
+        for (Entry<NormalisedTitle, List<NormalisedTitle>> backlinks: newBackLinks.entrySet()) {
+            scalaris_key = ScalarisDataHandlerNormalised.getBackLinksPageListKey(backlinks.getKey());
+            worker = new MyScalarisAddToPageListRunnable(this, scalaris_key,
+                    backlinks.getValue(), scalaris_tx,
+                    ScalarisOpType.BACKLINK_PAGE_LIST, null, null);
+            pageListExecutor.execute(worker);
         }
-        newBackLinks = new HashMap<String, List<String>>(NEW_BLNKS_HASH_DEF_SIZE);
-        
+        initLinkLists();
+
         executor.shutdown();
+        pageListExecutor.shutdown();
         boolean shutdown = false;
         while (!shutdown) {
             try {
-                shutdown = executor.awaitTermination(1, TimeUnit.MINUTES);
+                shutdown = executor.awaitTermination(1, TimeUnit.MINUTES)
+                        && pageListExecutor.awaitTermination(1, TimeUnit.MINUTES);
             } catch (InterruptedException e) {
             }
         }
-        executor = Executors.newFixedThreadPool(MAX_SCALARIS_CONNECTIONS);
+        executor = createExecutor(MAX_SCALARIS_CONNECTIONS);
+        pageListExecutor = createExecutor(1);
+    }
+
+    @Override
+    public boolean isErrorDuringImport() {
+        return errorDuringImport;
+    }
+
+    @Override
+    public void error(String message) {
+        System.err.println(message);
+        errorDuringImport = true;
     }
 
     /**
      * Processes write requests to Scalaris in a separate thread. Takes one of
-     * the available {@link #scalaris_single} connections.
+     * the available {@link #scalarisSingleQueue} connections.
      * 
      * @author Nico Kruber, kruber@zib.de
      */
     static class MyScalarisSingleRunnable implements Runnable {
-        private TransactionSingleOp.RequestList requests;
-        private ArrayBlockingQueue<TransactionSingleOp> scalaris_single;
-        private String note;
+        private final TransactionSingleOp.RequestList requests;
+        private final ArrayBlockingQueue<TransactionSingleOp> scalarisSingleQueue;
+        private final String note;
+        private final WikiDump importer;
+        private TransactionSingleOp scalaris_single;
         
-        public MyScalarisSingleRunnable(TransactionSingleOp.RequestList requests, ArrayBlockingQueue<TransactionSingleOp> scalaris_single, String note) {
+        public MyScalarisSingleRunnable(WikiDump importer,
+                TransactionSingleOp.RequestList requests,
+                ArrayBlockingQueue<TransactionSingleOp> scalarisSingleQueue,
+                String note) {
+            this.importer = importer;
             this.requests = requests;
-            this.scalaris_single = scalaris_single;
+            this.scalarisSingleQueue = scalarisSingleQueue;
             this.note = note;
+            try {
+                this.scalaris_single = this.scalarisSingleQueue.take();
+            } catch (InterruptedException e) {
+                this.importer.error("write of " + note + " interrupted while getting connection to Scalaris");
+                throw new RuntimeException(e);
+            }
         }
         
         @Override
         public void run() {
-            TransactionSingleOp scalaris_single;
-            try {
-                scalaris_single = this.scalaris_single.take();
-            } catch (InterruptedException e) {
-                System.err.println("write of " + note + " interrupted while getting connection to Scalaris");
-                throw new RuntimeException(e);
-            }
             try {
                 TransactionSingleOp.ResultList results = scalaris_single.req_list(requests);
                 for (int i = 0; i < results.size(); ++i) {
                     results.processWriteAt(i);
                 }
             } catch (ConnectionException e) {
-                System.err.println("write of " + note + " failed with connection error");
-            } catch (TimeoutException e) {
-                System.err.println("write of " + note + " failed with timeout");
+                importer.error("write of " + note + " failed with connection error");
             } catch (AbortException e) {
-                System.err.println("write of " + note + " failed with abort");
+                importer.error("write of " + note + " failed with abort");
             }
             if (scalaris_single != null) {
                 try {
-                    this.scalaris_single.put(scalaris_single);
+                    this.scalarisSingleQueue.put(scalaris_single);
                 } catch (InterruptedException e) {
-                    System.err.println("Interrupted while putting back a connection to Scalaris");
+                    importer.error("Interrupted while putting back a connection to Scalaris");
                     throw new RuntimeException(e);
                 }
             }
@@ -327,51 +362,55 @@ public class WikiDumpToScalarisHandler extends WikiDumpPageHandler {
 
     /**
      * Processes page list update requests to Scalaris in a separate thread.
-     * Takes one of the available {@link #scalaris_tx} connections.
+     * Takes one of the available {@link #scalarisTxQueue} connections.
      * 
      * @author Nico Kruber, kruber@zib.de
      */
     private static class MyScalarisAddToPageListRunnable implements Runnable {
-        private String scalaris_pageList_key;
-        private List<String> newEntries;
-        private ArrayBlockingQueue<Transaction> scalaris_tx;
-        private String scalaris_pageCount_key = null;
+        private final String scalaris_pageList_key;
+        private final List<NormalisedTitle> newEntries;
+        private final ArrayBlockingQueue<Transaction> scalarisTxQueue;
+        private final String scalaris_pageCount_key;
+        private final ScalarisOpType opType;
+        private final ScalarisOpType countOpType;
+        private final WikiDump importer;
+        private Transaction scalaris_tx;
         
-        public MyScalarisAddToPageListRunnable(String scalaris_key, List<String> newEntries, ArrayBlockingQueue<Transaction> scalaris_tx) {
-            this.scalaris_pageList_key = scalaris_key;
-            this.newEntries = newEntries;
-            this.scalaris_tx = scalaris_tx;
-        }
-        
-        public MyScalarisAddToPageListRunnable(String scalaris_pageList_key, List<String> newEntries, ArrayBlockingQueue<Transaction> scalaris_tx, String scalaris_pageCount_key) {
+        public MyScalarisAddToPageListRunnable(WikiDump importer,
+                String scalaris_pageList_key, List<NormalisedTitle> newEntries,
+                ArrayBlockingQueue<Transaction> scalarisTxQueue,
+                ScalarisOpType opType, String scalaris_pageCount_key,
+                ScalarisOpType countOpType) {
+            this.importer = importer;
             this.scalaris_pageList_key = scalaris_pageList_key;
             this.newEntries = newEntries;
-            this.scalaris_tx = scalaris_tx;
+            this.scalarisTxQueue = scalarisTxQueue;
+            this.opType = opType;
             this.scalaris_pageCount_key = scalaris_pageCount_key;
+            this.countOpType = countOpType;
+            try {
+                this.scalaris_tx = this.scalarisTxQueue.take();
+            } catch (InterruptedException e) {
+                this.importer.error("update of " + scalaris_pageList_key + " and " + scalaris_pageCount_key + " interrupted while getting connection to Scalaris");
+                throw new RuntimeException(e);
+            }
         }
         
         @Override
         public void run() {
-            Transaction scalaris_tx;
-            try {
-                scalaris_tx = this.scalaris_tx.take();
-            } catch (InterruptedException e) {
-                System.err.println("update of " + scalaris_pageList_key + " and " + scalaris_pageCount_key + " interrupted while getting connection to Scalaris");
-                throw new RuntimeException(e);
-            }
-            
-            ValueResult<Integer> result = ScalarisDataHandler.updatePageList(
-                    scalaris_tx, scalaris_pageList_key, scalaris_pageCount_key,
-                    new LinkedList<String>(), newEntries, "");
+            ValueResult<Integer> result = ScalarisDataHandlerNormalised.updatePageList(
+                    scalaris_tx, opType, scalaris_pageList_key,
+                    countOpType, scalaris_pageCount_key, newEntries,
+                    new LinkedList<NormalisedTitle>(), "");
             if (!result.success) {
-                System.err.println(result.message);
+                importer.error(result.message);
             }
             
             if (scalaris_tx != null) {
                 try {
-                    this.scalaris_tx.put(scalaris_tx);
+                    this.scalarisTxQueue.put(scalaris_tx);
                 } catch (InterruptedException e) {
-                    System.err.println("update of " + scalaris_pageList_key + " and " + scalaris_pageCount_key + " interrupted while putting back a connection to Scalaris");
+                    importer.error("update of " + scalaris_pageList_key + " and " + scalaris_pageCount_key + " interrupted while putting back a connection to Scalaris");
                     throw new RuntimeException(e);
                 }
             }

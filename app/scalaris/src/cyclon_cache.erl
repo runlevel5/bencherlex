@@ -15,10 +15,10 @@
 %% @author Christian Hennig <hennig@zib.de>
 %% @doc Cyclon node cache implementation using a list.
 %% @end
-%% @version $Id: cyclon_cache.erl 2558 2011-12-14 11:25:42Z kruber@zib.de $
+%% @version $Id$
 -module(cyclon_cache).
 -author('hennig@zib.de').
--vsn('$Id: cyclon_cache.erl 2558 2011-12-14 11:25:42Z kruber@zib.de $').
+-vsn('$Id$').
 
 -include("scalaris.hrl").
 
@@ -32,9 +32,7 @@
          pop_random_node/1, pop_oldest_node/1,
          debug_format_by_age/1]).
 
--ifdef(with_export_type_support).
 -export_type([age/0, cache/0]).
--endif.
 
 -type age() :: non_neg_integer().
 -type element() :: {node:node_type(), age()}.
@@ -248,10 +246,7 @@ replace(MyCache, _MyCacheSize, ReceivedCache, SendCache, TargetSize) ->
 %%      already has!
 -spec add_node(Node::node:node_type(), Age::age(), Cache::cache()) -> NewCache::cache().
 add_node(Node, Age, Cache) ->
-    case contains_node(Node, Cache) of
-        true  -> [{Node, Age} | remove_node(Node, Cache)];
-        false -> [{Node, Age} | Cache]
-    end.
+    [{Node, Age} | remove_node(Node, Cache)].
 
 %% @doc Removes any element with the given Node from the Cache.
 -spec remove_node(Node::node:node_type(), Cache::cache()) -> NewCache::cache().
@@ -266,6 +261,6 @@ trim(Cache, TargetSize) ->
 
 %% @doc Returns a list of keys (ages) and string values (nodes) for debug output
 %%      used in the web interface.
--spec debug_format_by_age(Cache::cache()) -> KeyValueList::[{Age::age(), Node::string()}].
+-spec debug_format_by_age(Cache::cache()) -> KeyValueList::[{Age::string(), Node::string()}].
 debug_format_by_age(Cache) ->
-    [{Age, lists:flatten(io_lib:format("~p", [Node]))} || {Node, Age} <- Cache].
+    [{integer_to_list(Age), webhelpers:safe_html_string("~p", [Node])} || {Node, Age} <- Cache].

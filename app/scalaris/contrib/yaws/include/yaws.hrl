@@ -18,7 +18,8 @@
 -define(GC_FAIL_ON_BIND_ERR,                32).
 -define(GC_PICK_FIRST_VIRTHOST_ON_NOMATCH,  64).
 -define(GC_USE_FDSRV,                      128).
--define(GC_USE_OLD_SSL,                    256).
+-define(GC_USE_ERLANG_SENDFILE,            256).
+-define(GC_USE_YAWS_SENDFILE,              512).
 
 
 
@@ -36,8 +37,10 @@
         ((GC#gconf.flags band ?GC_FAIL_ON_BIND_ERR) /= 0)).
 -define(gc_pick_first_virthost_on_nomatch(GC),
         ((GC#gconf.flags band ?GC_PICK_FIRST_VIRTHOST_ON_NOMATCH) /= 0)).
--define(gc_use_old_ssl(GC),
-        ((GC#gconf.flags band ?GC_USE_OLD_SSL) /= 0)).
+-define(gc_use_erlang_sendfile(GC),
+        ((GC#gconf.flags band ?GC_USE_ERLANG_SENDFILE) /= 0)).
+-define(gc_use_yaws_sendfile(GC),
+        ((GC#gconf.flags band ?GC_USE_YAWS_SENDFILE) /= 0)).
 
 -define(gc_set_tty_trace(GC, Bool),
         GC#gconf{flags = yaws:flag(GC#gconf.flags,?GC_TTY_TRACE, Bool)}).
@@ -53,80 +56,101 @@
 -define(gc_set_pick_first_virthost_on_nomatch(GC, Bool),
         GC#gconf{flags = yaws:flag(GC#gconf.flags,
                                    ?GC_PICK_FIRST_VIRTHOST_ON_NOMATCH,Bool)}).
--define(gc_set_use_old_ssl(GC, Bool),
-        GC#gconf{flags = yaws:flag(GC#gconf.flags,?GC_USE_OLD_SSL,Bool)}).
-
+-define(gc_set_use_erlang_sendfile(GC, Bool),
+        GC#gconf{flags = yaws:flag(GC#gconf.flags,?GC_USE_ERLANG_SENDFILE,Bool)}).
+-define(gc_set_use_yaws_sendfile(GC, Bool),
+        GC#gconf{flags = yaws:flag(GC#gconf.flags,?GC_USE_YAWS_SENDFILE,Bool)}).
 
 
 %% global conf
--record(gconf,{yaws_dir :: any(),           %% topdir of Yaws installation
-               trace :: any(),              %% false | {true,http}|{true,traffic}
-               flags = ?GC_DEF :: any(),    %% boolean flags
-               logdir :: any(),
-               ebin_dir = [] :: any(),
-               runmods = [] :: any(),       %% runmods for entire server
-               keepalive_timeout = 30000 :: any(),
-               keepalive_maxuses = nolimit :: any(), %% nolimit or non negative integer
-               max_num_cached_files = 400 :: any(),
-               max_num_cached_bytes = 1000000 :: any(),  %% 1 MEG
-               max_size_cached_file = 8000 :: any(),
-               max_connections = nolimit :: any(), % max number of TCP connections
-               process_options = [] :: any(),  % Override default connection handler
-                                    % processes spawn options for
-                                    % performance/memory tuning.  [] |
-                                    % [{fullsweep_after,Number},
-                                    % {min_heap_size, Size}] other options such
-                                    % as monitor, link are ignored.
-               large_file_chunk_size = 10240 :: any(),
-               mnesia_dir = [] :: any(),
-               log_wrap_size = 10000000 :: any(),  % wrap logs after 10M
-               cache_refresh_secs = 30 :: any(),  % seconds  (auto zero when debug)
-               include_dir = [] :: any(),    %% list of inc dirs for .yaws files
-               phpexe = "/usr/bin/php-cgi" :: any(),  %% cgi capable php executable
-               x_forwarded_for_log_proxy_whitelist = [] :: any(), % list of proxy server
-                                    % ips we will replace with the last element
-                                    % of the list in the X-Forwarded-For http
-                                    % header in logs
-               yaws :: any(),                % server string
-               id = "default" :: any(),      % string identifying this instance of yaws
-               enable_soap = false :: any(), % start yaws_soap_srv iff true
-               soap_srv_mods = [] :: any(),  % a list of
-                                    % {{Mod, Func}, WsdlFile, Prefix } |
-                                    %        {{Mod, Func}, WsdlFile}
-                                    % automatically setup in yaws_soap_srv init.
-               ysession_mod = yaws_session_server :: any(), % storage module for ysession
-               acceptor_pool_size = 8 :: any()              % size of acceptor proc pool
-              }).
+-record(gconf,{
+          yaws_dir,                       % topdir of Yaws installation
+          trace,                          % false | {true,http} | {true,traffic}
+          flags = ?GC_DEF,                % boolean flags
+          logdir,
+          ebin_dir = [],
+          src_dir  = [],
+          runmods  = [],                  % runmods for entire server
+          keepalive_timeout    = 30000,
+          keepalive_maxuses    = nolimit, % nolimit or non negative integer
+          max_num_cached_files = 400,
+          max_num_cached_bytes = 1000000, % 1 MEG
+          max_size_cached_file = 8000,
+          max_connections      = nolimit, % max number of TCP connections
 
+          %% Override default connection handler processes spawn options for
+          %% performance/memory tuning.
+          %% [] | [{fullsweep_after,Number}, {min_heap_size, Size}]
+          %% other options such as monitor, link are ignored.
+          process_options = [],
 
+          large_file_chunk_size = 10240,
+          mnesia_dir            = [],
+          log_wrap_size         = 10000000, % wrap logs after 10M
+          cache_refresh_secs    = 30,       % seconds  (auto zero when debug)
+          include_dir           = [],       % list of inc dirs for .yaws files
+          phpexe = "/usr/bin/php-cgi",      % cgi capable php executable
 
--record(ssl,
-        {
-         keyfile :: any(),
-         certfile :: any(),
-         verify = 0 :: any(),
-         fail_if_no_peer_cert :: any(),
-         depth = 1 :: any(),
-         password :: any(),
-         cacertfile :: any(),
-         ciphers :: any(),
-         cachetimeout :: any()}).
+          yaws,                % server string
+          id = "default",      % string identifying this instance of yaws
+
+          enable_soap = false, % start yaws_soap_srv iff true
+
+          %% a list of
+          %% {{Mod, Func}, WsdlFile, Prefix} | {{Mod, Func}, WsdlFile}
+          %% automatically setup in yaws_soap_srv init.
+          soap_srv_mods = [],
+
+          ysession_mod = yaws_session_server, % storage module for ysession
+          acceptor_pool_size = 8,             % size of acceptor proc pool
+
+          mime_types_info,                    % undefined | #mime_types_info{}
+          nslookup_pref = [inet],             % [inet | inet6]
+          ysession_idle_timeout = 2*60*1000,  % default 2 minutes
+          ysession_long_timeout = 60*60*1000, % default 1 hour
+
+          sni = disable % disable | enable | strict
+         }).
+
+-record(ssl, {
+          keyfile,
+          certfile,
+          verify = verify_none,
+          fail_if_no_peer_cert,
+          depth = 1,
+          password,
+          cacertfile,
+          dhfile,
+          ciphers,
+          cachetimeout,
+          secure_renegotiate = false,
+          client_renegotiation = case yaws_dynopts:have_ssl_client_renegotiation() of
+                                     true  -> true;
+                                     false -> undefined
+                                 end,
+          honor_cipher_order = case yaws_dynopts:have_ssl_honor_cipher_order() of
+                                   true  -> true;
+                                   false -> undefined
+                               end,
+          protocol_version,
+          require_sni = false
+         }).
 
 
 %% flags for sconfs
--define(SC_ACCESS_LOG,          1).
--define(SC_AUTH_LOG,            2).
--define(SC_ADD_PORT,            4).
--define(SC_STATISTICS,          8).
--define(SC_TILDE_EXPAND,        16).
--define(SC_DIR_LISTINGS,        32).
--define(SC_DEFLATE,             64).
--define(SC_DIR_ALL_ZIP,         128).
--define(SC_DAV,                 512).
--define(SC_FCGI_TRACE_PROTOCOL, 1024).
--define(SC_FCGI_LOG_APP_ERROR,  2048).
--define(SC_FORWARD_PROXY,       4096).
--define(SC_AUTH_SKIP_DOCROOT,   8192).
+-define(SC_ACCESS_LOG,             1).
+-define(SC_AUTH_LOG,               2).
+-define(SC_ADD_PORT,               4).
+-define(SC_STATISTICS,             8).
+-define(SC_TILDE_EXPAND,          16).
+-define(SC_DIR_LISTINGS,          32).
+-define(SC_DEFLATE,               64).
+-define(SC_DIR_ALL_ZIP,          128).
+-define(SC_DAV,                  256).
+-define(SC_FCGI_TRACE_PROTOCOL,  512).
+-define(SC_FCGI_LOG_APP_ERROR,  1024).
+-define(SC_FORWARD_PROXY,       2048).
+-define(SC_AUTH_SKIP_DOCROOT,   4096).
 
 
 
@@ -168,8 +192,6 @@
         SC#sconf{flags = yaws:flag(SC#sconf.flags, ?SC_ADD_PORT, Bool)}).
 -define(sc_set_statistics(SC, Bool),
         SC#sconf{flags = yaws:flag(SC#sconf.flags, ?SC_STATISTICS, Bool)}).
--define(sc_set_ssl(SC, Bool),
-        SC#sconf{flags = yaws:flag(SC#sconf.flags, ?SC_SSL, Bool)}).
 -define(sc_set_tilde_expand(SC, Bool),
         SC#sconf{flags = yaws:flag(SC#sconf.flags, ?SC_TILDE_EXPAND, Bool)}).
 -define(sc_set_dir_listings(SC, Bool),
@@ -192,144 +214,186 @@
         SC#sconf{flags = yaws:flag(SC#sconf.flags,?SC_AUTH_SKIP_DOCROOT,Bool)}).
 
 
-
 %% server conf
--record(sconf,
-        {port = 8000 :: any(),                %% which port is this server listening to
-         flags = ?SC_DEF :: any(),
-         redirect_map=[] :: any(),            %% a list of
-                                     %% {Prefix, #url{}, append|noappend}
-                                     %% #url{} can be partially populated
+%% we cannot compare sconfs directly due to the ets field in #sconf{} use
+%% yaws_config:eq_sconfs/2
+-record(sconf, {
+          port = 8000,                  % which port is this server listening to
+          flags = ?SC_DEF,
+          redirect_map=[],              % a list of
+                                        % {Prefix, #url{}, append|noappend}
+                                        % #url{} can be partially populated
 
-         rhost :: any(),                      %% forced redirect host (+ optional port)
-         rmethod :: any(),                    %% forced redirect method
-         docroot :: any(),                    %% path to the docs
-         xtra_docroots = [] :: any(),         %% if we have additional pseudo docroots
-         listen = [{127,0,0,1}] :: any(),     %% bind to this IP, {0,0,0,0} is possible
-         servername = "localhost" :: any(),   %% servername is what Host: header is
-         ets :: any(),                        %% local store for this server
-         ssl :: any(),                        %% undefined | #ssl{}
-         authdirs = [] :: any(),
-         partial_post_size = 10240 :: any(),
-         appmods = [] :: any(),
-         %%  An item in the appmods list  can be either of the
-         %% following, this is all due to backwards compat issues.
-         %% 1.  an atom - this is the equivalent to {atom, atom}
-         %% 2 . A two tuple {Path, Mod}
-         %% 3 A three tuple {Path, Mod, [ExcludeDir ....]}
+          rhost,                        % forced redirect host (+ optional port)
+          rmethod,                      % forced redirect method
+          docroot,                      % path to the docs
+          xtra_docroots = [],           % if we have additional pseudo docroots
+          listen = [{127,0,0,1}],       % bind to this IP, {0,0,0,0} is possible
+          servername = "localhost",     % servername is what Host: header is
+          serveralias = [],             % Alternate names for this vhost
+          yaws,                         % server string for this vhost
+          ets,                          % local store for this server
+          ssl,                          % undefined | #ssl{}
+          authdirs = [],                % [{docroot, [#auth{}]}]
+          partial_post_size = 10240,
 
-         expires = [] :: any(),
-         errormod_401 = yaws_outmod :: any(),     %% the default 401 error module
-         errormod_404 = yaws_outmod :: any(),     %% the default 404 error module
-         errormod_crash = yaws_outmod :: any(),   %% use the same module for crashes
-         arg_rewrite_mod = yaws :: any(),
-         logger_mod = yaws_log :: any(),          %% access/auth logging module
-         opaque = [] :: any(),                    %% useful in embedded mode
-         start_mod :: any(),                      %% user provided module to be started
-         allowed_scripts = [yaws,php,cgi,fcgi] :: any(),
-         tilde_allowed_scripts = [] :: any(),
-         revproxy = [] :: any(),
-         soptions = [] :: any(),
-         extra_cgi_vars = [] :: any(),
-	 stats :: any(),                       %% raw traffic statistics
-         fcgi_app_server :: any(),             %% FastCGI application server {host,port}
-         php_handler = {cgi, "/usr/bin/php-cgi"} :: any(),
-         shaper :: any()
-        }).
+          %% An item in the appmods list  can be either of the
+          %% following, this is all due to backwards compat issues.
+          %% 1.  an atom - this is the equivalent to {atom, atom}
+          %% 2 . A two tuple {Path, Mod}
+          %% 3 A three tuple {Path, Mod, [ExcludeDir ....]}
+          appmods = [],
 
-%% we cannot compare sconfs directly due to the ets
-%% field in #sconf{} use yaws_config:eq_sconfs/2
+          expires = [],
+          errormod_401 = yaws_outmod,   % the default 401 error module
+          errormod_404 = yaws_outmod,   % the default 404 error module
+          errormod_crash = yaws_outmod, % use the same module for crashes
+          arg_rewrite_mod = yaws,
+          logger_mod = yaws_log,        % access/auth logging module
+          opaque = [],                  % useful in embedded mode
+          start_mod,                    % user provided module to be started
+          allowed_scripts = [yaws,php,cgi,fcgi],
+          tilde_allowed_scripts = [],
+          index_files = ["index.yaws", "index.html", "index.php"],
+          revproxy = [],
+          soptions = [{listen_opts, [{backlog, 1024}]}],
+          extra_cgi_vars = [],
+          stats,                        % raw traffic statistics
+          fcgi_app_server,              % FastCGI application server {host,port}
+          php_handler = {cgi, "/usr/bin/php-cgi"},
+          shaper,
+          deflate_options,              % undefined | #deflate{}
+          mime_types_info,              % undefined | #mime_types_info{}
+                                        % if undefined, global config is used
+          dispatch_mod                  % custom dispatch module
+         }).
 
 
-% Auth conf - from server conf and .yaws_auth
--record(auth,
-         {dir = [] :: any(),
-          docroot = [] :: any(),
-          files = [] :: any(),
-          realm = "" :: any(),
-          type = "Basic" :: any(),
-          headers = [] :: any(),  %% headers to send on 401
-          users = [] :: any(),   %% list of {User, Password} tuples
-          acl = none :: any(),    %% list of allowed/denies IPs or none
-          mod = [] :: any(),     %% authentication module callback
-          outmod = [] :: any(),   %% module to handles 401 unauthorized messages
-          pam = false :: any()   %% should we use pam to auth a user
+%% Auth conf - from server conf and .yaws_auth
+-record(auth, {
+          dir     = [],
+          docroot = [],
+          files   = [],
+          realm   = "",
+          type    = "Basic",
+          headers = [],    % headers to send on 401
+          users   = [],    % list of {User, Password} tuples
+          acl     = none,  % list of allowed/denies IPs or none
+          mod     = [],    % authentication module callback
+          outmod  = [],    % module to handles 401 unauthorized messages
+          pam     = false  % should we use pam to auth a user
+         }).
+
+
+%% Macro used to list default compressible mime-types
+-define(DEFAULT_COMPRESSIBLE_MIME_TYPES, [
+                                          {"text", all},
+                                          {"application", "rtf"},
+                                          {"application", "msword"},
+                                          {"application", "postscript"},
+                                          {"application", "pdf"},
+                                          {"application", "x-dvi"},
+                                          {"application", "javascript"},
+                                          {"application", "x-javascript"}
+                                         ]).
+
+%% Internal record used to initialize a zlib stream for compression
+-record(deflate, {
+          min_compress_size = nolimit, % nolimit or non negative integer
+                                       % (in bytes)
+          compression_level = default, % none | default | best_compression |
+                                       % best_speed | 0..9
+          window_size       = -15,     % -15..-9
+          mem_level         = 8,       % 1..9
+          strategy          = default, % default | filtered | huffman_only
+          use_gzip_static   = false,
+
+          %% [{Type, undefined|SubType}] | all
+          mime_types = ?DEFAULT_COMPRESSIBLE_MIME_TYPES
+         }).
+
+
+%% Internal record used to set information about mime-types
+-record(mime_types_info, {
+          mime_types_file, % an absolute filename path
+          types    = [],   % a map between mime-types and extensions
+          charsets = [],   % a map between charsets and extensions
+          default_type = "text/plain",
+          default_charset
+         }).
+
+
+%% this internal record is used and returned by the URL path parser
+-record(urltype, {
+          type,          % error | yaws | regular | directory | forbidden |
+                         % appmod
+          finfo,
+          path     = [],
+          fullpath = [], % deep list (WHY?)
+          dir      = [], % relative dir where the path leads to
+                         % flat | unflat need flat for authentication
+          data,          % type-specific
+                         % e.g: Binary | FileDescriptor | DirListing | undefined
+          deflate,       % undefined | Binary | dynamic
+          mime = "text/html",
+          getpath,       % as GET'ed by client
+          pathinfo
          }).
 
 
 
-%% this internal record is used and returned by the URL path parser
 
-
--record(urltype, {type :: any(),   %% error | yaws | regular | directory |
-                          %% forbidden | appmod
-                  finfo :: any(),
-                  path = [] :: any(),
-                  fullpath = [] :: any(), %% deep list (WHY?)
-                  dir = [] :: any(),      %% relative dir where the path leads to
-                                 %% flat | unflat need flat for authentication
-                  data :: any(),          %% type-specific e.g: Binary | FileDescriptor
-                                 %% | DirListing | undefined
-                  deflate :: any(),       %% undefined | Binary | dynamic
-                  mime = "text/html" :: any(),    %% MIME type
-                  getpath :: any(),       %% as GET'ed by client
-                  pathinfo :: any()
-                 }).
-
-
-
-
-%% this record is constructed as we build up
-%% the outgoing headers
-
+%% this record is constructed as we build up the outgoing headers
 -record(outh, {
-          status :: any(),        %% int status code
+          status,              % int status code
 
-          doclose :: any(),       %% bool
-          chunked :: any(),       %% bool
-          exceedmaxuses=false :: any(),
-                         %% bool, true if hit keep-alive max uses
-          encoding=identity :: any(),
-                         %% identity, deflate
-          contlen :: any(),       %% integer
-          act_contlen :: any(),   %% actual content length for dynamic pages
-
-
-                         %% and the total set of out headers we can have
-                         %% as actual strings
-          connection :: any(),
-          server :: any(),
-          location :: any(),
-          cache_control :: any(),
-          expires :: any(),
-          date :: any(),
-          allow :: any(),
-          last_modified :: any(),
-          etag :: any(),
-          set_cookie :: any(),
-          content_range :: any(),
-          content_length :: any(),
-          content_type :: any(),
-          content_encoding :: any(),
-          transfer_encoding :: any(),
-          www_authenticate :: any(),
-          other :: any()     %% misc other headers
-}).
+          doclose,             % bool
+          chunked,             % bool
+          exceedmaxuses=false, % bool, true if hit keep-alive max uses
+          encoding=decide,     % decide, identity, deflate
+          contlen,             % integer
+          act_contlen,         % actual content length for dynamic pages
+                               % and the total set of out headers we can have as
+                               % actual strings
+          connection,
+          server,
+          location,
+          cache_control,
+          expires,
+          date,
+          allow,
+          last_modified,
+          etag,
+          set_cookie,
+          content_range,
+          content_length,
+          content_type,
+          content_encoding,
+          transfer_encoding,
+          www_authenticate,
+          vary,
+          other                % misc other headers
+         }).
 
 
-
-
+%% forward and reverse proxy config info
+-record(proxy_cfg, {
+          prefix,
+          url,
+          intercept_mod
+         }).
 
 
 %% as read by application:get_env()
--record(env, {debug :: any(),
-              trace :: any(),
-              traceoutput :: any(),
-              conf :: any(),
-              runmod :: any(),
-              embedded :: any(),
-              id :: any()
-             }).
+-record(env, {
+          debug,
+          trace,
+          traceoutput,
+          conf,
+          runmod,
+          embedded,
+          id
+         }).
 
 %% Typically used in error printouts as in:
 %% error_logger:format("Err ~p at ~p~n", [Reason, ?stack()])

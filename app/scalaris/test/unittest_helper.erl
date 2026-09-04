@@ -1,5 +1,5 @@
-%  Copyright 2008-2012 Zuse Institute Berlin
-%
+%  @copyright 2008-2018 Zuse Institute Berlin
+
 %   Licensed under the Apache License, Version 2.0 (the "License");
 %   you may not use this file except in compliance with the License.
 %   You may obtain a copy of the License at
@@ -11,64 +11,50 @@
 %   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %   See the License for the specific language governing permissions and
 %   limitations under the License.
-%%%-------------------------------------------------------------------
-%%% File    : unittest_helper.erl
-%%% Author  : Thorsten Schuett <schuett@zib.de>
-%%% Description : Helper functions for Unit tests
-%%%
-%%% Created :  27 Aug 2008 by Thorsten Schuett <schuett@zib.de>
-%%%-------------------------------------------------------------------
+
+%% @author Thorsten Schuett <schuett@zib.de>
+%% @doc    Helper functions for Unit tests
+%% @end
+%% @version $Id$
 -module(unittest_helper).
 -author('schuett@zib.de').
--vsn('$Id: unittest_helper.erl 2903 2012-03-19 16:52:23Z kruber@zib.de $').
+-vsn('$Id$').
 
 %%-define(TRACE_RING_DATA(), print_ring_data()).
 -define(TRACE_RING_DATA(), ok).
 
--export([fix_cwd/0,
-         get_scalaris_port/0, get_yaws_port/0,
-         make_ring_with_ids/1, make_ring_with_ids/2, make_ring/1, make_ring/2,
+-export([get_scalaris_port/0, get_yaws_port/0,
+         make_ring_with_ids/1, make_ring_with_ids/2, make_ring/1, make_ring/2, make_ring_recover/1,
+         make_symmetric_ring/0, make_symmetric_ring/1,
          stop_ring/0, stop_ring/1,
          stop_pid_groups/0,
          check_ring_size/1, check_ring_size_fully_joined/1,
          wait_for_stable_ring/0, wait_for_stable_ring_deep/0,
          start_process/1, start_process/2,
          start_subprocess/1, start_subprocess/2,
-         get_all_children/1,
          get_processes/0, kill_new_processes/1, kill_new_processes/2,
-         init_per_suite/1, end_per_suite/1,
          create_ct_all/1, create_ct_groups/2,
          init_per_group/2, end_per_group/2,
-         get_ring_data/0, print_ring_data/0,
-         macro_equals/4, macro_equals/5,
-         macro_equals_failed/4, macro_equals_failed/5,
+         get_ring_data/1, print_ring_data/0,
+         print_proto_sched_stats/1, print_proto_sched_stats/2,
+         macro_equals/5, macro_compare/7,
+         macro_equals_failed/6,
          expect_no_message_timeout/1,
          prepare_config/1,
          start_minimal_procs/3, stop_minimal_procs/1,
-         check_ring_load/1, check_ring_data/0, check_ring_data/2]).
+         check_ring_load/1, check_ring_data/0, check_ring_data/2,
+         build_interval/2,
+         db_entry_not_null/1, scrub_data/1]).
 
--ifdef(with_export_type_support).
--export_type([process_info/0, kv_opts/0]).
--endif.
+-export_type([process_info/0, kv_opts/0, ring_data/1]).
 
 -include("scalaris.hrl").
+-include("client_types.hrl").
+-include("unittest.hrl").
+
+-dialyzer({no_match, get_processes/0}).
 
 -type kv_opts() :: [{Key::atom(), Value::term()}].
-
-%% @doc Sets the current working directory to "../bin" if it does not end with
-%%      "/bin" yet. Assumes that the current working directory is a sub-dir of
-%%      our top-level, e.g. "test". This is needed in order for the config
-%%      process to find its (default) config files.
--spec fix_cwd() -> ok | {error, Reason::file:posix()}.
-fix_cwd() ->
-    case file:get_cwd() of
-        {ok, CurCWD} ->
-            case string:rstr(CurCWD, "/bin") =/= (length(CurCWD) - 4 + 1) of
-                true -> file:set_cwd("../bin");
-                _    -> ok
-            end;
-        Error -> Error
-    end.
 
 -spec get_port(EnvName::string(), Default::pos_integer()) -> pos_integer().
 get_port(EnvName, Default) ->
@@ -108,73 +94,100 @@ add_my_config(KVList) ->
     KVList1 = [{known_hosts, [{{127,0,0,1}, ScalarisPort, service_per_vm}]},
                {mgmt_server, {{127,0,0,1}, ScalarisPort, mgmt_server}},
                {port, ScalarisPort},
-               {yaws_port, YawsPort} | KVList],
+               {yaws_port, YawsPort},
+               {start_type, first_nostart} | KVList],
     lists:append(KVList1, [{start_mgmt_server, true}]).
 
 %% @doc Adds unittest specific ports from the environment to the list of
 %%      options for the config process.
 -spec prepare_config(Options::[{atom(), term()}]) -> NewOptions::[{atom(), term()}].
 prepare_config(Options) ->
-    prepare_config_helper(Options, false, []).
+    prepare_config_helper(Options, false).
 
--spec prepare_config_helper(Options, ConfigFound::boolean(), Options) -> Options when is_subtype(Options, [{atom(), term()}]).
-prepare_config_helper([], false, OldOptions) ->
-    lists:reverse(OldOptions, [{config, add_my_config([])}]);
-prepare_config_helper([], true, OldOptions) ->
-    lists:reverse(OldOptions);
-prepare_config_helper([Option | Rest], OldConfigFound, OldOptions) ->
+-spec prepare_config_helper(Options, ConfigFound::boolean()) -> Options when is_subtype(Options, [{atom(), term()}]).
+prepare_config_helper([], false) ->
+    [{config, add_my_config([])}];
+prepare_config_helper([], true) ->
+    [];
+prepare_config_helper([Option | Rest], OldConfigFound) ->
     {NewOption, ConfigFound} =
         case Option of
             {config, KVList} -> {{config, add_my_config(KVList)}, true};
             X                -> {X, OldConfigFound}
         end,
-    prepare_config_helper(Rest, ConfigFound, [NewOption | OldOptions]).
+    [NewOption | prepare_config_helper(Rest, ConfigFound)].
+
+%% @doc Creates a symmetric ring.
+-spec make_symmetric_ring() -> pid().
+make_symmetric_ring() ->
+    make_symmetric_ring([]).
+
+%% @doc Creates a symmetric ring.
+-spec make_symmetric_ring(Options::kv_opts()) -> pid().
+make_symmetric_ring(Options) ->
+    ct:pal("Trying to make a symmetric ring"),
+    NodeAddFun =
+        fun() ->
+                Ids = case lists:keyfind(scale_ring_size_by, 1, Options) of
+                          {scale_ring_size_by, Scale} ->
+                              api_rt:get_evenly_spaced_keys(
+                                Scale * config:read(replication_factor));
+                          false ->
+                              api_rt:get_evenly_spaced_keys(
+                                config:read(replication_factor))
+                      end,
+                [admin:add_node([{first}, {{dht_node, id}, hd(Ids)}])
+                 | [admin:add_node_at_id(Id) || Id <- tl(Ids)]]
+        end,
+    Pid = make_ring_generic(Options, NodeAddFun),
+    Size = case lists:keyfind(scale_ring_size_by, 1, Options) of
+               {scale_ring_size_by, Scale} ->
+                   Scale * config:read(replication_factor);
+               false ->
+                   config:read(replication_factor)
+           end,
+    check_ring_size(Size),
+    wait_for_stable_ring(),
+    check_ring_size(Size),
+    ct:pal("Scalaris booted with ~p node(s)...~n", [Size]),
+    TimeTrap = test_server:timetrap(3000 + Size * 1000),
+    test_server:timetrap_cancel(TimeTrap),
+    Pid.
 
 %% @doc Creates a ring with the given IDs (or IDs returned by the IdFun).
--spec make_ring_with_ids([?RT:key()] | fun(() -> [?RT:key()])) -> pid().
+-spec make_ring_with_ids([?RT:key()]) -> pid().
 make_ring_with_ids(Ids) ->
     make_ring_with_ids(Ids, []).
 
 %% @doc Creates a ring with the given IDs (or IDs returned by the IdFun).
 %%      Passes Options to the supervisor, e.g. to set config variables, specify
 %%      a {config, [{Key, Value},...]} option.
--spec make_ring_with_ids([?RT:key(),...] | fun(() -> [?RT:key(),...]), Options::kv_opts()) -> pid().
+-spec make_ring_with_ids([?RT:key(),...], Options::kv_opts()) -> pid().
 make_ring_with_ids(Ids, Options) when is_list(Ids) ->
-    make_ring_with_ids(fun () -> Ids end, Options);
-make_ring_with_ids(IdsFun, Options) when is_function(IdsFun, 0) ->
-    % note: do not call IdsFun before the initial setup
-    %       (it might use config or another process)
-    _ = fix_cwd(),
-    error_logger:tty(true),
-    case ets:info(config_ets) of
-        undefined -> ok;
-        _         -> ct:fail("Trying to create a new ring although there is already one.")
-    end,
-    Pid = start_process(
-            fun() ->
-                    ct:pal("Trying to build Scalaris with ids~n"),
-                    erlang:register(ct_test_ring, self()),
-                    randoms:start(),
-                    {ok, _GroupsPid} = pid_groups:start_link(),
-                    NewOptions = prepare_config(Options),
-                    _ = sup_scalaris:start_link(NewOptions),
-                    mgmt_server:connect(),
-                    Ids = IdsFun(), % config may be needed
-                    _ = admin:add_node([{first}, {{dht_node, id}, hd(Ids)}]),
-                    _ = [admin:add_node_at_id(Id) || Id <- tl(Ids)],
-                    ok
-            end),
-%%     timer:sleep(1000),
-    % need to call IdsFun again (may require config process or others
-    % -> can not call it before starting the scalaris process)
-    Ids = IdsFun(),
-    Size = length(Ids),
-    check_ring_size(Size),
-    wait_for_stable_ring(),
-    check_ring_size(Size),
-    ct:pal("Scalaris booted with ~p node(s)...~n", [Size]),
-    ?TRACE_RING_DATA(),
-    Pid.
+  ct:pal("Trying to make ring with Ids, containing ~p nodes.",[erlang:length(Ids)]),
+  NodeAddFun =
+        fun() ->
+                [admin:add_node([{first}, {{dht_node, id}, hd(Ids)}])
+                 | [admin:add_node_at_id(Id) || Id <- tl(Ids)]]
+        end,
+  Size = erlang:length(Ids),
+  TimeTrap = test_server:timetrap(3000 + Size * 1000),
+  Pid = make_ring_generic(Options, NodeAddFun),
+  check_ring_size(Size),
+  wait_for_stable_ring(),
+  check_ring_size(Size),
+  ct:pal("Scalaris booted with ~p node(s)...~n", [Size]),
+  test_server:timetrap_cancel(TimeTrap),
+  Pid.
+
+-spec make_ring_recover(Options::kv_opts()) -> pid().
+make_ring_recover(Options) ->
+  ct:pal("Trying to recover ring."),
+  TimeTrap = test_server:timetrap(60000),
+  Pid = make_ring_generic(Options, fun() -> [] end),
+  ct:pal("ring restored"),
+  test_server:timetrap_cancel(TimeTrap),
+  Pid.
 
 %% @doc Creates a ring with Size random IDs.
 -spec make_ring(Size::pos_integer()) -> pid().
@@ -186,30 +199,52 @@ make_ring(Size) ->
 %%      a {config, [{Key, Value},...]} option.
 -spec make_ring(Size::pos_integer(), Options::kv_opts()) -> pid().
 make_ring(Size, Options) ->
-    _ = fix_cwd(),
-    error_logger:tty(true),
+  ct:pal("Trying to make ring with ~p nodes.",[Size]),
+    NodeAddFun =
+        fun() ->
+                First = admin:add_node([{first}]),
+                {RestSuc, RestFailed} = admin:add_nodes(Size - 1),
+                [First | RestSuc ++ RestFailed]
+        end,
+    TimeTrap = test_server:timetrap(3000 + Size * 1000),
+    Pid = make_ring_generic(Options, NodeAddFun),
+    check_ring_size(Size),
+    wait_for_stable_ring(),
+    check_ring_size(Size),
+    ct:pal("Scalaris booted with ~p node(s)...~n", [Size]),
+    test_server:timetrap_cancel(TimeTrap),
+    Pid.
+
+-spec make_ring_generic(Options::kv_opts(),
+                        NodeAddFun::fun(() -> [pid_groups:groupname() | {error, term()}]))
+        -> pid().
+make_ring_generic(Options, NodeAddFun) ->
     case ets:info(config_ets) of
         undefined -> ok;
         _         -> ct:fail("Trying to create a new ring although there is already one.")
     end,
-    Pid = start_process(
-            fun() ->
-                    ct:pal("unittest_helper:make_ring size ~p", [Size]),
-                    erlang:register(ct_test_ring, self()),
-                    randoms:start(),
-                    {ok, _GroupsPid} = pid_groups:start_link(),
-                    NewOptions = prepare_config(Options),
-                    _ = sup_scalaris:start_link(NewOptions),
-                    mgmt_server:connect(),
-                    _ = admin:add_node([{first}]),
-                    _ = admin:add_nodes(Size - 1),
-                    ok
-            end),
+    {Pid, StartRes} =
+        start_process(
+          fun() ->
+                  erlang:register(ct_test_ring, self()),
+                  randoms:start(),
+                  {ok, _GroupsPid} = pid_groups:start_link(),
+                  NewOptions = prepare_config(Options),
+                  config:init(NewOptions),
+                  tester:start_pseudo_proc(),
+                  {ok, _} = sup_scalaris:start_link(NewOptions),
+                  NodeAddFun()
+          end),
+    FailedNodes = [X || X = {error, _ } <- StartRes],
+    case FailedNodes of
+        [] -> ok;
+        [_|_] -> stop_ring(Pid),
+                 ?ct_fail("adding nodes failed: ~.0p", [FailedNodes])
+    end,
+    true = erlang:is_process_alive(Pid),
 %%     timer:sleep(1000),
-    check_ring_size(Size),
-    wait_for_stable_ring(),
-    check_ring_size(Size),
-    ct:pal("unittest_helper:make_ring size ~p done.", [Size]),
+    % need to call IdsFun again (may require config process or others
+    % -> can not call it before starting the scalaris process)
     ?TRACE_RING_DATA(),
     Pid.
 
@@ -225,39 +260,40 @@ stop_ring() ->
 %%      when the process' pid is known.
 -spec stop_ring(pid()) -> ok.
 stop_ring(Pid) ->
+    LogLevel = config:read(log_level),
     try
         begin
-            error_logger:tty(false),
-            error_logger:delete_report_handler(error_logger_log4erl_h),
+            ct:pal("unittest_helper:stop_ring start."),
             log:set_log_level(none),
-            util:supervisor_terminate(main_sup),
-            try exit(Pid, kill) catch _:_ -> ok end,
+            sup:sup_terminate(main_sup),
+            catch exit(Pid, kill),
             util:wait_for_process_to_die(Pid),
             stop_pid_groups(),
-            try (unregister(ct_test_ring)) catch _:_ -> ok end,
-            error_logger:tty(true),
+            sup_scalaris:stop_first_services(),
+            log:set_log_level(LogLevel),
             ct:pal("unittest_helper:stop_ring done."),
             ok
         end
     catch
-        throw:Term ->
-            ct:pal("exception in stop_ring: ~p~n", [Term]),
-            throw(Term);
-        exit:Reason ->
-            ct:pal("exception in stop_ring: ~p~n", [Reason]),
-            throw(Reason);
-        error:Reason:Stacktrace ->
-            ct:pal("exception in stop_ring: ~p ~p~n", [Reason, Stacktrace]),
-            throw(Reason)
+        ?CATCH_CLAUSE_WITH_STACKTRACE(Level, Reason, Stacktrace)
+            ct:pal("~s in stop_ring: ~p~n~.0p", [Level, Reason, Stacktrace]),
+            erlang:Level(Reason)
+    after
+            catch(unregister(ct_test_ring)),
+            log:set_log_level(LogLevel)
     end.
 
 -spec stop_pid_groups() -> ok.
 stop_pid_groups() ->
-    gen_component:kill(pid_groups),
-    util:wait_for_table_to_disappear(pid_groups),
-    util:wait_for_table_to_disappear(pid_groups_hidden),
-    try unregister(pid_groups) catch _:_ -> ok end,
-    ok.
+    case whereis(pid_groups) of
+        PidGroups when is_pid(PidGroups) ->
+            gen_component:kill(PidGroups),
+            util:wait_for_ets_table_to_disappear(PidGroups, pid_groups),
+            util:wait_for_ets_table_to_disappear(PidGroups, pid_groups_hidden),
+            catch unregister(pid_groups),
+            ok;
+        _ -> ok
+    end.
 
 
 -spec wait_for_stable_ring() -> ok.
@@ -266,7 +302,7 @@ wait_for_stable_ring() ->
                           R = admin:check_ring(),
                           %% ct:pal("CheckRing: ~p~n", [R]),
                           R =:= ok
-             end, 500).
+             end, 100).
 
 -spec wait_for_stable_ring_deep() -> ok.
 wait_for_stable_ring_deep() ->
@@ -274,11 +310,10 @@ wait_for_stable_ring_deep() ->
                      R = admin:check_ring_deep(),
                      ct:pal("CheckRingDeep: ~p~n", [R]),
                      R =:= ok
-             end, 500).
+             end, 100).
 
 -spec check_ring_size(non_neg_integer(), CheckFun::fun((DhtNodeState::term()) -> boolean())) -> ok.
 check_ring_size(Size, CheckFun) ->
-    DhtModule = config:read(dht_node),
     util:wait_for(
       fun() ->
               % note: we use a single VM in unit tests, therefore no
@@ -287,15 +322,15 @@ check_ring_size(Size, CheckFun) ->
               BootSize =
                   try
                       mgmt_server:number_of_nodes(),
-                      receive {get_list_length_response, L} -> L end
+                      trace_mpath:thread_yield(),
+                      receive ?SCALARIS_RECV({get_list_length_response, L}, L) end
                   catch _:_ -> Size
                   end,
-              erlang:whereis(config) =/= undefined andalso
-                  BootSize =:= Size andalso
+              BootSize =:= Size andalso
                   Size =:= erlang:length(
-                [P || P <- pid_groups:find_all(DhtModule),
-                      CheckFun(gen_component:get_state(P))])
-      end, 500).
+                             [P || P <- pid_groups:find_all(dht_node),
+                                   CheckFun(gen_component:get_state(P))])
+      end, 50).
 
 -spec check_ring_size(Size::non_neg_integer()) -> ok.
 check_ring_size(Size) ->
@@ -314,35 +349,42 @@ check_ring_size_fully_joined(Size) ->
                           end).
 
 %% @doc Starts a process which executes the given function and then waits forever.
--spec start_process(StartFun::fun(() -> any())) -> pid().
+-spec start_process(StartFun::fun(() -> StartRes)) -> {pid(), StartRes}.
 start_process(StartFun) ->
     start_process(StartFun, fun() -> receive {done} -> ok end end).
 
--spec start_process(StartFun::fun(() -> any()), RunFun::fun(() -> any())) -> pid().
+-spec start_process(StartFun::fun(() -> StartRes), RunFun::fun(() -> any())) -> {pid(), StartRes}.
 start_process(StartFun, RunFun) ->
     start_process(StartFun, RunFun, false, spawn).
 
--spec start_process(StartFun::fun(() -> any()), RunFun::fun(() -> any()),
-                    TrapExit::boolean(), Spawn::spawn | spawn_link) -> pid().
+-spec start_process(StartFun::fun(() -> StartRes), RunFun::fun(() -> any()),
+                    TrapExit::boolean(), Spawn::spawn | spawn_link)
+        -> {pid(), StartRes}.
 start_process(StartFun, RunFun, TrapExit, Spawn) ->
     process_flag(trap_exit, TrapExit),
     Owner = self(),
     Node = erlang:Spawn(
              fun() ->
-                     try StartFun()
-                     catch Level:Reason -> erlang:Level(Reason)
-                     after Owner ! {started, self()}
+                     try Res = StartFun(),
+                         Owner ! {started, self(), Res}
+                     catch Level:Reason ->
+                               Owner ! {killed},
+                               erlang:Level(Reason)
                      end,
                      RunFun()
              end),
-    receive {started, Node} -> Node end.
+    receive
+        {started, Node, Res} -> {Node, Res};
+        {killed} -> ?ct_fail("start_process(~.0p, ~.0p, ~.0p, ~.0p) failed",
+                             [StartFun, RunFun, TrapExit, Spawn])
+    end.
 
 %% @doc Starts a sub-process which executes the given function and then waits forever.
--spec start_subprocess(StartFun::fun(() -> any())) -> pid().
+-spec start_subprocess(StartFun::fun(() -> StartRes)) -> {pid(), StartRes}.
 start_subprocess(StartFun) ->
     start_subprocess(StartFun, fun() -> receive {done} -> ok end end).
 
--spec start_subprocess(StartFun::fun(() -> any()), RunFun::fun(() -> any())) -> pid().
+-spec start_subprocess(StartFun::fun(() -> StartRes), RunFun::fun(() -> any())) -> {pid(), StartRes}.
 start_subprocess(StartFun, RunFun) ->
     start_process(StartFun, RunFun, true, spawn_link).
 
@@ -351,63 +393,70 @@ start_subprocess(StartFun, RunFun) ->
 -spec start_minimal_procs(CTConfig, ConfigOptions::[{atom(), term()}],
                           StartCommServer::boolean()) -> CTConfig when is_subtype(CTConfig, list()).
 start_minimal_procs(CTConfig, ConfigOptions, StartCommServer) ->
-    ok = unittest_helper:fix_cwd(),
-    Pid = unittest_helper:start_process(
-            fun() ->
-                    {ok, _GroupsPid} = pid_groups:start_link(),
-                    {priv_dir, PrivDir} = lists:keyfind(priv_dir, 1, CTConfig),
-                    ConfigOptions2 = unittest_helper:prepare_config(
-                                       [{config, [{log_path, PrivDir} | ConfigOptions]}]),
-                    {ok, _ConfigPid} = config:start_link2(ConfigOptions2),
-                    {ok, _LogPid} = log:start_link(),
-                    case StartCommServer of
-                        true ->
-                            {ok, _CommPid} = sup_comm_layer:start_link(),
-                            Port = unittest_helper:get_scalaris_port(),
-                            comm_server:set_local_address({127,0,0,1}, Port);
-                        false -> ok
-                    end
-            end),
+    {Pid, _} =
+        start_process(
+          fun() ->
+                  {ok, _GroupsPid} = pid_groups:start_link(),
+                  {priv_dir, PrivDir} = lists:keyfind(priv_dir, 1, CTConfig),
+                  ConfigOptions2 = prepare_config(
+                                     [{config, [{log_path, PrivDir} | ConfigOptions]}]),
+                  config:init(ConfigOptions2),
+                  tester:start_pseudo_proc(),
+                  case StartCommServer of
+                      true ->
+                          {ok, _CommPid} = sup:sup_start(
+                                             {local, no_name},
+                                             sup_comm_layer, []),
+                          Port = get_scalaris_port(),
+                          comm_server:set_local_address({127,0,0,1}, Port);
+                      false -> ok
+                  end
+          end),
     [{wrapper_pid, Pid} | CTConfig].
 
 %% @doc Stops the processes started by start_minimal_procs/3 given the
 %%      ct config term.
--spec stop_minimal_procs(term()) -> ok.
+-spec stop_minimal_procs(CTConfig) -> CTConfig when is_subtype(CTConfig, list()).
 stop_minimal_procs(CTConfig)  ->
-    case lists:keyfind(wrapper_pid, 1, CTConfig) of
-        {wrapper_pid, Pid} ->
-            error_logger:tty(false),
+    case lists:keytake(wrapper_pid, 1, CTConfig) of
+        {value, {wrapper_pid, Pid}, CTConfig1} ->
+            LogLevel = config:read(log_level),
             log:set_log_level(none),
             exit(Pid, kill),
-            unittest_helper:stop_pid_groups(),
-            error_logger:tty(true);
-        false -> ok
+            stop_pid_groups(),
+            log:set_log_level(LogLevel),
+            CTConfig1;
+        false -> CTConfig
     end.
 
--spec get_all_children(Supervisor::pid()) -> [pid()].
-get_all_children(Supervisor) ->
-    AllChilds = [X || X = {_, Pid, _, _} <- supervisor:which_children(Supervisor),
-                      Pid =/= undefined],
-    WorkerChilds = [Pid ||  {_Id, Pid, worker, _Modules} <- AllChilds],
-    SupChilds = [Pid || {_Id, Pid, supervisor, _Modules} <- AllChilds],
-    lists:flatten([WorkerChilds | [get_all_children(S) || S <- SupChilds]]).
-
 -type process_info() ::
-    {pid(), InitCall::mfa(), CurFun::mfa(), Info::term | failed | no_further_infos}.
+    {pid(), InitCall::mfa(), CurFun::mfa(),
+     {RegName::atom() | not_registered, Info::term() | failed | no_further_infos}}.
 
 -spec get_processes() -> [process_info()].
 get_processes() ->
     [begin
-         InitCall = element(2, lists:keyfind(initial_call, 1, Data)),
+         InitCall =
+             case proc_lib:initial_call(X) of
+                 false -> element(2, lists:keyfind(initial_call, 1, Data));
+                 {Module, Function, Args} -> {Module, Function, length(Args)}
+             end,
          CurFun = element(2, lists:keyfind(current_function, 1, Data)),
+         RegName = case lists:keyfind(registered_name, 1, Data) of
+                       false -> not_registered;
+                       RegNameTpl -> element(2, RegNameTpl)
+                   end,
          Info =
              case {InitCall, CurFun} of
                  {{gen_component, _, _}, {gen_component, _, _}} ->
                      gen_component:get_component_state(X);
                  {_, {file_io_server, _, _}} ->
-                     %% file:pid2name/1, which returned the name of the
-                     %% file, has been removed from Erlang/OTP.
-                     {file, undefined};
+                     case file:pid2name(X) of
+                         undefined -> {file, undefined};
+                         {ok, FileName} -> {file, FileName};
+                         %% case occuring in older Erlang versions:
+                         FileName -> {file, FileName}
+                     end;
                  {_, {gen_server, _, _}} ->
                      % may throw exit due to a killed process
                      try sys:get_status(X)
@@ -415,10 +464,10 @@ get_processes() ->
                      end;
                  _ -> no_further_infos
              end,
-         {X, InitCall, CurFun, Info}
+         {X, InitCall, CurFun, {RegName, Info}}
      end
      || X <- processes(),
-        Data <- [process_info(X, [current_function, initial_call])],
+        Data <- [process_info(X, [current_function, initial_call, registered_name])],
         Data =/= undefined].
 
 -spec kill_new_processes(OldProcesses::[process_info()]) -> ok.
@@ -440,64 +489,32 @@ kill_new_processes(OldProcesses, Options) ->
 %%                   ct:pal("killing ~.0p~n", [Proc]),
                   Tabs = util:ets_tables_of(X),
                   try erlang:exit(X, kill) of
-                      true -> util:wait_for_process_to_die(X),
-                              _ = [ util:wait_for_table_to_disappear(Tab) || Tab <- Tabs ],
+                      true ->
+                          util:wait_for_process_to_die(X),
+                          _ = [begin
+%%                                    ct:pal("waiting for table ~.0p to disappear~n~p",
+%%                                           [Tab, ets:info(Tab)]),
+                                   util:wait_for_ets_table_to_disappear(X, Tab)
+                               end || Tab <- Tabs ],
                               {ok, Proc}
                   catch _:_ -> {fail, Proc}
                   end
-              end || {X, InitCall, CurFun, _Info} = Proc <- OnlyNew,
+              end || {X, InitCall, CurFun, {RegName, _Info}} = Proc <- OnlyNew,
                      not (InitCall =:= {test_server_sup, timetrap, 3} andalso
                               CurFun =:= {test_server_sup, timetrap, 3}),
                      not (InitCall =:= {test_server_sup, timetrap, 2} andalso
                               CurFun =:= {test_server_sup, timetrap, 2}),
+                     not (InitCall =:= {test_server_gl, init, 1}),
+                     not (CurFun =:= {prim_file, drv_get_response, 1}), % spawned by R16 for io:put_chars/3
+                     RegName =/= cover_server,
                      X =/= self(),
+                     X =/= whereis(timer_server),
                      element(1, CurFun) =/= file_io_server],
-    case lists:member(quiet, Options) of
+    case lists:member({?quiet}, Options) of
         false ->
             ct:pal("Killed processes: ~.0p~n", [Killed]);
         true -> ok
     end.
-
-%% @doc Generic init_per_suite for all unit tests. Prints current state
-%%      information and stores information about all running processes.
-%%      Also starts the crypto application needed for unit tests using the
-%%      tester.
--spec init_per_suite(kv_opts()) -> kv_opts().
--ifdef(have_cthooks_support).
-init_per_suite(Config) ->
-    Config.
--else.
-init_per_suite(Config) ->
-    Processes = get_processes(),
-    ct:pal("Starting unittest ~p~n", [ct:get_status()]),
-    randoms:start(),
-    [{processes, Processes} | Config].
--endif.
-
-%% @doc Generic end_per_suite for all unit tests. Tries to stop a scalaris ring
-%%      started with make_ring* (if there is one) and stops the inets and
-%%      crypto applications needed for some unit tests. Then gets the list of
-%%      processes stored in init_per_suite/1 and kills all but a selected few
-%%      of processes which are now running but haven't been running before.
-%%      Thus allows a clean start of succeeding test suites.
-%%      Prints information about the processes that have been killed.
--spec end_per_suite(Config) -> Config when is_subtype(Config, kv_opts()).
--ifdef(have_cthooks_support).
-end_per_suite(Config) ->
-    Config.
--else.
-end_per_suite(Config) ->
-    ct:pal("Stopping unittest ~p~n", [ct:get_status()]),
-    unittest_helper:stop_ring(),
-    % the following might still be running in case there was no ring:
-    error_logger:tty(false),
-    randoms:stop(),
-    _ = inets:stop(),
-    error_logger:tty(true),
-    {processes, OldProcesses} = lists:keyfind(processes, 1, Config),
-    kill_new_processes(OldProcesses),
-    Config.
--endif.
 
 -type ct_group_props() ::
     [parallel | sequence | shuffle | {shuffle, {integer(), integer(), integer()}} |
@@ -530,20 +547,24 @@ init_per_group(_Group, Config) -> Config.
 end_per_group(_Group, Config) ->
     Status = test_server:lookup_config(tc_group_result, Config),
     case proplists:get_value(failed, Status) of
-        [] ->                                   % no failed cases 
+        [] ->                                   % no failed cases
             {return_group_result, ok};
         _Failed ->                              % one or more failed
             {return_group_result, failed}
     end.
 
--spec get_ring_data() -> [{pid(), 
-                           {intervals:left_bracket(), intervals:key(), intervals:key(), intervals:right_bracket()}, 
-                           ?DB:db_as_list(), 
-                           {pred, comm:erl_pid_plain()},
-                           {succ, comm:erl_pid_plain()},
-                           ok | timeout}] | 
-                         {exception, Level::throw | error | exit, Reason::term(), Stacktrace::term()}.
-get_ring_data() ->
+-type ring_data(DBType) ::
+          [{pid(),
+            {intervals:left_bracket(), intervals:key(), intervals:key(), intervals:right_bracket()},
+            DBType,
+            {pred, comm:erl_local_pid_plain()},
+            {succ, comm:erl_local_pid_plain()},
+            ok | timeout}] |
+          {exception, Level::throw | error | exit, Reason::term(), Stacktrace::term()}.
+
+-spec get_ring_data(full) -> ring_data(db_dht:db_as_list());
+                   (kv) -> ring_data([{?RT:key(), client_version()}]).
+get_ring_data(Type) ->
     Self = self(),
     erlang:spawn(
       fun() ->
@@ -556,7 +577,7 @@ get_ring_data() ->
                         end,
                         [begin
                              comm:send_local(DhtNode,
-                                             {unittest_get_bounds_and_data, comm:this()}),
+                                             {unittest_get_bounds_and_data, comm:this(), Type}),
                              receive
                                  {unittest_get_bounds_and_data_response, Bounds, Data, Pred, Succ} ->
                                      {DhtNode, Bounds, Data,
@@ -564,12 +585,12 @@ get_ring_data() ->
                                       {succ, comm:make_local(node:pidX(Succ))}, ok}
                              % we are in a separate process, any message in the
                              % message box should not influence the calling process
-                                 after 500 -> {DhtNode, empty, [], {pred, null}, {succ, null}, timeout}
+                                 after 750 -> {DhtNode, empty, [], {pred, null}, {succ, null}, timeout}
                              end
                          end || DhtNode <- DHTNodes]),
                   Self ! {data, Data}
               catch
-                  Level:Reason:Stacktrace ->
+                  ?CATCH_CLAUSE_WITH_STACKTRACE(Level, Reason, Stacktrace)
                       Result =
                           case erlang:whereis(ct_test_ring) of
                               undefined -> [];
@@ -583,53 +604,64 @@ get_ring_data() ->
 
 -spec print_ring_data() -> ok.
 print_ring_data() ->
-    DataAll = get_ring_data(),
+    DataAll = get_ring_data(full),
     ct:pal("Scalaris ring data:~n~.0p~n", [DataAll]).
 
--include("unittest.hrl").
+-spec print_proto_sched_stats(now | now_short | at_end_if_failed | at_end_if_failed_append) -> ok.
+print_proto_sched_stats(When) ->
+    % NOTE: keep the default tag in sync!
+    print_proto_sched_stats(When, default).
 
--spec macro_equals(Actual::any(), ExpectedVal::any(), ActualStr::string(), ExpectedStr::string()) -> true | no_return().
-macro_equals(Actual, ExpectedVal, ActualStr, ExpectedStr) ->
-    case Actual of
-        ExpectedVal -> true;
-        Any -> macro_equals_failed(Any, ExpectedVal, ActualStr, ExpectedStr)
-    end.
+-spec print_proto_sched_stats(now | now_short | at_end_if_failed | at_end_if_failed_append,
+                              TraceId::term()) -> ok.
+print_proto_sched_stats(now, TraceId) ->
+    ct:pal("Proto scheduler stats: ~.2p", [proto_sched:get_infos(TraceId)]);
+print_proto_sched_stats(now_short, TraceId) ->
+    ct:pal("Proto scheduler stats: ~.2p",
+           [proto_sched:info_shorten_messages(proto_sched:get_infos(TraceId), 200)]);
+print_proto_sched_stats(at_end_if_failed, TraceId) ->
+    unittest_global_state:insert(proto_sched_stats, proto_sched:get_infos(TraceId)),
+    ok;
+print_proto_sched_stats(at_end_if_failed_append, TraceId) ->
+    Current = case unittest_global_state:lookup(proto_sched_stats) of
+                  failed -> [];
+                  X when is_list(X) -> X
+              end,
+    unittest_global_state:insert(proto_sched_stats,
+                                 Current ++ proto_sched:get_infos(TraceId)),
+    ok.
 
--spec macro_equals(Actual::any(), ExpectedVal::any(), ActualStr::string(), ExpectedStr::string(), Note::string()) -> true | no_return().
+-spec macro_equals(Actual::any(), ExpectedVal::any(), ActualStr::string(),
+                   ExpectedStr::string(), Note::term()) -> true | no_return().
 macro_equals(Actual, ExpectedVal, ActualStr, ExpectedStr, Note) ->
-    case Actual of
-        ExpectedVal -> true;
-        Any -> macro_equals_failed(Any, ExpectedVal, ActualStr, ExpectedStr, Note)
+    macro_compare(fun erlang:'=:='/2, Actual, ExpectedVal, "=:=", ActualStr, ExpectedStr, Note).
+
+-spec macro_compare(CompFun::fun((T, T) -> boolean()), Actual::any(), ExpectedVal::any(),
+                    CompFunStr::string(), ActualStr::string(), ExpectedStr::string(),
+                    Note::term()) -> true | no_return().
+macro_compare(CompFun, Actual, ExpectedVal, CompFunStr, ActualStr, ExpectedStr, Note) ->
+    case CompFun(Actual, ExpectedVal) of
+        true  -> true;
+        false -> macro_equals_failed(Actual, ExpectedVal, CompFunStr, ActualStr, ExpectedStr, Note)
     end.
 
--spec macro_equals_failed(ActualVal::any(), ExpectedVal::any(), ActualStr::string(), ExpectedStr::string()) -> no_return().
-macro_equals_failed(ActualVal, ExpectedVal, ActualStr, ExpectedStr) ->
-    ct:pal("Failed~n"
-           " Message    ~s evaluated to~n"
-           "             \"~.0p\"~n"
-           "            which is not the expected ~s that evaluates to~n"
-           "             \"~.0p\"~n"
-           " Stacktrace ~p~n"
-           " Linetrace  ~p~n",
-           [ActualStr, ActualVal, ExpectedStr, ExpectedVal,
-            util:get_stacktrace(), util:get_linetrace()]), %erlang:get(test_server_loc)
-    ?ct_fail("~s evaluated to \"~.0p\" which is not the expected ~s that evaluates to \"~.0p\"~n",
-             [ActualStr, ActualVal, ExpectedStr, ExpectedVal]).
-
--spec macro_equals_failed(ActualVal::any(), ExpectedVal::any(), ActualStr::string(), ExpectedStr::string(), Note::string()) -> no_return().
-macro_equals_failed(ActualVal, ExpectedVal, ActualStr, ExpectedStr, Note) ->
-    ct:pal("Failed~n"
-           " Message    ~s evaluated to~n"
-           "             \"~.0p\"~n"
-           "            which is not the expected ~s that evaluates to~n"
-           "             \"~.0p\"~n"
-           "            (~.0p)~n"
-           " Stacktrace ~p~n"
-           " Linetrace  ~p~n",
-           [ActualStr, ActualVal, ExpectedStr, ExpectedVal, Note,
+-spec macro_equals_failed(ActualVal::any(), ExpectedVal::any(), CompFunStr::string(),
+                          ActualStr::string(), ExpectedStr::string(), Note::term())
+        -> no_return().
+macro_equals_failed(ActualVal, ExpectedVal, CompFunStr, ActualStr, ExpectedStr, Note) ->
+    log:log(error, "Failed (in ~.0p)~n"
+           " Call:        ~s~n"
+           " Returns:     ~.0p~n"
+           " is not (~s)~n"
+           " Exp. term:   ~s~n"
+           " Exp. return: ~.0p~n"
+           " Note:        ~.0p~n"
+           " Stacktrace:  ~p~n"
+           " Linetrace:   ~p~n",
+           [self(), ActualStr, ActualVal, CompFunStr, ExpectedStr, ExpectedVal, Note,
             util:get_stacktrace(), util:get_linetrace()]),
-    ?ct_fail("~s evaluated to \"~.0p\" which is not the expected ~s that evaluates to \"~.0p\"~n(~.0p)~n",
-             [ActualStr, ActualVal, ExpectedStr, ExpectedVal, Note]).
+    ?ct_fail("~s returned ~.0p which is not ~s the expected ~s that returns ~.0p. Note: ~.0p",
+             [ActualStr, ActualVal, CompFunStr, ExpectedStr, ExpectedVal, Note]).
 
 -spec expect_no_message_timeout(Timeout::pos_integer()) -> true | no_return().
 expect_no_message_timeout(Timeout) ->
@@ -642,7 +674,7 @@ end.
 -spec check_ring_load(ExpLoad::pos_integer()) -> true | no_return().
 check_ring_load(ExpLoad) ->
     Ring = statistics:get_ring_details(),
-    Load = statistics:get_total_load(Ring),
+    Load = statistics:get_total_load(load, Ring),
     ?equals(Load, ExpLoad).
 
 -spec check_ring_data() -> boolean().
@@ -651,8 +683,11 @@ check_ring_data() ->
 
 -spec check_ring_data(Timeout::pos_integer(), Retries::non_neg_integer()) -> boolean().
 check_ring_data(Timeout, Retries) ->
-    Data = lists:append(
-             [Data || {_Pid, _Interval, Data, {pred, _PredPid}, {succc, _SuccPid}, _Result} <- unittest_helper:get_ring_data()]),
+    Data = lists:flatmap(
+             fun({_Pid, _Interval, Data, {pred, _PredPid}, {succc, _SuccPid}, _Result}) -> Data;
+                (_) -> []
+             end,
+             get_ring_data(full)),
     case Retries < 1 of
         true ->
             check_ring_data_all(Data, true);
@@ -736,3 +771,26 @@ data_contains_all_replicas(Data, Key) ->
     Keys = ?RT:get_replica_keys(Key),
     Replicas = [E || E <- Data, lists:member(db_entry:get_key(E), Keys)],
     length(Keys) =:= length(Replicas).
+
+% @doc returns only left-open intervals or intervals:all()
+%      rrepair relies on this
+-spec build_interval(intervals:key(), intervals:key()) -> intervals:interval().
+build_interval(?MINUS_INFINITY, ?PLUS_INFINITY) -> intervals:all();
+build_interval(?PLUS_INFINITY, ?MINUS_INFINITY) -> intervals:all();
+build_interval(A, A) -> intervals:all();
+build_interval(A, B) when A < B -> intervals:new('(', A, B, ']');
+build_interval(A, B) when A > B -> intervals:new('(', B, A, ']').
+
+%% @doc can be used to filter empty entries out of a list of db_entries
+-spec db_entry_not_null(db_entry:entry()) -> boolean().
+db_entry_not_null(Entry) ->
+    not db_entry:is_null(Entry).
+
+%% @doc removes duplicates and db_entries that are null
+-spec scrub_data(db_dht:db_as_list()) -> db_dht:db_as_list().
+scrub_data(Data) ->
+    lists:filter(
+        fun db_entry_not_null/1,
+        lists:usort(fun(A, B) ->
+                 db_entry:get_key(A) =< db_entry:get_key(B)
+            end, lists:reverse(Data))).

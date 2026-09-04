@@ -1,5 +1,5 @@
 /**
- *  Copyright 2011 Zuse Institute Berlin
+ *  Copyright 2011-2013 Zuse Institute Berlin
  *
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -15,10 +15,12 @@
  */
 package de.zib.scalaris.examples.wikipedia.bliki;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import de.zib.scalaris.examples.wikipedia.LinkedMultiHashMap;
+import de.zib.scalaris.examples.wikipedia.InvolvedKey;
+import de.zib.tools.LinkedMultiHashMap;
 
 /**
  * Bean with common content to display in a jsp. 
@@ -27,6 +29,10 @@ import de.zib.scalaris.examples.wikipedia.LinkedMultiHashMap;
  */
 public class WikiPageBeanBase {
 
+    /**
+     * the service user
+     */
+    private String serviceUser = "";
     /**
      * the title of the site
      */
@@ -41,20 +47,48 @@ public class WikiPageBeanBase {
     private String wikiLang = "en";
     private String wikiLangDir = "ltr";
     private MyNamespace wikiNamespace = new MyNamespace();
-    protected String redirectedTo = "";
     private boolean isEditRestricted = false;
     protected LinkedMultiHashMap<String, Long> stats = new LinkedMultiHashMap<String, Long>();
+    private long startTime;
     
     /**
      * the content of the site
      */
     private String page = "";
+    /**
+     * number of attempts of saving a wiki page
+     */
+    private int saveAttempts = 0;
+    /**
+     * All keys that have been read or written during the current operation.
+     */
+    public List<InvolvedKey> involvedKeys = new ArrayList<InvolvedKey>();
+    /**
+     * In cases of failed page-save commits, contains a list of failed keys for
+     * each save attempt.
+     */
+    protected LinkedMultiHashMap<Integer, String> failedKeys = new LinkedMultiHashMap<Integer, String>();
 
     /**
      * Creates a new (empty) bean.
      */
     public WikiPageBeanBase() {
         super();
+        startTime = System.currentTimeMillis();
+    }
+
+    /**
+     * Creates a new (empty) bean with the given start time.
+     * 
+     * @param serviceUser
+     *            service user
+     * @param startTime
+     *            the time when the request reached the servlet (in ms)
+     */
+    public WikiPageBeanBase(String serviceUser, long startTime) {
+        super();
+        this.serviceUser = serviceUser;
+        this.startTime = startTime;
     }
     
     /**
@@ -65,6 +99,7 @@ public class WikiPageBeanBase {
      */
     public WikiPageBeanBase(WikiPageBeanBase other) {
         super();
+        this.serviceUser = other.serviceUser;
         this.title = other.title;
         version = other.version;
         notice = other.notice;
@@ -73,9 +108,9 @@ public class WikiPageBeanBase {
         wikiLang = other.wikiLang;
         wikiLangDir = other.wikiLangDir;
         wikiNamespace = other.wikiNamespace;
-        redirectedTo = other.redirectedTo;
         isEditRestricted = other.isEditRestricted;
         stats = new LinkedMultiHashMap<String, Long>(other.stats);
+        startTime = other.startTime;
     }
 
     /**
@@ -244,7 +279,7 @@ public class WikiPageBeanBase {
      *            the number of milliseconds it took to retrieve the page
      */
     public void addStat(String title, long value) {
-        stats.put(title, value);
+        stats.put1(title, value);
     }
 
     /**
@@ -284,5 +319,75 @@ public class WikiPageBeanBase {
      */
     public void setError(String error) {
         this.error = error;
+    }
+
+    /**
+     * @return the saveAttempts
+     */
+    public int getSaveAttempts() {
+        return saveAttempts;
+    }
+
+    /**
+     * @param saveAttempts the saveAttempts to set
+     */
+    public void setSaveAttempts(int saveAttempts) {
+        this.saveAttempts = saveAttempts;
+    }
+
+    /**
+     * @return the failedKeys
+     */
+    public LinkedMultiHashMap<Integer, String> getFailedKeys() {
+        return failedKeys;
+    }
+
+    /**
+     * @param failedKeys the failedKeys to set
+     */
+    public void setFailedKeys(LinkedMultiHashMap<Integer, String> failedKeys) {
+        this.failedKeys = failedKeys;
+    }
+
+    /**
+     * @return the involvedKeys
+     */
+    public List<InvolvedKey> getInvolvedKeys() {
+        return involvedKeys;
+    }
+
+    /**
+     * @param involvedKeys the involvedKeys to set
+     */
+    public void setInvolvedKeys(List<InvolvedKey> involvedKeys) {
+        this.involvedKeys = involvedKeys;
+    }
+
+    /**
+     * @return the startTime
+     */
+    public long getStartTime() {
+        return startTime;
+    }
+
+    /**
+     * @param startTime the startTime to set
+     */
+    public void setStartTime(long startTime) {
+        this.startTime = startTime;
+    }
+
+    /**
+     * @return the serviceUser
+     */
+    public String getServiceUser() {
+        return serviceUser;
+    }
+
+    /**
+     * @param serviceUser the serviceUser to set
+     */
+    public void setServiceUser(String serviceUser) {
+        this.serviceUser = serviceUser;
     }
 }

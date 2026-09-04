@@ -13,20 +13,15 @@
 %   limitations under the License.
 
 %% @author Thorsten Schuett <schuett@zib.de>
-%% @version $Id: api_tx_SUITE.erl 1697 2011-04-29 09:25:23Z schintke $
+%% @version $Id$
 -module(rrd_SUITE).
 -author('schuett@zib.de').
--vsn('$Id: api_tx_SUITE.erl 1697 2011-04-29 09:25:23Z schintke $').
+-vsn('$Id$').
 
+-include("types.hrl").
 -include("unittest.hrl").
 
--export([add_nonexisting_timeslots/1, all/0, apply/2, create_counter/1,
-         create_event/1, create_gauge/1, create_timing/1, end_per_suite/1,
-         fill_test/1, init_per_suite/1, merge_conseq_data/3,
-         prop_counter_gauge_rrd/7, prop_counter_rrd/6, prop_empty_rrd/6,
-         prop_gauge_rrd/6, reduce_timeslots/1, round_us_time/3,
-         simple_create/1, suite/0, tester_counter_rrd/1, tester_empty_rrd/1,
-         tester_gauge_rrd/1, time2us/1, timestamp/1, timing_perf/0]).
+-compile(export_all).
 
 all()   -> [simple_create,
             fill_test,
@@ -34,23 +29,34 @@ all()   -> [simple_create,
             create_counter,
             create_event,
             create_timing,
-            timestamp,
             add_nonexisting_timeslots,
             reduce_timeslots,
-            tester_empty_rrd,
-            tester_counter_rrd,
-            tester_gauge_rrd
+            {group, tester_tests}
            ].
+
+groups() ->
+    [{tester_tests, [], 
+      [
+       tester_empty_rrd,
+       tester_counter_rrd,
+       tester_gauge_rrd]
+     }
+    ].
+
 suite() -> [ {timetrap, {seconds, 40}} ].
 
 init_per_suite(Config) ->
-    Config2 = unittest_helper:init_per_suite(Config),
-    unittest_helper:start_minimal_procs(Config2, [{rrd_timing_hist_size, 0}], false).
+    unittest_helper:start_minimal_procs(Config, [{rrd_timing_hist_size, 0}], false).
 
 end_per_suite(Config) ->
-    unittest_helper:stop_minimal_procs(Config),
-    _ = unittest_helper:end_per_suite(Config),
+    _ = unittest_helper:stop_minimal_procs(Config),
     ok.
+
+init_per_group(Group, Config) ->
+    unittest_helper:init_per_group(Group, Config).
+
+end_per_group(Group, Config) ->
+    unittest_helper:end_per_group(Group, Config).
 
 simple_create(_Config) ->
     Adds = [{20, 5}, {25, 6}],
@@ -92,14 +98,9 @@ create_timing(_Config) ->
     DB0 = rrd:create(10, 10, {timing, us}, {0,0,0}),
     DB1 = lists:foldl(fun ?MODULE:apply/2, DB0, Adds),
     ?equals(rrd:dump(DB1),
-            [{{0,0,40}, {0,0,50}, {42, 42*42, 1, 42, 42, {histogram,0,[],0}}},
-             {{0,0,30}, {0,0,40}, {30, 30*30, 1, 30, 30, {histogram,0,[],0}}},
-             {{0,0,20}, {0,0,30}, {1 + 3, 1*1 + 3*3, 2, 1, 3, {histogram,0,[],0}}}]),
-    ok.
-
-timestamp(_Config) ->
-    TS = erlang:timestamp(),
-    ?equals(TS, rrd:us2timestamp(rrd:timestamp2us(TS))),
+            [{{0,0,40}, {0,0,50}, {42, 42*42, 1, 42, 42, {histogram,0,[],0,0}}},
+             {{0,0,30}, {0,0,40}, {30, 30*30, 1, 30, 30, {histogram,0,[],0,0}}},
+             {{0,0,20}, {0,0,30}, {1 + 3, 1*1 + 3*3, 2, 1, 3, {histogram,0,[],0,0}}}]),
     ok.
 
 add_nonexisting_timeslots(_Config) ->
@@ -151,16 +152,16 @@ timing_perf() ->
 %% @doc Converts a time (either a tuple as returned by erlang:now/0 or a number
 %%      representing the number of microseconds since epoch) to the number of
 %%      microseconds since epoch.
--spec time2us(util:time() | rrd:internal_time()) -> rrd:internal_time().
+-spec time2us(erlang_timestamp() | rrd:internal_time()) -> rrd:internal_time().
 time2us({_, _, _} = Time) ->
-    rrd:timestamp2us(Time);
+    util:timestamp2us(Time);
 time2us(Time) ->
     Time.
 
 -spec prop_empty_rrd(SlotLength::rrd:timespan(), Count::1..10, Type::rrd:timeseries_type(),
-                     StartTime::util:time() | rrd:internal_time(),
+                     StartTime::erlang_timestamp() | rrd:internal_time(),
                      Offsets::[non_neg_integer(),...],
-                     Times::[util:time() | rrd:internal_time(),...]) -> boolean().
+                     Times::[erlang_timestamp() | rrd:internal_time(),...]) -> true.
 prop_empty_rrd(SlotLength, Count, Type, StartTime, Offsets, Times) ->
     R = rrd:create(SlotLength, Count, Type, StartTime),
     StartTime_us = time2us(StartTime),
@@ -173,7 +174,7 @@ prop_empty_rrd(SlotLength, Count, Type, StartTime, Offsets, Times) ->
     _ = [?equals(rrd:get_value_by_offset(R, Offset), undefined) || Offset <- Offsets],
     true.
 
--type rrd_data() :: [{util:time() | rrd:internal_time(), number()},...].
+-type rrd_data() :: [{erlang_timestamp() | rrd:internal_time(), number()},...].
 -type rrd_data_us() :: [{rrd:internal_time(), number()},...].
 
 tester_empty_rrd(_Config) ->
@@ -194,7 +195,7 @@ round_us_time(Time, SlotLength, StartTime) ->
 %% @doc Merges consecutive data for a 'counter' rrd into a single date item.
 %%      PRE: Data_us2 must be sorted (by its time components) using a stable
 %%           sort.
--spec merge_conseq_data(Data_us2::rrd_data_us(), gauge | counter, rrd_data_us()) -> rrd_data_us().
+-spec merge_conseq_data(Data_us2::rrd_data_us(), gauge | counter, [] | rrd_data_us()) -> rrd_data_us().
 merge_conseq_data([], _, Result) ->
     lists:reverse(Result);
 merge_conseq_data([X | TD], Type, []) ->
@@ -207,10 +208,10 @@ merge_conseq_data([X | TD], Type, Result) ->
     merge_conseq_data(TD, Type, [X | Result]).
 
 -spec prop_counter_gauge_rrd(SlotLength::rrd:timespan(), Count::1..10,
-                             StartTime::util:time() | rrd:internal_time(),
+                             StartTime::erlang_timestamp() | rrd:internal_time(),
                              Data::rrd_data(), Offsets::[non_neg_integer(),...],
-                             Times::[util:time() | rrd:internal_time(),...],
-                             Type::gauge | counter) -> boolean().
+                             Times::[erlang_timestamp() | rrd:internal_time(),...],
+                             Type::gauge | counter) -> true.
 prop_counter_gauge_rrd(SlotLength, Count, StartTime, Data, _Offsets, _Times, Type) ->
     R0 = rrd:create(SlotLength, Count, Type, StartTime),
     % we need sorted data (old data is not inserted into the rrd, only data in the current time slot)
@@ -250,9 +251,9 @@ prop_counter_gauge_rrd(SlotLength, Count, StartTime, Data, _Offsets, _Times, Typ
     true.
 
 -spec prop_counter_rrd(SlotLength::rrd:timespan(), Count::1..10,
-                       StartTime::util:time() | rrd:internal_time(),
+                       StartTime::erlang_timestamp() | rrd:internal_time(),
                        Data::rrd_data(), Offsets::[non_neg_integer(),...],
-                       Times::[util:time() | rrd:internal_time(),...]) -> boolean().
+                       Times::[erlang_timestamp() | rrd:internal_time(),...]) -> true.
 prop_counter_rrd(SlotLength, Count, StartTime, Data, Offsets, Times) ->
     prop_counter_gauge_rrd(SlotLength, Count, StartTime, Data, Offsets, Times, counter).
 
@@ -262,9 +263,9 @@ tester_counter_rrd(_Config) ->
     tester:test(?MODULE, prop_counter_rrd, 6, 5000, [{threads, 2}]).
 
 -spec prop_gauge_rrd(SlotLength::rrd:timespan(), Count::1..10,
-                       StartTime::util:time() | rrd:internal_time(),
+                       StartTime::erlang_timestamp() | rrd:internal_time(),
                        Data::rrd_data(), Offsets::[non_neg_integer(),...],
-                       Times::[util:time() | rrd:internal_time(),...]) -> boolean().
+                       Times::[erlang_timestamp() | rrd:internal_time(),...]) -> true.
 prop_gauge_rrd(SlotLength, Count, StartTime, Data, Offsets, Times) ->
     prop_counter_gauge_rrd(SlotLength, Count, StartTime, Data, Offsets, Times, gauge).
 

@@ -12,27 +12,32 @@
 %   See the License for the specific language governing permissions and
 %   limitations under the License.
 
-%%% @author Nico Kruber <kruber@zib.de>
-%%% @doc    Helper for rt_chord unit tests.
-%%% @end
+%% @author Nico Kruber <kruber@zib.de>
+%% @doc    Helper for rt_chord unit tests.
+%% @end
 %% @version $Id$
 -module(rt_SUITE_rt_simple).
 -author('kruber@zib.de').
 -vsn('$Id$').
 
--export([additional_tests/1, check_next_hop/4, check_split_key/4,
-         check_split_key_half/3, create_rt/2, number_to_key/1]).
+-compile(export_all).
 
 -include("unittest.hrl").
 -include("scalaris.hrl").
 
 number_to_key(N) -> N.
 
-create_rt(_RT_Keys, [Succ | _DHTNodes] = _Nodes) ->
+create_rt(_RT_Keys, [Succ | _DHTNodes] = _Nodes, _Neighbors) ->
     node:new(Succ, number_to_key(1), 0).
 
 check_next_hop(State, Succ, N, _NodeExp) ->
-    ?equals_w_note(?RT:next_hop(State, number_to_key(N)), Succ, io_lib:format("~B", [N])).
+    Neighbors = dht_node_state:get(State, neighbors),
+    ERT = dht_node_state:get(State, rt),
+    Exp = case intervals:in(number_to_key(N), nodelist:succ_range(Neighbors)) of
+              true -> succ;
+              false -> Succ
+          end,
+    ?equals_w_note(?RT:next_hop(Neighbors, ERT, number_to_key(N)), Exp, io_lib:format("~B", [N])).
 
 -spec check_split_key_half(Begin::?RT:key(), End::?RT:key() | ?PLUS_INFINITY_TYPE, SplitKey::?RT:key()) -> true.
 check_split_key_half(Begin, End, SplitKey) ->

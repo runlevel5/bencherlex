@@ -1,5 +1,5 @@
 /**
- *  Copyright 2011 Zuse Institute Berlin
+ *  Copyright 2011-2013 Zuse Institute Berlin
  *
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -15,6 +15,8 @@
  */
 package de.zib.scalaris.examples.wikipedia.bliki;
 
+import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
 import java.util.Collection;
 import java.util.LinkedList;
 
@@ -65,7 +67,38 @@ public class WikiPageListBean extends WikiPageBeanBase {
     private String target = "";
     private String prefix = "";
     private String search = "";
+    private boolean foundFullMatch = false;
     private int namespaceId = 0;
+    private boolean showAllPages = false;
+
+    /**
+     * Creates a new (empty) bean.
+     */
+    public WikiPageListBean() {
+        super();
+    }
+
+    /**
+     * Creates a new (empty) bean with the given start time.
+     * 
+     * @param serviceUser
+     *            service user
+     * @param startTime
+     *            the time when the request reached the servlet (in ms)
+     */
+    public WikiPageListBean(String serviceUser, long startTime) {
+        super(serviceUser, startTime);
+    }
+
+    /**
+     * Creates a page bean from a given {@link WikiPageBeanBase}.
+     * 
+     * @param other
+     *            the page bean to copy properties from
+     */
+    public WikiPageListBean(WikiPageBeanBase other) {
+        super(other);
+    }
 
     /**
      * @return the subCategories
@@ -205,5 +238,85 @@ public class WikiPageListBean extends WikiPageBeanBase {
      */
     public void setSearch(String search) {
         this.search = search;
+    }
+
+    /**
+     * @return the showAllPages
+     */
+    public boolean isShowAllPages() {
+        return showAllPages;
+    }
+
+    /**
+     * @param showAllPages the showAllPages to set
+     */
+    public void setShowAllPages(boolean showAllPages) {
+        this.showAllPages = showAllPages;
+    }
+    
+    /**
+     * Gets a version of the title string with all parameters needed to
+     * re-create the form.
+     * 
+     * Note: Form parameters are URL-encoded, the "&" connecting them are not!
+     * 
+     * @return a title string with all parameters to be used in a URL
+     */
+    public String titleWithParameters() {
+        try {
+        String title = URLEncoder.encode(getTitle(), "UTF-8");
+            switch (formType) {
+                case PageSearchForm:
+                    if (search.isEmpty()) {
+                        return title + "&namespace=" + namespaceId;
+                    } else {
+                        return title 
+                                + "&search=" + URLEncoder.encode(search, "UTF-8")
+                                + "&namespace=" + namespaceId;
+                    }
+                case FromToForm:
+                    if (!showAllPages && fromPage.isEmpty() && toPage.isEmpty()) {
+                        return title + "&namespace=" + namespaceId;
+                    } else {
+                        return title
+                                + "&from=" + URLEncoder.encode(fromPage, "UTF-8")
+                                + "&to=" + URLEncoder.encode(toPage, "UTF-8")
+                                + "&namespace=" + namespaceId;
+                    }
+                case PagePrefixForm:
+                    if (!showAllPages && prefix.isEmpty()) {
+                        return title + "&namespace=" + namespaceId;
+                    } else {
+                        return title
+                                + "&prefix=" + URLEncoder.encode(prefix, "UTF-8")
+                                + "&namespace=" + namespaceId;
+                    }
+                case TargetPageForm:
+                    if (!showAllPages && target.isEmpty()) {
+                        return title;
+                    } else {
+                        return title
+                                + "&target=" + URLEncoder.encode(target, "UTF-8");
+                    }
+                default:
+            }
+            return title;
+        } catch (UnsupportedEncodingException e) {
+            return "";
+        }
+    }
+
+    /**
+     * @return the searchFoundMatch
+     */
+    public boolean isFoundFullMatch() {
+        return foundFullMatch;
+    }
+
+    /**
+     * @param foundFullMatch the foundFullMatch to set
+     */
+    public void setFoundFullMatch(boolean foundFullMatch) {
+        this.foundFullMatch = foundFullMatch;
     }
 }
