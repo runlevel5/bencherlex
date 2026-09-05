@@ -173,7 +173,7 @@ lookup_fin_leases(State, Key, Data, Msg) ->
     case leases:is_responsible(State, Key) of
         true ->
             deliver(State, Msg, true, Hops);
-        maybe ->
+        'maybe' ->
             deliver(State, Msg, false, Hops);
         false ->
             %% We are here because the neighborhood information from rm in rt_loop

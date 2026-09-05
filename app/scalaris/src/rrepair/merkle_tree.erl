@@ -578,7 +578,7 @@ store_node_to_DOT({H, _Cnt, _ICnt, I, Childs = [_ | RChilds]}, Fileid, MyId,
                                          {NodeId + 1 , store_node_to_DOT(Node, Fileid, NodeId, NextFree, TConf)}
                                  end, {NextFreeId, NNFreeId}, Childs),
     {LBr, _LKey, _RKey, RBr} = intervals:get_bounds(I),
-    io:fwrite(Fileid, "    ~p [label=\"~p\\n~s~p,~p~s\"""]~n",
+    io:fwrite(Fileid, "    ~p [label=\"~p\\n~s~p,~p~s\"" "]~n",
               [MyId, ?DOT_SHORTNAME_HASH(H), erlang:atom_to_list(LBr),
                ?DOT_SHORTNAME_KEY(_LKey), ?DOT_SHORTNAME_KEY(_RKey),
                erlang:atom_to_list(RBr)]),

@@ -35,12 +35,12 @@
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
--spec is_responsible(dht_node_state:state(), ?RT:key()) -> boolean() | maybe.
+-spec is_responsible(dht_node_state:state(), ?RT:key()) -> boolean() | 'maybe'.
 is_responsible(State, Key) ->
     LeaseList = dht_node_state:get(State, lease_list),
     is_responsible_(LeaseList, Key).
 
--spec is_responsible_(lease_list:lease_list(), ?RT:key()) -> boolean() | maybe.
+-spec is_responsible_(lease_list:lease_list(), ?RT:key()) -> boolean() | 'maybe'.
 is_responsible_(LeaseList, Key) ->
     ActiveLease = lease_list:get_active_lease(LeaseList),
     %PassiveLease = lease_list:get_passive_leases(LeaseList),
@@ -56,7 +56,7 @@ is_responsible_(LeaseList, Key) ->
                     true;
                 RangeMatches ->
                     %log:log("returned maybe"),
-                    maybe;
+                    'maybe';
                 true ->
                     %log:log("returned false"),
                     PassiveLeases = lease_list:get_passive_leases(LeaseList),
@@ -64,13 +64,13 @@ is_responsible_(LeaseList, Key) ->
             end
     end.
 
--spec is_responsible_passive_leases(list(l_on_cseq:lease_t()), ?RT:key()) -> boolean() | maybe.
+-spec is_responsible_passive_leases(list(l_on_cseq:lease_t()), ?RT:key()) -> boolean() | 'maybe'.
 is_responsible_passive_leases([], _Key) ->
     false;
 is_responsible_passive_leases([Lease|Rest], Key) ->
     case intervals:in(Key, l_on_cseq:get_range(Lease)) of
         true ->
-            maybe;
+            'maybe';
         false ->
             is_responsible_passive_leases(Rest, Key)
     end.
