@@ -7,10 +7,27 @@ if [ -z $2 ]; then
 else
 	e1="$2/bin/erlc"
 	e2="$2/bin/erl"
-	e3="$2/x86_64-unknown-linux-gnu/epmd"
+	# bin/epmd in an installation, bin/<architecture>/epmd in a build.
+	if [ -x "$2/bin/epmd" ]; then
+		e3="$2/bin/epmd"
+	else
+		e3=$(ls "$2"/bin/*/epmd | head -n 1)
+	fi
 fi
 
 hostname=`env hostname -f`
 
-env BEAMDIR="app/scalaris/ebin" ERLC="$e1" ERL="$e2" EPMD="$e3" app/scalaris/bin/scalarisctl -n firstnode@$hostname stop > /dev/null 
+case "$hostname" in
+    *.*)
+        env BEAMDIR="app/scalaris/ebin" ERLC="$e1" ERL="$e2" EPMD="$e3" \
+            app/scalaris/bin/scalarisctl -c "$4" -n firstnode@$hostname stop \
+            > /dev/null
+        ;;
+    *)
+        # scalarisctl stops the node from a node with a long name, which a
+        # host name without a domain does not allow.
+        "$e2" -sname "stop_$$" -setcookie "$4" -noshell \
+            -eval "rpc:call('firstnode@$hostname', init, stop, []), halt()."
+        ;;
+esac
 sleep 3
