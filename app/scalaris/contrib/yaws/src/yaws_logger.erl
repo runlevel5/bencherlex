@@ -9,9 +9,6 @@
 -author('christopher@yakaz.com').
 -include_lib("kernel/include/file.hrl").
 
-
--export([behaviour_info/1]).
-
 %% API
 -export([
          open_log/3,
@@ -29,17 +26,40 @@
 -include("yaws_debug.hrl").
 
 
+-callback open_log(ServerName :: string(), Type :: auth | access,
+                   LogDir :: string()) ->
+    {true, State :: term()} |
+    false.
+-callback close_log(ServerName :: string(), Type :: auth | access,
+                    Data :: term()) ->
+    ok |
+    {error, Reason :: file:posix() | badarg | terminated}.
+-callback wrap_log(ServerName :: string(), Type :: auth | access,
+                   Data :: term(), LogWrapSize :: pos_integer()) ->
+    term().
+-callback write_log(ServerName :: string(), Type :: auth | access,
+                    Data :: term(),
+                    Infos :: {Ip :: inet:ip_address(),
+                              Req :: #http_request{},
+                              InH :: #headers{},
+                              OutH :: #outh{},
+                              Time :: non_neg_integer()} |
+                             {Ip :: inet:ip_address(),
+                              Path :: string(),
+                              Item :: {ok, User :: string()} |
+                                      403 |
+                                      {401, Realm :: string()} |
+                                      {401, User :: string(),
+                                       PWD :: string()} |
+                                      term()}) ->
+    ok.
+
+
 -record(log, {id, amod, data}).
 
 %%%----------------------------------------------------------------------
 %%% API
 %%%----------------------------------------------------------------------
-behaviour_info(callbacks) ->
-    [{open_log,3}, {close_log,3}, {wrap_log,4}, {write_log,4}];
-behaviour_info(_Other) ->
-    undefined.
-
-
 open_log(SConf, auth, Dir) when ?sc_has_auth_log(SConf) ->
     do_open_log(SConf, auth, Dir);
 open_log(SConf, access, Dir) when ?sc_has_access_log(SConf) ->
@@ -72,7 +92,8 @@ rotate(LogWrapSize) ->
 accesslog(#sconf{servername=Srv}, Ip, Req, InH, OutH, Time) ->
     case ets:lookup(yaws_log, {access, Srv}) of
         [#log{amod=Mod, data=Data}] ->
-            catch Mod:write_log(Srv, access, Data, {Ip, Req, InH, OutH, Time});
+            try Mod:write_log(Srv, access, Data, {Ip, Req, InH, OutH, Time})
+            catch C:E -> {C,E} end;
         _ ->
             ok
     end.
@@ -80,7 +101,8 @@ accesslog(#sconf{servername=Srv}, Ip, Req, InH, OutH, Time) ->
 authlog(#sconf{servername=Srv}, IP, Path, Item) ->
     case ets:lookup(yaws_log, {auth, Srv}) of
         [#log{amod=Mod, data=Data}] ->
-            catch Mod:write_log(Srv, auth, Data, {IP, Path, Item});
+            try Mod:write_log(Srv, auth, Data, {IP, Path, Item})
+            catch C:E -> {C,E} end;
         _ ->
             ok
     end.
@@ -93,12 +115,15 @@ do_open_log(#sconf{servername=Srv, logger_mod=Mod}, Type, Dir) ->
     Id = {Type, Srv},
     case ets:lookup(yaws_log, Id) of
         [] ->
-            case catch Mod:open_log(Srv, Type, Dir) of
+            try Mod:open_log(Srv, Type, Dir) of
                 {true, Data} ->
                     AL = #log{id={Type, Srv}, amod=Mod, data=Data},
                     ets:insert(yaws_log, AL),
                     true;
                 _ ->
+                    false
+            catch
+                _:_ ->
                     false
             end;
         _ ->
@@ -109,8 +134,8 @@ do_open_log(#sconf{servername=Srv, logger_mod=Mod}, Type, Dir) ->
 
 
 do_close_log(#log{id={Type, Srv}, amod=Mod, data=Data}) ->
-    catch Mod:close_log(Srv, Type, Data).
-
+    try Mod:close_log(Srv, Type, Data)
+    catch C:E -> {C,E} end.
 
 do_close_logs('$end_of_table') ->
     ok;

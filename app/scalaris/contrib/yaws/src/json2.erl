@@ -16,7 +16,7 @@
 
 -module(json2).
 -export([encode/1, decode_string/1, decode/2]).
--export([is_obj/1, obj_new/0, obj_fetch/2, obj_find/2, obj_is_key/2]).
+-export([is_obj/1, obj_new/0, obj_fetch/2, obj_fetch/3, obj_find/2, obj_is_key/2]).
 -export([obj_store/3, obj_from_list/1, obj_fold/3]).
 -export([test/0]).
 -author("Jim Larson <jalarson@amazon.com>, Robert Wai-Chi Chu <robchu@amazon.com>").
@@ -463,17 +463,22 @@ decode(Continuation, CharList) ->
     get_token(OldChars ++ CharList, Kt).
 
 first_continuation() ->
-    {[], fun
-             (eof, Cs) ->
+    {[], fun(eof, Cs) ->
                  {done, eof, Cs};
-             (T, Cs) ->
-                 Fun = fun(V, eof)   -> {done, {ok, V}, eof};
-                          (V, [])    -> {done, {ok, V}, []};
-                          (V, [eof]) -> {done, {ok, V}, [eof]};
-                          (_, Cs2)   -> {done, {error, invalid_trailing_data}, Cs2}
+            (T, Cs) ->
+                 Fun = fun CheckTrailer(V, eof) -> {done, {ok, V}, eof};
+                           CheckTrailer(V, []) -> {done, {ok, V}, []};
+                           CheckTrailer(V, [eof]) -> {done, {ok, V}, [eof]};
+                           %% skip trailing whitespace
+                           CheckTrailer(V, [$\s|Cs2]) -> CheckTrailer(V, Cs2);
+                           CheckTrailer(V, [$\t|Cs2]) -> CheckTrailer(V, Cs2);
+                           CheckTrailer(V, [$\n|Cs2]) -> CheckTrailer(V, Cs2);
+                           CheckTrailer(V, [$\r|Cs2]) -> CheckTrailer(V, Cs2);
+                           CheckTrailer(_, Cs2) ->
+                               {done, {error, invalid_trailing_data}, Cs2}
                        end,
                  parse_value(T, Cs, Fun)
-    end}.
+         end}.
 
 %% Continuation Kt must accept (TokenOrEof, Chars)
 
@@ -596,7 +601,7 @@ obj_new() ->
     {struct, []}.
 
 %% Fetch an object member's value, expecting it to be in the object.
-%% Return value, runtime error if no member found with that name.
+%% Return value, or runtime error if no member found with that name.
 
 obj_fetch(Key, {struct, Props}) when is_list(Props) ->
     case proplists:get_value(Key, Props) of
@@ -605,6 +610,19 @@ obj_fetch(Key, {struct, Props}) when is_list(Props) ->
         Value ->
             Value
     end.
+
+
+%% Fetch an object member's value if the member exists. Return value
+%% if found, or default if no member found with that name.
+
+obj_fetch(Key, {struct, Props}, Default) when is_list(Props) ->
+    case proplists:get_value(Key, Props) of
+        undefined ->
+            Default;
+        Value ->
+            Value
+    end.
+
 
 %% Fetch an object member's value, or indicate that there is no such member.
 %% Return {ok, Value} or 'error'.
@@ -668,21 +686,31 @@ test() ->
     Failures =
         lists:foldl(
           fun({E, J}, Fs) ->
-                  case (catch test_e2j(E, J)) of
+                  try test_e2j(E, J) of
                       ok ->
-                          case (catch round_trip(E)) of
+                          try round_trip(E) of
                               ok ->
-                                  case (catch round_trip_one_char(E)) of
+                                  try round_trip_one_char(E) of
                                       ok ->
                                           Fs;
                                       Reason ->
                                           [{round_trip_one_char, E, Reason} |
                                            Fs]
+                                  catch
+                                      _:Reason ->
+                                          [{round_trip_one_char, E, Reason} |
+                                           Fs]
                                   end;
                               Reason ->
                                   [{round_trip, E, Reason} | Fs]
+                          catch
+                              _:Reason ->
+                                  [{round_trip, E, Reason} | Fs]
                           end;
                       Reason ->
+                          [{erlang_to_json, E, J, Reason} | Fs]
+                  catch
+                      _:Reason ->
                           [{erlang_to_json, E, J, Reason} | Fs]
                   end;
              (end_of_tests, Fs) ->

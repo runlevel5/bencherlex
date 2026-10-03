@@ -398,7 +398,19 @@ addSchemas([Xsd| Tail], AccModel, Options, ImportList) ->
 %%% Get a file from an URL spec.
 %%% --------------------------------------------------------------------
 get_url_file("http://"++_ = URL) ->
-    case httpc:request(URL) of
+    get_remote_url_file(URL);
+get_url_file("https://"++_ = URL) ->
+    get_remote_url_file(URL);
+get_url_file("file://"++Fname) ->
+    get_url_file(Fname);
+%% added this, since this is what is used in many WSDLs (i.e.: just a filename).
+get_url_file(Fname) ->
+    {ok, Bin} = file:read_file(Fname),
+    {ok, binary_to_list(Bin)}.
+
+get_remote_url_file(URL) ->
+    HttpOptions = [{ssl, [{verify, verify_none}]}],
+    case httpc:request(get, {URL, []}, HttpOptions, []) of
         {ok,{{_HTTP,200,_OK}, _Headers, Body}} ->
             {ok, Body};
         {ok,{{_HTTP,RC,Emsg}, _Headers, _Body}} ->
@@ -409,15 +421,7 @@ get_url_file("http://"++_ = URL) ->
             error_logger:error_msg("~p: http-request failed: ~p~n",
                                    [?MODULE, Reason]),
             {error, "failed to retrieve: "++URL}
-    end;
-get_url_file("file://"++Fname) ->
-    {ok, Bin} = file:read_file(Fname),
-    {ok, binary_to_list(Bin)};
-%% added this, since this is what is used in many WSDLs (i.e.: just a filename).
-get_url_file(Fname) ->
-    {ok, Bin} = file:read_file(Fname),
-    {ok, binary_to_list(Bin)}.
-
+    end.
 
 %%% --------------------------------------------------------------------
 %%% Make a HTTP Request
@@ -444,11 +448,13 @@ inets_request(URL, SoapAction, Request, Options, Headers, ContentType) ->
                  end,
     NewOptions = [{cookies, enabled}|Options],
     httpc:set_options(NewOptions),
+    HttpOptions = [{timeout,?HTTP_REQ_TIMEOUT},
+                   {ssl, [{verify, verify_none}]}],
     case httpc:request(post,
                        {URL,NewHeaders,
                         ContentType,
                         Request},
-                       [{timeout,?HTTP_REQ_TIMEOUT}],
+                       HttpOptions,
                        [{sync, true}, {full_result, true},
                         {body_format, string}]) of
         {ok,{{_HTTP,200,_OK},ResponseHeaders,ResponseBody}} ->

@@ -8,7 +8,6 @@
 -module(yaws_shaper).
 -author('christopher@yakaz.com').
 
-
 -export([behaviour_info/1]).
 
 %% API
@@ -35,12 +34,15 @@ behaviour_info(_Other) ->
 check(#sconf{shaper=undefined}, _) ->
     allow;
 check(#sconf{shaper=Mod}, IP) ->
-    case catch Mod:check(IP) of
+    try Mod:check(IP) of
         allow ->
             allow;
         {deny, Status, Msg} ->
             {deny, Status, Msg};
         _ ->
+            allow
+    catch
+        _:_ ->
             allow
     end.
 
@@ -59,4 +61,4 @@ update(#sconf{shaper=Mod}, IP, Req) ->
                         I2 -> I2
                     end
             end,
-    catch Mod:update(IP, 1, Bytes).
+    Mod:update(IP, 1, Bytes).

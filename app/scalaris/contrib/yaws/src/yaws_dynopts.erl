@@ -4,85 +4,109 @@
 -include("../include/yaws_api.hrl").
 
 -export([
-         have_ssl_honor_cipher_order/0,
-         have_ssl_client_renegotiation/0,
-         have_ssl_sni/0,
-         have_ssl_log_alert/0,
-         have_erlang_sendfile/0,
-         have_crypto_strong_rand_bytes/0,
-         have_erlang_now/0,
-         have_rand/0,
+         have_http_uri_parse/0,
+         have_safe_relative_path/0,
 
-         rand_bytes/1,
-         unique_triple/0,
-         get_time_tuple/0,
-         now_secs/0,
-         random_seed/3,
-         random_uniform/1,
+         http_uri_parse/1,
+         safe_relative_path/2,
 
+         secure_renegotiate_default/0,
+
+         start_error_logger/0,
          generate/1,
+         purge_old_code/0,
          is_generated/0
         ]).
 
 -export([is_greater/2, is_less/2,
          is_greater_or_equal/2, is_less_or_equal/2]).
 
-%% SSL option honor_cipher_order was added in release 17 (ERTS >= 6.0)
-have_ssl_honor_cipher_order() ->
-    is_greater_or_equal(erlang:system_info(version), "6.0").
+-if(?OTP_RELEASE >= 29).
+secure_renegotiate_default() ->
+    undefined.
+-else.
+secure_renegotiate_default() ->
+    false.
+-endif.
 
-%% SSL option client_renegotiation was added in release 18 (ERTS >= 7.0)
-have_ssl_client_renegotiation() ->
-    is_greater_or_equal(erlang:system_info(version), "7.0").
+%% safe_relative_path was added in release 23 (ERTS >= 11.0)
+have_safe_relative_path() ->
+    is_greater_or_equal(erlang:system_info(version), "11.0").
 
-%% SSL sni support was added in release 18  (ERTS >= 7.0)
-have_ssl_sni() ->
-    is_greater_or_equal(erlang:system_info(version), "7.0").
+%% TODO: remove this conditional once support for OTP < 23 is dropped
+-if(?OTP_RELEASE >= 23).
 
-%% SSL option log_alert SSL was added in R16B02 (ERTS >= 5.10.3)
-have_ssl_log_alert() ->
-    is_greater_or_equal(erlang:system_info(version), "5.10.3").
+%% http_uri is legacy as of release 23
+have_http_uri_parse() ->
+    false.
 
-%% erlang:sendfile/5 is buggy for R15 & R16 releases (ERTS < 6.0)
-have_erlang_sendfile() ->
-    is_greater_or_equal(erlang:system_info(version), "6.0").
-
-%% crypto:rand_bytes/1 is deprecated since releases 19 (ERTS >= 8.0)
-have_crypto_strong_rand_bytes() ->
-    lists:member({strong_rand_bytes, 1}, crypto:module_info(exports)).
-
-%% erlang:now/0 is deprecated since releases 18 (ERTS >= 7.0)
-have_erlang_now() ->
-    is_less(erlang:system_info(version), "7.0").
-
-%% random module is deprecated since releases 19 (ERTS >= 8.0)
-have_rand() ->
-    (code:which(rand) /= non_existing).
-
-rand_bytes(N) ->
-    crypto:strong_rand_bytes(N).
-
-unique_triple() ->
-    erlang:now().
-
-get_time_tuple() ->
-    erlang:now().
-
-now_secs() ->
-    {M,S,_} = erlang:now(),
-    (M*1000000)+S.
-
-random_seed(A,B,C) ->
-    case have_rand() of
-        true  -> rand:seed(exsplus, {A,B,C});
-        false -> (fun random:seed/3)(A,B,C)
+http_uri_parse(Uri) ->
+    case uri_string:parse(Uri) of
+        {error, _, _} = Error -> Error;
+        UriMap ->
+            Scheme = case maps:find(scheme, UriMap) of
+                         {ok, S} -> list_to_existing_atom(S);
+                         error -> ''
+                     end,
+            UserInfo = case maps:find(userinfo, UriMap) of
+                           {ok, U} -> U;
+                           error -> ""
+                       end,
+            Host = case maps:find(host, UriMap) of
+                       {ok, H} -> H;
+                       error -> ""
+                   end,
+            Port = case maps:find(port, UriMap) of
+                       {ok, Po} -> Po;
+                       error ->
+                           case Scheme of
+                               http -> 80;
+                               https -> 443;
+                               _ -> undefined
+                           end
+                   end,
+            Path = case maps:find(path, UriMap) of
+                       {ok, Pa} -> Pa;
+                       error -> ""
+                   end,
+            Query = case maps:find(query, UriMap) of
+                        {ok, Q} -> [$? | Q];
+                        error -> ""
+                    end,
+            {ok, {Scheme, UserInfo, Host, Port, Path, Query}}
     end.
 
-random_uniform(N) ->
-    case have_rand() of
-        true  -> rand:uniform(N);
-        false -> (fun random:uniform/1)(N)
+-else.
+
+have_http_uri_parse() ->
+    true.
+
+http_uri_parse(Uri) ->
+    http_uri:parse(Uri).
+
+-endif.
+
+safe_relative_path(File, Cwd) ->
+    case have_safe_relative_path() of
+        true -> filelib_safe_relative_path_2(File, Cwd);
+        false -> yaws:safe_rel_path(File, Cwd)
     end.
+
+%% Make dialyzer happy, don't call filelib:safe_relative_path/2 for OTP < 23.
+-ifdef(OTP_RELEASE).
+  -if(?OTP_RELEASE >= 23).
+filelib_safe_relative_path_2(File, Cwd) ->
+    (fun filelib:safe_relative_path/2)(File, Cwd).
+  -else.
+%% This will never happen, but fallback if it happens anyway.
+filelib_safe_relative_path_2(File, Cwd) ->
+    yaws:safe_rel_path(File, Cwd).
+  -endif.
+-else.
+%% This will never happen, but fallback if it happens anyway.
+filelib_safe_relative_path_2(File, Cwd) ->
+    yaws:safe_rel_path(File, Cwd).
+-endif.
 
 is_greater         (Vsn1, Vsn2) -> compare_version(Vsn1, Vsn2) == greater.
 is_less            (Vsn1, Vsn2) -> compare_version(Vsn1, Vsn2) == less.
@@ -96,22 +120,36 @@ compare_version(Vsn1, Vsn2) ->
 
 compare_version1([], []) ->
     equal;
-compare_version1([X|Rest1], [X|Rest2]) ->
-    compare_version1(Rest1, Rest2);
+compare_version1(_X, []) ->
+    greater;
+compare_version1([], _X) ->
+    less;
 compare_version1([X1], [X2]) ->
     %% For last digit ignore everything after the "-", if any
     Y1 = lists:takewhile(fun(X) -> X /= $- end, X1),
     Y2 = lists:takewhile(fun(X) -> X /= $- end, X2),
     compare_digit(Y1, Y2);
+compare_version1([X1], [X2|_]) ->
+    %% For last digit ignore everything after the "-", if any
+    Y1 = lists:takewhile(fun(X) -> X /= $- end, X1),
+    case compare_digit(Y1, X2) of
+        equal -> less;
+        Else  -> Else
+    end;
+compare_version1([X1|_], [X2]) ->
+    %% For last digit ignore everything after the "-", if any
+    Y2 = lists:takewhile(fun(X) -> X /= $- end, X2),
+    case compare_digit(X1, Y2) of
+        equal -> greater;
+        Else  -> Else
+    end;
+compare_version1([X|Rest1], [X|Rest2]) ->
+    compare_version1(Rest1, Rest2);
 compare_version1([X1|Rest1], [X2|Rest2]) ->
     case compare_digit(X1, X2) of
         equal -> compare_version1(Rest1, Rest2);
         Else  -> Else
-    end;
-compare_version1(_X, []) ->
-    greater;
-compare_version1([], _X) ->
-    less.
+    end.
 
 compare_digit(X, X) ->
     equal;
@@ -126,13 +164,32 @@ compare_digit(X1, X2) ->
     end.
 
 %% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+start_error_logger() ->
+    case logger:get_handler_config(error_logger) of
+        {ok, _} -> ok;
+        {error, _} ->
+            logger:add_handler(error_logger, error_logger,
+                               #{level => info, filter_default => log,
+                                 filters => []})
+    end.
+
 is_generated() -> false.
+
+purge_old_code() -> not_necessary.
 
 generate(GC) ->
     code:ensure_loaded(crypto),
     code:ensure_loaded(inet),
+    TmpDir = case os:getenv("TMPDIR") of
+                 false ->
+                     case os:getenv("TEMPDIR") of
+                         false -> "/tmp";
+                         Temp -> Temp
+                     end;
+                 Tmp -> Tmp
+             end,
     case {filelib:is_dir(yaws:id_dir(GC#gconf.id)),
-          filelib:is_dir(yaws:tmpdir("/tmp"))} of
+          filelib:is_dir(yaws:tmpdir(TmpDir))} of
         {true, _} ->
             File = filename:join(yaws:id_dir(GC#gconf.id), "yaws_dynopts.erl"),
             generate1(File);
@@ -140,6 +197,7 @@ generate(GC) ->
             File = filename:join(yaws:tmpdir("/tmp"), "yaws_dynopts.erl"),
             generate1(File);
         _ ->
+            start_error_logger(),
             error_logger:format("Cannot write yaws_dynopts.erl~n"
                                 "Use the default version~n", [])
     end.
@@ -154,53 +212,47 @@ generate1(ModFile) ->
                         {module, ModName} ->
                             ok;
                         {error, What} ->
+                            start_error_logger(),
                             error_logger:format(
                               "Cannot load module '~p': ~p~n"
                               "Use the default version~n",
                               [ModName, What]
                              )
                     end;
-                _ ->
-                    error_logger:format("Compilation of '~p' failed: ~p~n"
-                                        "Use the default version~n",
+                {error, Errors, _} ->
+                    start_error_logger(),
+                    lists:foreach(
+                      fun({File,FileErrors}) ->
+                              lists:foreach(
+                                fun({Line,ErrorMod,ErrorDesc}) ->
+                                        error_logger:format(
+                                          "~s:~w: ~s~n",
+                                          [File, Line,
+                                           ErrorMod:format_error(ErrorDesc)])
+                                end, FileErrors)
+                      end, Errors),
+                    error_logger:format("Use the default version of ~s~n",
                                         [ModFile])
             end;
         {error, Reason} ->
+            start_error_logger(),
             error_logger:format("Cannot write ~p: ~p~n"
                                 "Use the default version~n", [ModFile, Reason])
     end.
 
 write_module(ModFile) ->
-    case file:open(ModFile, [write]) of
-        {ok, Fd} ->
-            io:format(Fd, source(), []),
-            file:close(Fd),
-            ok;
-        {error, Reason} ->
-            {error, Reason}
-    end.
+    file:write_file(ModFile, source()).
 
 compile_options() ->
-    [binary, report,
-     {d, 'HAVE_SSL_HONOR_CIPHER_ORDER',    have_ssl_honor_cipher_order()},
-     {d, 'HAVE_SSL_CLIENT_RENEGOTIATION',  have_ssl_client_renegotiation()},
-     {d, 'HAVE_SSL_SNI',                   have_ssl_sni()},
-     {d, 'HAVE_SSL_LOG_ALERT',             have_ssl_log_alert()},
-     {d, 'HAVE_ERLANG_SENDFILE',           have_erlang_sendfile()}
-    ]
+    [binary, report, return_errors]
         ++
-        case have_crypto_strong_rand_bytes() of
-            true  -> [{d, 'HAVE_CRYPTO_STRONG_RAND_BYTES'}];
+        case have_http_uri_parse() of
+            true -> [{d, 'HAVE_HTTP_URI_PARSE'}];
             false -> []
         end
         ++
-        case have_erlang_now() of
-            true  -> [{d, 'HAVE_ERLANG_NOW'}];
-            false -> []
-        end
-        ++
-        case have_rand() of
-            true  -> [{d, 'HAVE_RAND'}];
+        case have_safe_relative_path() of
+            true -> [{d, 'HAVE_SAFE_RELATIVE_PATH'}];
             false -> []
         end.
 
@@ -213,75 +265,90 @@ source() ->
            "-include(\"" ++ filename:join(IncDir, "yaws_api.hrl") ++ "\").",
            "",
            "-export([",
-           "    have_ssl_honor_cipher_order/0,",
-           "    have_ssl_client_renegotiation/0,",
-           "    have_ssl_sni/0,",
-           "    have_ssl_log_alert/0,",
-           "    have_erlang_sendfile/0,",
-           "    have_crypto_strong_rand_bytes/0,",
-           "    have_erlang_now/0,",
-           "    have_rand/0,"
+           "    have_http_uri_parse/0,",
+           "    have_safe_relative_path/0,",
            "",
-           "    rand_bytes/1,",
-           "    unique_triple/0,",
-           "    get_time_tuple/0,",
-           "    now_secs/0,",
-           "    random_seed/3,",
-           "    random_uniform/1,",
+           "    http_uri_parse/1,",
+           "    safe_relative_path/2,",
            "",
+           "    secure_renegotiate_default/0,",
+           "",
+           "    start_error_logger/0,",
            "    generate/1,",
+           "    purge_old_code/0,",
            "    is_generated/0",
            "   ]).",
            "",
            "",
+           "start_error_logger() ->",
+           "    case logger:get_handler_config(error_logger) of",
+           "        {ok, _} -> ok;",
+           "        {error, _} ->",
+           "            logger:add_handler(error_logger, error_logger,",
+           "                               #{level => info, filter_default => log,"
+           "                                 filters => []})",
+           "    end.",
            "generate(_) -> ok.",
+           "purge_old_code() -> code:soft_purge(?MODULE).",
            "is_generated() -> true.",
            "",
-           "have_ssl_honor_cipher_order()   -> ?HAVE_SSL_HONOR_CIPHER_ORDER.",
-           "have_ssl_client_renegotiation() -> ?HAVE_SSL_CLIENT_RENEGOTIATION.",
-           "have_ssl_sni()                  -> ?HAVE_SSL_SNI.",
-           "have_ssl_log_alert()            -> ?HAVE_SSL_LOG_ALERT.",
-           "have_erlang_sendfile()          -> ?HAVE_ERLANG_SENDFILE.",
-           "",
-           "-ifdef(HAVE_CRYPTO_STRONG_RAND_BYTES).",
-           "have_crypto_strong_rand_bytes() -> true.",
-           "rand_bytes(N) -> crypto:strong_rand_bytes(N).",
+           "-if(?OTP_RELEASE >= 29).",
+           "secure_renegotiate_default() ->",
+           "    undefined.",
            "-else.",
-           "have_crypto_strong_rand_bytes() -> false.",
-           "rand_bytes(N) -> crypto:rand_bytes(N).",
-           "-endif.",
-           ""
-           "-ifdef(HAVE_ERLANG_NOW).",
-           "have_erlang_now() -> true.",
-           "unique_triple() ->",
-           "    now().",
-           "get_time_tuple() ->",
-           "    now().",
-           "now_secs() ->",
-           "    {M,S,_} = now(),",
-           "    (M*1000000)+S.",
-           "-else.",
-           "have_erlang_now() -> false.",
-           "unique_triple() ->",
-           "    {erlang:unique_integer([positive]),",
-           "     erlang:unique_integer([positive]),",
-           "     erlang:unique_integer([positive])}.",
-           "get_time_tuple() ->",
-           "    erlang:timestamp().",
-           "now_secs() ->",
-           "    {M,S,_} = erlang:timestamp(),",
-           "    (M*1000000)+S.",
+           "secure_renegotiate_default() ->",
+           "    false.",
            "-endif.",
            "",
-           "-ifdef(HAVE_RAND).",
-           "have_rand() -> true.",
-           "random_seed(A,B,C) -> rand:seed(exsplus, {A,B,C}).",
-           "random_uniform(N)  -> rand:uniform(N).",
+           "-ifdef(HAVE_HTTP_URI_PARSE).",
+           "have_http_uri_parse() -> true.",
+           "http_uri_parse(Uri) -> http_uri:parse(Uri).",
            "-else.",
-           "have_rand() -> false.",
-           "random_seed(A,B,C) -> random:seed(A,B,C).",
-           "random_uniform(N)  -> random:uniform(N).",
+           "have_http_uri_parse() -> false.",
+           "http_uri_parse(Uri) ->",
+           "    case uri_string:parse(Uri) of",
+           "        {error,_,_}=Error -> Error;",
+           "        UriMap ->",
+           "            Scheme = case maps:find(scheme, UriMap) of",
+           "                         {ok, S} -> list_to_existing_atom(S);",
+           "                         error -> ''",
+           "                     end,",
+           "            UserInfo = case maps:find(userinfo, UriMap) of",
+           "                           {ok, U} -> U;",
+           "                           error -> []",
+           "                       end,",
+           "            Host = case maps:find(host, UriMap) of",
+           "                       {ok, H} -> H;",
+           "                       error -> []",
+           "                   end,",
+           "            Port = case maps:find(port, UriMap) of",
+           "                       {ok, Po} -> Po;",
+           "                       error ->",
+           "                           case Scheme of",
+           "                               http -> 80;",
+           "                               https -> 443;",
+           "                               _ -> undefined",
+           "                           end",
+           "                   end,",
+           "            Path = case maps:find(path, UriMap) of",
+           "                       {ok, Pa} -> Pa;",
+           "                       error -> []",
+           "                   end,",
+           "            Query = case maps:find(query, UriMap) of",
+           "                        {ok, Q} -> [$?|Q];",
+           "                        error -> []",
+           "                    end,",
+           "            {ok, {Scheme, UserInfo, Host, Port, Path, Query}}",
+           "    end.",
            "-endif.",
-           ""
+           "-ifdef(HAVE_SAFE_RELATIVE_PATH).",
+           "have_safe_relative_path() -> true.",
+           "safe_relative_path(Filename, Cwd) ->",
+           "    filelib:safe_relative_path(Filename, Cwd).",
+           "-else.",
+           "have_safe_relative_path() -> false.",
+           "safe_relative_path(File, Cwd) ->",
+           "    yaws:safe_rel_path(File, Cwd).",
+           "-endif."
           ],
     string:join(Src, "\n").

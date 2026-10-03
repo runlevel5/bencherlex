@@ -7,7 +7,7 @@
 -module('yaws_html').
 -author('jb@bevemyr.com').
 
--export([parse/1,parse/2,h2e/1]).
+-export([parse/1,parse/2,h2e/1,tag_type/1]).
 
 parse(Name) ->
     {ok, B} = file:read_file(Name),
@@ -71,15 +71,22 @@ parse([{data, Data, _Line}|Tokens], CTag, Stack, Acc) ->
     end.
 %%
 
-tag_type(p)          -> leaf;
-tag_type(hr)         -> leaf;
-tag_type(input)      -> leaf;
+tag_type(area)       -> leaf;
 tag_type(base)       -> leaf;
-tag_type(img)        -> leaf;
-tag_type('!doctype') -> leaf;
-tag_type(meta)       -> leaf;
-tag_type(link)       -> leaf;
 tag_type(br)         -> leaf;
+tag_type(col)        -> leaf;
+tag_type(embed)      -> leaf;
+tag_type(hr)         -> leaf;
+tag_type(img)        -> leaf;
+tag_type(input)      -> leaf;
+tag_type(keygen)     -> leaf;
+tag_type(link)       -> leaf;
+tag_type(meta)       -> leaf;
+tag_type(param)      -> leaf;
+tag_type(source)     -> leaf;
+tag_type(track)      -> leaf;
+tag_type(wbr)        -> leaf;
+tag_type('!doctype') -> leaf;
 tag_type(_)          -> node.
 
 %% tokenize(Input, DataAcc, TokenAcc, LineNr)
@@ -100,9 +107,9 @@ tokenize([$<|R0], Acc, Tokens, L0) ->
             Data = {data,lists:reverse(Acc),L0},
             next_token(Tag, R1, [Tag,Data|Tokens], L1)
     end;
-tokenize([C=$\n|R0], Acc, Tokens, L) ->
-    tokenize(R0, [C|Acc], Tokens, L+1);
-tokenize([C=$\r|R0], Acc, Tokens, L) ->
+tokenize([$\r,$\n|R0], Acc, Tokens, L) ->
+    tokenize(R0, [$\n,$\r|Acc], Tokens, L+1);
+tokenize([C|R0], Acc, Tokens, L) when C=:=$\n; C=:=$\r ->
     tokenize(R0, [C|Acc], Tokens, L+1);
 tokenize([C|R0], Acc, Tokens, L) ->
     tokenize(R0, [C|Acc], Tokens, L).
@@ -176,21 +183,16 @@ scan_value(R, L) ->
 
 scan_token([], Acc, L) ->
     {lists:reverse(Acc), [], L};
-scan_token(R=[$>|_], Acc, L) ->
+scan_token([$\r,$\n|R], Acc, L) ->
+    {lists:reverse(Acc), R, L+1};
+scan_token([C|R], Acc, L) when C=:=$\n; C=:=$\r ->
+    {lists:reverse(Acc), R, L+1};
+scan_token([C|R], Acc, L) when C=:=$\s; C=:=$\t ->
     {lists:reverse(Acc), R, L};
-scan_token(R=[$<|_], Acc, L) ->  %%% bad html
+scan_token(R=[C|_], Acc, L) when C=:=$>; C=:=$<; C=:=$= ->
     {lists:reverse(Acc), R, L};
-scan_token(R=[$=|_], Acc, L) ->  %% bad html
-    {lists:reverse(Acc), R, L};
-scan_token([C|R], Acc, L0) ->
-    case char_class(C) of
-        space ->
-            {lists:reverse(Acc), R, L0};
-        nl ->
-            {lists:reverse(Acc), R, L0+1};
-        _ ->
-            scan_token(R, [C|Acc], L0)
-    end.
+scan_token([C|R], Acc, L) ->
+    scan_token(R, [C|Acc], L).
 
 %%
 
@@ -198,9 +200,9 @@ scan_quote([], Acc, _Q, L) ->
     {lists:reverse(Acc), [], L};
 scan_quote([Q|R], Acc, Q, L) ->
     {lists:reverse(Acc), R, L};
-scan_quote([C=$\n|R], Acc, Q, L) ->
-    scan_quote(R, [C|Acc], Q, L+1);
-scan_quote([C=$\r|R], Acc, Q, L) ->
+scan_quote([$\r,$\n|R], Acc, Q, L) ->
+    scan_quote(R, [$\n,$\r|Acc], Q, L+1);
+scan_quote([C|R], Acc, Q, L) when C=:=$\n; C=:=$\r ->
     scan_quote(R, [C|Acc], Q, L+1);
 scan_quote([C|R], Acc, Q, L) ->
     scan_quote(R, [C|Acc], Q, L).
@@ -212,6 +214,10 @@ scan_endtag(R, Tag, L) ->
 
 scan_endtag([], _Tag, Acc, L) ->
     {lists:reverse(Acc), [], L};
+scan_endtag([$\r,$\n|R], Tag, Acc, L) ->
+    scan_endtag(R, Tag, [$\n,$\r|Acc], L+1);
+scan_endtag([C|R], Tag, Acc, L) when C=:=$\n; C=:=$\r ->
+    scan_endtag(R, Tag, [C|Acc], L+1);
 scan_endtag(R=[$<,$/|R0], Tag, Acc, L0) ->
     case casecmp(Tag, R0) of
         {true, R1} ->
@@ -224,54 +230,45 @@ scan_endtag(R=[$<,$/|R0], Tag, Acc, L0) ->
         false ->
             scan_endtag(R0, Tag, Acc, L0)
     end;
-scan_endtag([C=$\n|R], Tag, Acc, L) ->
-    scan_endtag(R, Tag, [C|Acc], L+1);
-scan_endtag([C=$\r|R], Tag, Acc, L) ->
-    scan_endtag(R, Tag, [C|Acc], L+1);
 scan_endtag([C|R], Tag, Acc, L) ->
     scan_endtag(R, Tag, [C|Acc], L).
 
 %%
 
-casecmp([], R) -> {true, R};
-casecmp([C1|T1], [C2|T2]) ->
-    C2low = lowercase_ch(C2),
-    if C1 == C2low -> casecmp(T1,T2);
-       true        -> false
-    end.
+casecmp([], R) ->
+    {true, R};
+casecmp([C|T1], [C|T2]) ->
+    casecmp(T1, T2);
+casecmp([C1|T1], [C2|T2]) when C1>=$a, C1=<$z, C1=:=(C2-$A+$a) ->
+    casecmp(T1, T2);
+casecmp([C1|T1], [C2|T2]) when C2>=$a, C2=<$z, C2=:=(C1-$A+$a) ->
+    casecmp(T1, T2);
+casecmp(_L1, _L2) ->
+    false.
 
 %%
 
-char_class($\n) -> nl;
-char_class($\r) -> nl;
-char_class($ )  -> space;
-char_class($\t) -> space;
-char_class(C) when C >= $a, C =< $z -> alpha;
-char_class(C) when C >= $A, C =< $Z -> alpha;
-char_class(C) when C >= $0, C =< $9 -> digit;
-char_class(_C)   -> other.
+skip_space([$\r,$\n|R], L) ->
+    skip_space(R, L+1);
+skip_space([C|R], L) when C=:=$\n; C=:=$\r ->
+    skip_space(R, L+1);
+skip_space([C|R], L) when C=:=$\s; C=:=$\t ->
+    skip_space(R, L);
+skip_space(R, L) ->
+    {R, L}.
 
 %%
 
-skip_space([], L) ->
+skip_comment([], L) ->
     {[], L};
-skip_space(R = [C|R0], L) ->
-    case char_class(C) of
-        nl ->
-            skip_space(R0, L+1);
-        space ->
-            skip_space(R0, L);
-        _ ->
-            {R, L}
-    end.
-
-%%
-
-skip_comment([], L) ->          {[], L};
-skip_comment([$-,$-,$>|R],L) -> {R,L};
-skip_comment([$\n|R],L) ->      skip_comment(R,L+1);
-skip_comment([$\r|R],L) ->      skip_comment(R,L+1);
-skip_comment([_C|R],L) ->        skip_comment(R,L).
+skip_comment([$-, $-, $>|R], L) ->
+    {R, L};
+skip_comment([$\r,$\n|R], L) ->
+    skip_comment(R, L+1);
+skip_comment([C|R], L) when C=:=$\n; C=:=$\r ->
+    skip_comment(R, L+1);
+skip_comment([_C|R], L) ->
+    skip_comment(R, L).
 
 %%
 

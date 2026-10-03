@@ -26,9 +26,10 @@
          gconf_process_options/1, gconf_large_file_chunk_size/1,
          gconf_mnesia_dir/1, gconf_log_wrap_size/1, gconf_cache_refresh_secs/1,
          gconf_include_dir/1, gconf_phpexe/1, gconf_yaws/1, gconf_id/1,
-         gconf_enable_soap/1, gconf_soap_srv_mods/1, gconf_ysession_mod/1,
+         gconf_enable_soap/1, gconf_soap_srv_mods/1,
          gconf_acceptor_pool_size/1, gconf_mime_types_info/1,
          gconf_nslookup_pref/1,
+         gconf_ysession_mod/1, gconf_ysession_cookiegen/1,
          gconf_ysession_idle_timeout/1, gconf_ysession_long_timeout/1,
          gconf_sni/1]).
 
@@ -40,9 +41,10 @@
          gconf_process_options/2, gconf_large_file_chunk_size/2,
          gconf_mnesia_dir/2, gconf_log_wrap_size/2, gconf_cache_refresh_secs/2,
          gconf_include_dir/2, gconf_phpexe/2, gconf_yaws/2, gconf_id/2,
-         gconf_enable_soap/2, gconf_soap_srv_mods/2, gconf_ysession_mod/2,
+         gconf_enable_soap/2, gconf_soap_srv_mods/2,
          gconf_acceptor_pool_size/2, gconf_mime_types_info/2,
          gconf_nslookup_pref/2,
+         gconf_ysession_mod/2,  gconf_ysession_cookiegen/2,
          gconf_ysession_idle_timeout/2, gconf_ysession_long_timeout/2,
          gconf_sni/2]).
 
@@ -57,7 +59,7 @@
          sconf_spotions/1, sconf_extra_cgi_vars/1, sconf_stats/1,
          sconf_fcgi_app_server/1, sconf_php_handler/1, sconf_shaper/1,
          sconf_deflate_options/1, sconf_mime_types_info/1,
-         sconf_dispatch_mod/1]).
+         sconf_dispatch_mod/1, sconf_extra_resp_headers/1]).
 
 -export([sconf_port/2, sconf_flags/2, sconf_redirect_map/2, sconf_rhost/2,
          sconf_rmethod/2, sconf_docroot/2, sconf_xtra_docroots/2,
@@ -70,7 +72,7 @@
          sconf_spotions/2, sconf_extra_cgi_vars/2, sconf_stats/2,
          sconf_fcgi_app_server/2, sconf_php_handler/2, sconf_shaper/2,
          sconf_deflate_options/2, sconf_mime_types_info/2,
-         sconf_dispatch_mod/2]).
+         sconf_dispatch_mod/2, sconf_extra_resp_headers/2]).
 
 -export([new_auth/0,
          auth_dir/1, auth_dir/2,
@@ -100,7 +102,8 @@
          ssl_client_renegotiation/1, ssl_client_renegotiation/2,
          ssl_protocol_version/1, ssl_protocol_version/2,
          ssl_honor_cipher_order/1, ssl_honor_cipher_order/2,
-         ssl_require_sni/1, ssl_require_sni/2]).
+         ssl_require_sni/1, ssl_require_sni/2,
+         ssl_eccs/1, ssl_eccs/2]).
 
 -export([new_deflate/0,
          deflate_min_compress_size/1, deflate_min_compress_size/2,
@@ -173,9 +176,10 @@
          outh_get_content_encoding_header/0,
          outh_get_content_type/0,
          outh_get_vary_fields/0,
-         outh_serialize/0]).
+         outh_serialize/1]).
 
--export([accumulate_header/1, headers_to_str/1,
+-export([compressible_mime_type/2,
+         accumulate_header/1, headers_to_str/1,
          getuid/0,
          user_to_home/1,
          uid_to_name/1,
@@ -201,7 +205,7 @@
 
 %% Internal
 -export([local_time_as_gmt_string/1, universal_time_as_string/1,
-         stringdate_to_datetime/1]).
+         stringdate_to_datetime/1, safe_rel_path/2]).
 
 start() ->
     ok = start_app_deps(),
@@ -258,14 +262,18 @@ create_sconf(DocRoot, SL) when is_list(DocRoot), is_list(SL) ->
 
 start_app_deps() ->
     Deps = split_sep(?YAWS_APPDEPS, $,),
-    catch lists:foldl(fun(App0, Acc) ->
-                              App = list_to_existing_atom(App0),
-                              case application:start(App, permanent) of
-                                  ok -> Acc;
-                                  {error,{already_started,App}} -> Acc;
-                                  Else -> throw(Else)
-                              end
-                      end, ok, Deps).
+    try lists:foldl(fun(App0, Acc) ->
+                            App = list_to_existing_atom(App0),
+                            case application:start(App, permanent) of
+                                ok -> Acc;
+                                {error,{already_started,App}} -> Acc;
+                                Else -> throw(Else)
+                            end
+                    end, ok, Deps)
+    catch
+        _:Error ->
+            Error
+    end.
 
 %%% Access functions for the GCONF and SCONF records.
 %% Getters
@@ -293,10 +301,11 @@ gconf_yaws                 (#gconf{yaws                  = X}) -> X.
 gconf_id                   (#gconf{id                    = X}) -> X.
 gconf_enable_soap          (#gconf{enable_soap           = X}) -> X.
 gconf_soap_srv_mods        (#gconf{soap_srv_mods         = X}) -> X.
-gconf_ysession_mod         (#gconf{ysession_mod          = X}) -> X.
 gconf_acceptor_pool_size   (#gconf{acceptor_pool_size    = X}) -> X.
 gconf_mime_types_info      (#gconf{mime_types_info       = X}) -> X.
 gconf_nslookup_pref        (#gconf{nslookup_pref         = X}) -> X.
+gconf_ysession_mod         (#gconf{ysession_mod          = X}) -> X.
+gconf_ysession_cookiegen   (#gconf{ysession_cookiegen    = X}) -> X.
 gconf_ysession_idle_timeout(#gconf{ysession_idle_timeout = X}) -> X.
 gconf_ysession_long_timeout(#gconf{ysession_long_timeout = X}) -> X.
 gconf_sni                  (#gconf{sni                   = X}) -> X.
@@ -326,10 +335,11 @@ gconf_yaws                 (S, X) -> S#gconf{yaws                  = X}.
 gconf_id                   (S, X) -> S#gconf{id                    = X}.
 gconf_enable_soap          (S, X) -> S#gconf{enable_soap           = X}.
 gconf_soap_srv_mods        (S, X) -> S#gconf{soap_srv_mods         = X}.
-gconf_ysession_mod         (S, X) -> S#gconf{ysession_mod          = X}.
 gconf_acceptor_pool_size   (S, X) -> S#gconf{acceptor_pool_size    = X}.
 gconf_mime_types_info      (S, X) -> S#gconf{mime_types_info       = X}.
 gconf_nslookup_pref        (S, X) -> S#gconf{nslookup_pref         = X}.
+gconf_ysession_mod         (S, X) -> S#gconf{ysession_mod          = X}.
+gconf_ysession_cookiegen   (S, X) -> S#gconf{ysession_cookiegen    = X}.
 gconf_ysession_idle_timeout(S, X) -> S#gconf{ysession_idle_timeout = X}.
 gconf_ysession_long_timeout(S, X) -> S#gconf{ysession_long_timeout = X}.
 gconf_sni                  (S, X) -> S#gconf{sni                   = X}.
@@ -371,6 +381,7 @@ sconf_shaper               (#sconf{shaper                = X}) -> X.
 sconf_deflate_options      (#sconf{deflate_options       = X}) -> X.
 sconf_mime_types_info      (#sconf{mime_types_info       = X}) -> X.
 sconf_dispatch_mod         (#sconf{dispatch_mod          = X}) -> X.
+sconf_extra_resp_headers   (#sconf{extra_response_headers= X}) -> X.
 
 %% Setters
 sconf_port                 (S, X) -> S#sconf{port                  = X}.
@@ -409,7 +420,7 @@ sconf_shaper               (S, X) -> S#sconf{shaper                = X}.
 sconf_deflate_options      (S, X) -> S#sconf{deflate_options       = X}.
 sconf_mime_types_info      (S, X) -> S#sconf{mime_types_info       = X}.
 sconf_dispatch_mod         (S, X) -> S#sconf{dispatch_mod          = X}.
-
+sconf_extra_resp_headers   (S, X) -> S#sconf{extra_response_headers= X}.
 
 %% Access functions for the AUTH record.
 new_auth() -> #auth{}.
@@ -480,6 +491,7 @@ ssl_client_renegotiation(#ssl{client_renegotiation = X}) -> X.
 ssl_protocol_version    (#ssl{protocol_version     = X}) -> X.
 ssl_honor_cipher_order  (#ssl{honor_cipher_order   = X}) -> X.
 ssl_require_sni         (#ssl{require_sni          = X}) -> X.
+ssl_eccs                (#ssl{eccs                 = X}) -> X.
 
 ssl_keyfile             (S, File)    -> S#ssl{keyfile              = File}.
 ssl_certfile            (S, File)    -> S#ssl{certfile             = File}.
@@ -494,16 +506,9 @@ ssl_cachetimeout        (S, Timeout) -> S#ssl{cachetimeout         = Timeout}.
 ssl_secure_renegotiate  (S, Bool)    -> S#ssl{secure_renegotiate   = Bool}.
 ssl_protocol_version    (S, Vsns)    -> S#ssl{protocol_version     = Vsns}.
 ssl_require_sni         (S, Bool)    -> S#ssl{require_sni          = Bool}.
-ssl_honor_cipher_order  (S, Bool) ->
-    case yaws_dynopts:have_ssl_honor_cipher_order() of
-        true  -> S#ssl{honor_cipher_order   = Bool};
-        false -> S
-    end.
-ssl_client_renegotiation(S, Bool) ->
-    case yaws_dynopts:have_ssl_client_renegotiation() of
-        true  -> S#ssl{client_renegotiation = Bool};
-        false -> S
-    end.
+ssl_eccs                (S, ECCS)    -> S#ssl{eccs                 = ECCS}.
+ssl_honor_cipher_order  (S, Bool)    -> S#ssl{honor_cipher_order   = Bool}.
+ssl_client_renegotiation(S, Bool)    -> S#ssl{client_renegotiation = Bool}.
 
 setup_ssl(SL, DefaultSSL) ->
     case lkup(ssl, SL, undefined) of
@@ -540,7 +545,9 @@ setup_ssl(SL, DefaultSSL) ->
                  protocol_version     = lkup(protocol_version, SSLProps,
                                              undefined),
                  require_sni          = lkup(require_sni, SSLProps,
-                                             SSL#ssl.require_sni)}
+                                             SSL#ssl.require_sni),
+                 eccs                 = lkup(eccs, SSLProps, SSL#ssl.eccs)
+                }
     end.
 
 
@@ -564,6 +571,10 @@ deflate_use_gzip_static  (D, Bool)  -> D#deflate{use_gzip_static   = Bool}.
 deflate_mime_types       (D, Types) -> D#deflate{mime_types        = Types}.
 
 
+setup_deflate(SL, undefined, true) ->
+    setup_deflate(SL, #deflate{});
+setup_deflate(SL, DefaultDeflate, _) ->
+    setup_deflate(SL, DefaultDeflate).
 setup_deflate(SL, DefaultDeflate) ->
     case lkup(deflate_options, SL, undefined) of
         undefined ->
@@ -672,8 +683,6 @@ setup_gconf(GL, GC) ->
            enable_soap           = lkup(enable_soap, GL, GC#gconf.enable_soap),
            soap_srv_mods         = lkup(soap_srv_mods, GL,
                                         GC#gconf.soap_srv_mods),
-           ysession_mod          = lkup(ysession_mod, GL,
-                                        GC#gconf.ysession_mod),
            acceptor_pool_size    = lkup(acceptor_pool_size, GL,
                                         GC#gconf.acceptor_pool_size),
            mime_types_info       = setup_mime_types_info(
@@ -681,6 +690,14 @@ setup_gconf(GL, GC) ->
                                     ),
            nslookup_pref         = lkup(nslookup_pref, GL,
                                         GC#gconf.nslookup_pref),
+           ysession_mod          = lkup(ysession_mod, GL,
+                                        GC#gconf.ysession_mod),
+           ysession_cookiegen    = lkup(ysession_cookiegen, GL,
+                                        GC#gconf.ysession_cookiegen),
+           ysession_idle_timeout = lkup(ysession_idle_timeout, GL,
+                                        GC#gconf.ysession_idle_timeout),
+           ysession_long_timeout = lkup(ysession_long_timeout, GL,
+                                        GC#gconf.ysession_long_timeout),
            sni                   = lkup(sni, GL, GC#gconf.sni)
           }.
 
@@ -700,10 +717,6 @@ set_gc_flags([{fail_on_bind_err, Bool}|T], Flags) ->
     set_gc_flags(T, flag(Flags,?GC_FAIL_ON_BIND_ERR,Bool));
 set_gc_flags([{pick_first_virthost_on_nomatch, Bool}|T], Flags) ->
     set_gc_flags(T, flag(Flags, ?GC_PICK_FIRST_VIRTHOST_ON_NOMATCH,Bool));
-set_gc_flags([{use_erlang_sendfile, Bool}|T], Flags) ->
-    set_gc_flags(T, flag(Flags,?GC_USE_ERLANG_SENDFILE,Bool));
-set_gc_flags([{use_yaws_sendfile, Bool}|T], Flags) ->
-    set_gc_flags(T, flag(Flags,?GC_USE_YAWS_SENDFILE,Bool));
 set_gc_flags([_|T], Flags) ->
     set_gc_flags(T, Flags);
 set_gc_flags([], Flags) ->
@@ -712,9 +725,9 @@ set_gc_flags([], Flags) ->
 
 %% Setup vhost configuration
 setup_sconf(SL, SC) ->
+    Flags = set_sc_flags(lkup(flags, SL, []), SC#sconf.flags),
     #sconf{port                  = lkup(port, SL, SC#sconf.port),
-           flags                 = set_sc_flags(lkup(flags, SL, []),
-                                                SC#sconf.flags),
+           flags                 = Flags,
            redirect_map          = lkup(redirect_map, SL,
                                         SC#sconf.redirect_map),
            rhost                 = lkup(rhost, SL, SC#sconf.rhost),
@@ -758,11 +771,14 @@ setup_sconf(SL, SC) ->
                                         SC#sconf.fcgi_app_server),
            php_handler           = lkup(php_handler, SL, SC#sconf.php_handler),
            shaper                = lkup(shaper, SL, SC#sconf.shaper),
-           deflate_options       = setup_deflate(SL, SC#sconf.deflate_options),
+           deflate_options       = setup_deflate(SL, SC#sconf.deflate_options,
+                                                 Flags band ?SC_DEFLATE /= 0),
            mime_types_info       = setup_mime_types_info(
                                      SL, SC#sconf.mime_types_info
                                     ),
-           dispatch_mod          = lkup(dispatchmod, SL, SC#sconf.dispatch_mod)
+           dispatch_mod          = lkup(dispatchmod, SL, SC#sconf.dispatch_mod),
+           extra_response_headers= lkup(extra_response_headers, SL,
+                                        SC#sconf.extra_response_headers)
           }.
 
 set_sc_flags([{access_log, Bool}|T], Flags) ->
@@ -791,6 +807,8 @@ set_sc_flags([{forward_proxy, Bool}|T], Flags) ->
     set_sc_flags(T, flag(Flags, ?SC_FORWARD_PROXY, Bool));
 set_sc_flags([{auth_skip_docroot, Bool}|T], Flags) ->
     set_sc_flags(T, flag(Flags, ?SC_AUTH_SKIP_DOCROOT, Bool));
+set_sc_flags([{strip_undefined_bindings, Bool}|T], Flags) ->
+    set_sc_flags(T, flag(Flags, ?SC_STRIP_UNDEF_BINDINGS, Bool));
 set_sc_flags([_Unknown|T], Flags) ->
     error_logger:format("Unknown and unhandled flag ~p~n", [_Unknown]),
     set_sc_flags(T, Flags);
@@ -878,9 +896,11 @@ to_list(A) when is_atom(A) -> atom_to_list(A).
 
 
 integer_to_hex(I) ->
-    case catch erlang:integer_to_list(I, 16) of
-        {'EXIT', _} -> old_integer_to_hex(I);
-        Int         -> Int
+    try
+        erlang:integer_to_list(I, 16)
+    catch
+        _:_ ->
+            old_integer_to_hex(I)
     end.
 
 
@@ -994,12 +1014,13 @@ stringdate_to_datetime2([M1, M2, M3, $\s , Y1, Y2, Y3, Y4, $\s,
 
 %% used by If-Modified-Since header code
 is_modified_p(FI, UTC_string) ->
-    case catch stringdate_to_datetime(UTC_string) of
-        {'EXIT', _ } ->
-            true;
+    try stringdate_to_datetime(UTC_string) of
         UTC ->
             MtimeUTC = erlang:localtime_to_universaltime(FI#file_info.mtime),
             (MtimeUTC > UTC)
+    catch
+        _:_ ->
+            true
     end.
 
 
@@ -1040,6 +1061,8 @@ strip_spaces(String, both) ->
 
 drop_spaces([]) ->
     [];
+drop_spaces(X) when is_binary(X) ->
+    drop_spaces(binary_to_list(X));
 drop_spaces(YS=[X|XS]) ->
     case is_space(X) of
         true  -> drop_spaces(XS);
@@ -1187,10 +1210,13 @@ join_sep([H|T], Sep) ->
     H ++ lists:append([Sep ++ X || X <- T]).
 
 %% Provide a unique 3-tuple of positive integers.
-unique_triple() -> yaws_dynopts:unique_triple().
+unique_triple() ->
+    F = fun erlang:unique_integer/1,
+    {F([positive]), F([positive]), F([positive])}.
 
 %% Get a current time 3-tuple.
-get_time_tuple() -> yaws_dynopts:get_time_tuple().
+get_time_tuple() ->
+    erlang:timestamp().
 
 %% header parsing
 parse_qval(S) ->
@@ -1289,9 +1315,11 @@ tokenize_ua([C|T], Acc) ->
     tokenize_ua(T, [C|Acc]).
 
 parse_ua(Line) ->
-    case catch parse_ua_l(tokenize_ua(Line, [])) of
-        {'EXIT', _} -> [];
-        Res         -> Res
+    try
+        parse_ua_l(tokenize_ua(Line, []))
+    catch
+        _:_ ->
+            []
     end.
 
 parse_ua_l(Line) ->
@@ -1674,7 +1702,7 @@ make_expires_header(MT0, FI) ->
                     case split_sep(MT1, $/) of
                         [Type, SubType] ->
                             make_expires_header({Type,SubType}, FI);
-                        false ->
+                        [] ->
                             make_expires_header(all, FI)
                     end
             end
@@ -1755,7 +1783,7 @@ make_www_authenticate_header({realm, Realm}) ->
     ["WWW-Authenticate: Basic realm=\"", Realm, ["\"\r\n"]];
 
 make_www_authenticate_header(Method) ->
-    ["WWW-Authenticate: ", Method, ["\r\n"]].
+    ["WWW-Authenticate: ", Method, "\r\n"].
 
 make_date_header() ->
     N = element(2, os:timestamp()),
@@ -1823,12 +1851,14 @@ outh_get_vary_fields() ->
         [_, Fields, _] -> split_sep(Fields, $,)
     end.
 
-outh_serialize() ->
+outh_serialize(Arg) ->
     H = get(outh),
     Code = case H#outh.status of
                undefined -> 200;
                Int       -> Int
            end,
+    %% FIXME: Version 1.1 is hardcoded here
+    HttpVersion = {1,1},
     StatusLine = ["HTTP/1.1 ", erlang:integer_to_list(Code), " ",
                   yaws_api:code_to_phrase(Code), "\r\n"],
     GC=get(gc),
@@ -1856,10 +1886,12 @@ outh_serialize() ->
 
     %% Add 'Accept-Encoding' in the 'Vary:' header if the compression is enabled
     %% or if the response is compressed _AND_ if the response has a non-empty
-    %% body.
-    Vary = case get(sc) of
+    %% body. If only certain mime types are specified in deflate_options, add the
+    %% Vary header only if the  response Content-Type is one of those mime types.
+    SC = get(sc),
+    Vary = case SC of
                undefined -> undefined;
-               SC ->
+               _ ->
                    case (?sc_has_deflate(SC) orelse H#outh.encoding == deflate) of
                        true when H#outh.contlen /= undefined, H#outh.contlen /= 0;
                                  H#outh.act_contlen /= undefined,
@@ -1870,42 +1902,218 @@ outh_serialize() ->
                                     end,
                            case lists:any(Fun, Fields) of
                                true  -> H#outh.vary;
-                               false -> make_vary_header(["Accept-Encoding"|Fields])
+                               false ->
+                                   case noundef(H#outh.content_type) of
+                                       [] ->
+                                           make_vary_header(["Accept-Encoding"|Fields]);
+                                       ["Content-Type: ", ContentType|_] ->
+                                           case SC#sconf.deflate_options of
+                                               undefined ->
+                                                   make_vary_header(["Accept-Encoding"|Fields]);
+                                               DOpts ->
+                                                   [Mime|_] = yaws:split_sep(ContentType, $;),
+                                                   case compressible_mime_type(Mime, DOpts) of
+                                                       true ->
+                                                           make_vary_header(["Accept-Encoding"|Fields]);
+                                                       false ->
+                                                           H#outh.vary
+                                                   end
+                                           end
+                                   end
                            end;
                        _ ->
                            H#outh.vary
                    end
            end,
 
-    Headers = [noundef(H#outh.connection),
-               noundef(H#outh.server),
-               noundef(H#outh.location),
-               noundef(H#outh.date),
-               noundef(H#outh.allow),
-               noundef(H#outh.last_modified),
-               noundef(Expires),
-               noundef(CacheControl),
-               noundef(H#outh.etag),
-               noundef(H#outh.content_range),
-               noundef(H#outh.content_length),
-               noundef(H#outh.content_type),
-               noundef(ContentEnc),
-               noundef(H#outh.set_cookie),
-               noundef(H#outh.transfer_encoding),
-               noundef(H#outh.www_authenticate),
-               noundef(Vary),
-               noundef(H#outh.other)],
+    %% RFC7230 section 3.3.2 disallows returning a Content-Length
+    %% header with 1xx status codes, with the 204 or 304 status code,
+    %% or if a Transfer-Encoding header is present. Check these
+    %% conditions and drop any Content-Length header if necessary. For
+    %% more details see
+    %% https://tools.ietf.org/html/rfc7230#section-3.3.2 .
+    ContentLength = if
+                        Code >= 100, Code < 200 -> undefined;
+                        Code == 204 -> undefined;
+                        Code == 304 -> undefined;
+                        H#outh.transfer_encoding /= undefined ->
+                            undefined;
+                        true ->
+                            H#outh.content_length
+                    end,
+
+    NewOutH0 = H#outh{expires=Expires,
+                      content_length=ContentLength,
+                      cache_control=CacheControl,
+                      content_encoding=ContentEnc,
+                      vary=Vary},
+    NewOutH = case ContentLength of
+                  undefined -> NewOutH0#outh{contlen=0};
+                  _ -> NewOutH0
+              end,
+
+    NewH = case SC of
+               undefined -> NewOutH;
+               _ ->
+                   put(outh, NewOutH),
+                   extra_response_headers(SC#sconf.extra_response_headers, Arg, {Code,HttpVersion})
+              end,
+
+    Headers = [noundef(NewH#outh.connection),
+               noundef(NewH#outh.server),
+               noundef(NewH#outh.location),
+               noundef(NewH#outh.date),
+               noundef(NewH#outh.allow),
+               noundef(NewH#outh.last_modified),
+               noundef(NewH#outh.expires),
+               noundef(NewH#outh.cache_control),
+               noundef(NewH#outh.etag),
+               noundef(NewH#outh.content_range),
+               noundef(NewH#outh.content_length),
+               noundef(NewH#outh.content_type),
+               noundef(NewH#outh.content_encoding),
+               noundef(NewH#outh.set_cookie),
+               noundef(NewH#outh.transfer_encoding),
+               noundef(NewH#outh.www_authenticate),
+               noundef(NewH#outh.vary),
+               noundef(NewH#outh.accept_ranges),
+               noundef(NewH#outh.other)],
     {StatusLine, Headers}.
 
+
+extra_response_headers([], _Arg, _Status) ->
+    get(outh);
+extra_response_headers(Extras, Arg, Status) ->
+    %% convert #outh{} to map
+    OutH = get(outh),
+    OuthHdrs = [OutH#outh.connection,
+                OutH#outh.server,
+                OutH#outh.location,
+                OutH#outh.date,
+                OutH#outh.allow,
+                OutH#outh.last_modified,
+                OutH#outh.expires,
+                OutH#outh.cache_control,
+                OutH#outh.etag,
+                OutH#outh.content_range,
+                OutH#outh.content_length,
+                OutH#outh.content_type,
+                OutH#outh.content_encoding,
+                OutH#outh.set_cookie,
+                OutH#outh.transfer_encoding,
+                OutH#outh.www_authenticate,
+                OutH#outh.vary,
+                OutH#outh.accept_ranges,
+                {other, OutH#outh.other}],
+    Hdrs = lists:foldl(fun({other, undefined}, Acc) ->
+                               Acc;
+                          ({other, Other}, Acc) ->
+                               lists:foldl(fun(HdrVal, Acc2) ->
+                                                   {H,V} = split_header(strip_spaces(HdrVal)),
+                                                   maps:put(H, V, Acc2)
+                                           end,
+                                           Acc,
+                                           string:tokens(lists:flatten(Other), "\r\n"));
+                          (undefined, Acc) ->
+                               Acc;
+                          ([], Acc) ->
+                               Acc;
+                          (Hdr, Acc) ->
+                               {H,V} = split_header(strip_spaces(lists:flatten(Hdr))),
+                               maps:put(H, V, Acc)
+                       end, #{}, OuthHdrs),
+    extra_response_headers(Extras, Arg, Status, Hdrs).
+extra_response_headers([], _Arg, _Status, Acc) ->
+    %% convert back to #outh{}
+    OuthHdrs = [{"Connection", connection},
+                {"Server", server},
+                {"Location", location},
+                {"Date", date},
+                {"Allow", allow},
+                {"Last-Modified", last_modified},
+                {"Expires", expires},
+                {"Cache-Control", cache_control},
+                {"Etag", etag},
+                {"Content-Range", content_range},
+                {"Content-Length", "Content-Length"},
+                {"Content-Type", content_type},
+                {"Content-Encoding", content_encoding},
+                {"Set-Cookie", set_cookie},
+                {"Transfer-Encoding", transfer_encoding},
+                {"WWW-Authenticate", www_authenticate},
+                {"Vary", vary},
+                {"Accept-Ranges", accept_ranges}],
+    HdrMap = lists:foldl(fun({Hdr, Nm}, Map) ->
+                                 case maps:is_key(Hdr, Map) of
+                                     true ->
+                                         accumulate_header({Nm, maps:get(Hdr, Map)}),
+                                         maps:remove(Hdr, Map);
+                                     false ->
+                                         erase_header(Nm),
+                                         Map
+                                 end
+                         end, Acc, OuthHdrs),
+    %% Anything remaining in HdrMap is in the #outh{} other
+    %% field. Grab what's there, clear outh.other, and then rebuild it
+    %% from the accumulated map.
+    OutH = get(outh),
+    HdrMap2 = case OutH#outh.other of
+                  undefined -> HdrMap;
+                  Other ->
+                      put(outh, OutH#outh{other=undefined}),
+                      lists:foldl(fun(HdrVal, Map) ->
+                                          {H,_} = split_header(strip_spaces(HdrVal)),
+                                          case maps:is_key(H, Map) of
+                                              true ->
+                                                  accumulate_header({H, maps:get(H, Map)}),
+                                                  maps:remove(H, Map);
+                                              false ->
+                                                  erase_header(H),
+                                                  Map
+                                          end
+                                  end,
+                                  HdrMap,
+                                  string:tokens(lists:flatten(Other), "\r\n"))
+              end,
+    %% Accumulate everything left in HdrMap2
+    lists:foreach(fun accumulate_header/1, maps:to_list(HdrMap2)),
+    get(outh);
+extra_response_headers([{extramod,Mod}|Extras], Arg, Status, Acc) ->
+    extra_response_headers(Extras, Arg, Status, Mod:extra_response_headers(Acc, Arg, Status));
+extra_response_headers([{add,Hdr,Value}|Extras], Arg, {Code,_}=Status, Acc) ->
+    case lists:member(Code, yaws_api:http_extra_response_headers_add_status_codes()) of
+        true -> extra_response_headers(Extras, Arg, Status, maps:put(Hdr, Value, Acc));
+        false -> extra_response_headers(Extras, Arg, Status, Acc)
+    end;
+extra_response_headers([{always_add,Hdr,Value}|Extras], Arg, Status, Acc) ->
+    extra_response_headers(Extras, Arg, Status, maps:put(Hdr, Value, Acc));
+extra_response_headers([{erase,Hdr}|Extras], Arg, Status, Acc) ->
+    extra_response_headers(Extras, Arg, Status, maps:remove(Hdr, Acc)).
 
 noundef(undefined) -> [];
 noundef(Str)       -> Str.
 
+compressible_mime_type(Mime, #deflate{mime_types=MimeTypes}) ->
+    case yaws:split_sep(Mime, $/) of
+        [Type, SubType] -> compressible_mime_type(Mime,Type,SubType,MimeTypes);
+        _               -> false
+    end.
 
+compressible_mime_type(_, _, _, all) ->
+    true;
+compressible_mime_type(_, _, _, []) ->
+    false;
+compressible_mime_type(_, Type, _, [{Type, all}|_]) ->
+    true;
+compressible_mime_type(_, Type, SubType, [{Type, SubType}|_]) ->
+    true;
+compressible_mime_type(Mime, _, _, [Mime|_]) ->
+    true;
+compressible_mime_type(Mime, Type, SubType, [_|Rest]) ->
+    compressible_mime_type(Mime, Type, SubType, Rest).
 
-accumulate_header({X, erase}) when is_atom(X) ->
+accumulate_header({X, erase}) ->
     erase_header(X);
-
 
 %% special headers
 accumulate_header({connection, What}) ->
@@ -1946,7 +2154,7 @@ accumulate_header({"Date", What}) ->
     accumulate_header({date, What});
 
 accumulate_header({allow, What}) ->
-    put(outh, (get(outh))#outh{date = ["Allow: ", What, "\r\n"]});
+    put(outh, (get(outh))#outh{allow = ["Allow: ", What, "\r\n"]});
 accumulate_header({"Allow", What}) ->
     accumulate_header({allow, What});
 
@@ -1961,13 +2169,27 @@ accumulate_header({etag, What}) ->
 accumulate_header({"Etag", What}) ->
     accumulate_header({etag, What});
 
+%% Per RFC7230, multiple Set-Cookie values result in multiple
+%% Set-Cookie headers. The values are not collapsed into a single
+%% header.
+accumulate_header({set_cookie, {multi, Values}}) ->
+    lists:foreach(fun(V) -> accumulate_header({set_cookie,V}) end, Values);
 accumulate_header({set_cookie, What}) ->
     O = get(outh),
     Old = case O#outh.set_cookie of
-              undefined -> "";
+              undefined -> [];
               X         -> X
           end,
-    put(outh, O#outh{set_cookie = ["Set-Cookie: ", What, "\r\n"|Old]});
+    New = ["Set-Cookie: ", What, "\r\n"],
+    %% Filter out identical cookies
+    Res = case lists:member(New, Old) of
+              true  -> Old;
+              false ->
+                  %% NOTE: we want to retain the order of the Cookies;
+                  %% hence we do an append at the end of the list.
+                  Old ++ [New]
+          end,
+    put(outh, O#outh{set_cookie = Res});
 accumulate_header({"Set-Cookie", What}) ->
     accumulate_header({set_cookie, What});
 
@@ -2031,14 +2253,20 @@ accumulate_header({vary, What}) ->
 accumulate_header({"Vary", What}) ->
     accumulate_header({vary, What});
 
-%% non-special headers (which may be special in a future Yaws version)
+accumulate_header({accept_ranges, What}) ->
+    put(outh, (get(outh))#outh{accept_ranges = ["Accept-Ranges: ", What, "\r\n"]});
+accumulate_header({"Accept-Ranges", What}) ->
+    accumulate_header({accept_ranges, What});
+
+accumulate_header({Name, {multi, Values}}) when is_list(Name) ->
+    accumulate_header({Name, join_sep(Values, ",")});
 accumulate_header({Name, What}) when is_list(Name) ->
     H = get(outh),
     Old = case H#outh.other of
               undefined -> [];
               V         -> V
           end,
-    H2 = H#outh{other = [Name, ": ", What, "\r\n", Old]},
+    H2 = H#outh{other = [Old, Name, ": ", What, "\r\n"]},
     put(outh, H2);
 
 
@@ -2061,6 +2289,8 @@ erase_header(connection) ->
     put(outh, (get(outh))#outh{connection=undefined, doclose=false});
 erase_header(server) ->
     put(outh, (get(outh))#outh{server=undefined});
+erase_header(location) ->
+    put(outh, (get(outh))#outh{location=undefined});
 erase_header(cache_control) ->
     put(outh, (get(outh))#outh{cache_control=undefined});
 erase_header(expires) ->
@@ -2089,10 +2319,52 @@ erase_header(transfer_encoding) ->
                                transfer_encoding = undefined});
 erase_header(www_authenticate) ->
     put(outh, (get(outh))#outh{www_authenticate=undefined});
-erase_header(location) ->
-    put(outh, (get(outh))#outh{location=undefined});
 erase_header(vary) ->
-    put(outh, (get(outh))#outh{vary=undefined}).
+    put(outh, (get(outh))#outh{vary=undefined});
+erase_header(accept_ranges) ->
+    put(outh, (get(outh))#outh{accept_ranges=undefined});
+erase_header(X) when is_atom(X) ->
+    erase_header(atom_to_list(X));
+erase_header(X) when is_binary(X) ->
+    erase_header(binary_to_list(X));
+erase_header(X) when is_list(X) ->
+    case string:to_lower(X) of
+        "connection" -> erase_header(connection);
+        "server" -> erase_header(server);
+        "location" -> erase_header(location);
+        "cache-control" -> erase_header(cache_control);
+        "expires" -> erase_header(expires);
+        "date" -> erase_header(date);
+        "allow" -> erase_header(allow);
+        "last-modified" -> erase_header(last_modified);
+        "etag" -> erase_header(etag);
+        "set-cookie" -> erase_header(set_cookie);
+        "content-range" -> erase_header(content_range);
+        "content-length" -> erase_header(content_length);
+        "content-type" -> erase_header(content_type);
+        "content-encoding" -> erase_header(content_encoding);
+        "transfer-encoding" -> erase_header(transfer_encoding);
+        "www-authenticate" -> erase_header(www_authenticate);
+        "vary" -> erase_header(vary);
+        "accept-ranges" -> erase_header(accept_ranges);
+        Hdr -> erase_header({other, Hdr})
+    end;
+erase_header({other, Hdr}) ->
+    Outh = get(outh),
+    case Outh#outh.other of
+        undefined -> Outh;
+        Other ->
+            NewOther = lists:reverse(
+                         lists:foldl(
+                           fun(HdrVal, Acc) ->
+                                   {OtherHdr,_} = split_header(strip_spaces(HdrVal)),
+                                   case string:to_lower(OtherHdr) of
+                                       Hdr -> Acc;
+                                       _ -> [[HdrVal, "\r\n"]|Acc]
+                                   end
+                           end, [], string:tokens(lists:flatten(Other), "\r\n"))),
+            put(outh, Outh#outh{other = NewOther})
+    end.
 
 getuid() ->
     case os:type() of
@@ -2321,9 +2593,12 @@ gen_tcp_send(S, Data) ->
     SC = get(sc),
     Res = case SC of
               undefined ->
-                  case catch ssl:sockname(S) of
+                  try ssl:sockname(S) of
                       {ok, _} -> ssl:send(S, Data);
                       _ -> gen_tcp:send(S, Data)
+                  catch
+                      _:_ ->
+                          gen_tcp:send(S, Data)
                   end;
               _ ->
                   case SC#sconf.ssl of
@@ -2388,9 +2663,10 @@ headers_to_str(Headers) ->
 
 
 setopts(Sock, Opts, nossl) ->
-    ok = inet:setopts(Sock, Opts);
+    inet:setopts(Sock, Opts);
 setopts(Sock, Opts, ssl) ->
-    ok = ssl:setopts(Sock, Opts).
+    try ssl:setopts(Sock, Opts)
+    catch C:E -> {C,E} end.
 
 do_http_get_headers(CliSock, SSL) ->
     case http_recv_request(CliSock,SSL) of
@@ -2406,7 +2682,38 @@ do_http_get_headers(CliSock, SSL) ->
                 {error, _}=Error ->
                     Error;
                 H ->
-                    {R, H}
+                    %% According to RFC 9112 Section 6.1 Transfer-Encoding we
+                    %% select to process POST requests according to
+                    %% Transfer-Encoding only while ignoring Content-Length if
+                    %% both are supplied. It is also possible to reject these
+                    %% requests, but that would probably introduce backward
+                    %% incompatible behavior.
+                    %%
+                    %% If Transfer-Encoding is not set, we assert a valid
+                    %% Content-Length header. Note that http_collect_headers/5
+                    %% might have deferred the multiple_content_length_headers
+                    %% error to here, since we need to collect all headers
+                    %% before we can know if transfer encoding is used.
+
+                    TE = yaws_api:headers_transfer_encoding(H),
+                    CL = yaws_api:headers_content_length(H),
+
+                    case {TE, assert_content_length(CL)} of
+                        {TE, _} when is_list(TE) ->
+                            %% Ignore Content-Length, see above.
+                            {R, H#headers{content_length = undefined}};
+                        {_, {error, _} = Err} ->
+                            %% No transfer encoding so we return the deferred
+                            %% error frow http_collect_headers/5.
+                            Err;
+                        {_, false} ->
+                            {error, {invalid_content_length,
+                                     R#http_request{method = bad_request}}};
+                        {_, true} ->
+                            %% No transfer encoding and valid content length,
+                            %% proceed as normal.
+                            {R, H}
+                    end
             end
     end.
 
@@ -2428,8 +2735,12 @@ http_recv_request(CliSock, SSL) ->
             closed;
         {error, timeout} ->
             closed;
-        _Other ->
-            error_logger:format("Unhandled reply fr. do_recv() ~p~n", [_Other]),
+        {error, etimedout} ->
+            closed;
+        {error, {tls_alert, _}} ->
+            closed;
+        Other ->
+            error_logger:format("Unhandled reply from yaws:do_recv(): ~p~n", [Other]),
             exit(normal)
     end.
 
@@ -2451,8 +2762,13 @@ http_collect_headers(CliSock, Req, H, SSL, Count) when Count < 1000 ->
             http_collect_headers(CliSock, Req,
                                  H#headers{connection = Conn},SSL, Count+1);
         {ok, {http_header, _Num, 'Accept', _, Accept}} ->
-            http_collect_headers(CliSock, Req, H#headers{accept = Accept},
-                                 SSL, Count+1);
+            %% Here we just collect all Accept headers, at http_eoh we verify
+            %% and build one Accept header.
+            NewAcceptH = case H#headers.accept of
+                             undefined -> H#headers{accept = [Accept]};
+                             AcceptL   -> H#headers{accept = [Accept|AcceptL]}
+                         end,
+            http_collect_headers(CliSock, Req, NewAcceptH, SSL, Count+1);
         {ok, {http_header, _Num, 'If-Modified-Since', _, X}} ->
             http_collect_headers(CliSock, Req,
                                  H#headers{if_modified_since = X},SSL, Count+1);
@@ -2489,9 +2805,32 @@ http_collect_headers(CliSock, Req, H, SSL, Count) when Count < 1000 ->
             http_collect_headers(CliSock, Req, H#headers{keep_alive = X},
                                  SSL, Count+1);
         {ok, {http_header, _Num, 'Content-Length', _, X}} ->
-            http_collect_headers(CliSock, Req,
-                                 H#headers{content_length = X},SSL,
-                                 Count+1);
+            case H#headers.content_length of
+                undefined ->
+                    http_collect_headers(CliSock, Req,
+                                         H#headers{content_length = X},
+                                         SSL, Count+1);
+                X ->
+                    %% duplicate header, ignore it
+                    http_collect_headers(CliSock, Req, H, SSL, Count+1);
+
+
+                %% Defer multiple content-length header error until we know if
+                %% transfer-encoding is used. If transfer-encoding is used we
+                %% ignore content-length, see RFC 9112 Section 6.1.
+                %%
+                %% We store the error in #headers.content_length and when
+                %% return it if transfer-encoding is not used.
+                {error, _} ->
+                    %% stored content-length error, continue
+                    http_collect_headers(CliSock, Req, H, SSL, Count+1);
+                _ ->
+                    CLErr = {error, {multiple_content_length_headers,
+                                     Req#http_request{method=bad_request}}},
+                    http_collect_headers(CliSock, Req,
+                                         H#headers{content_length = CLErr},
+                                         SSL, Count+1)
+            end;
         {ok, {http_header, _Num, 'Content-Type', _, X}} ->
             http_collect_headers(CliSock, Req,
                                  H#headers{content_type = X},SSL, Count+1);
@@ -2499,8 +2838,20 @@ http_collect_headers(CliSock, Req, H, SSL, Count) when Count < 1000 ->
             http_collect_headers(CliSock, Req,
                                  H#headers{content_encoding = X},SSL, Count+1);
         {ok, {http_header, _Num, 'Transfer-Encoding', _, X}} ->
-            http_collect_headers(CliSock, Req,
-                                 H#headers{transfer_encoding=X},SSL, Count+1);
+            case H#headers.transfer_encoding of
+                undefined ->
+                    http_collect_headers(CliSock, Req,
+                                         H#headers{transfer_encoding=X},SSL,
+                                         Count+1);
+                X ->
+                    %% duplicate header, ignore it
+                    http_collect_headers(CliSock, Req, H, SSL, Count+1);
+                TE ->
+                    NewTE = TE ++ ", " ++ X,
+                    http_collect_headers(CliSock, Req,
+                                         H#headers{transfer_encoding=NewTE},SSL,
+                                         Count+1)
+            end;
         {ok, {http_header, _Num, 'Location', _, X}} ->
             http_collect_headers(CliSock, Req, H#headers{location=X},
                                  SSL, Count+1);
@@ -2519,7 +2870,13 @@ http_collect_headers(CliSock, Req, H, SSL, Count) when Count < 1000 ->
                                          SSL, Count+1)
             end;
         {ok, http_eoh} ->
-            H;
+            %% NOTE empty Accept headers will be stripped!
+            case build_accept_hdr(H#headers.accept) of
+                {error, empty_accept_header_list = Err} ->
+                    {error, {Err, Req#http_request{method = bad_request}}};
+                AcceptHdrs ->
+                    H#headers{accept = AcceptHdrs}
+            end;
 
         %% these are here to be a little forgiving to
         %% bad (typically test script) clients
@@ -2529,12 +2886,13 @@ http_collect_headers(CliSock, Req, H, SSL, Count) when Count < 1000 ->
             http_collect_headers(CliSock, Req, H,SSL, Count+1);
 
         %% auxiliary headers we don't have builtin support for
-        {ok, X} ->
-            ?Debug("OTHER header ~p~n", [X]),
+        {ok, {http_header, _Code, _Field, _UnmodifiedField, _Value}=OtherHdr} ->
+            ?Debug("OTHER header ~p~n", [OtherHdr]),
             http_collect_headers(CliSock, Req,
-                                 H#headers{other=[X|H#headers.other]},
+                                 H#headers{other=[OtherHdr|H#headers.other]},
                                  SSL, Count+1);
-        _Err ->
+        Err ->
+            error_logger:format("Unhandled reply from yaws:do_recv(): ~p~n", [Err]),
             exit(normal)
 
     end;
@@ -2542,18 +2900,70 @@ http_collect_headers(_CliSock, Req, _H, _SSL, _Count)  ->
     {error, {too_many_headers, Req}}.
 
 
+%% @doc Assert valid Content-Length header value.
+%%
+%% Must be empty or non negative integer.
+%%
+%% If HTTP method is POST Content-Length MUST be set, if transfer-encoding
+%% is not chunked.
+%%
+%% Note that http_collect_headers/5 can have deferred the
+%% multiple_content_length_values error because all headers need to be
+%% collected before it can be known if transfer encoding is used.
+%% See do_http_get_headers/2.
+-spec assert_content_length(string() | Error) -> boolean() | Error when
+      Error :: {error, {atom(), #http_request{}}}.
+assert_content_length(CL)
+  when CL == undefined orelse CL == "" ->
+    true;
+assert_content_length({error, {multiple_content_length_headers,
+                               #http_request{method = bad_request}}} = Err) ->
+    Err;
+assert_content_length(X) ->
+    try
+        X2 = erlang:list_to_integer(X),
+        true = (0 =< X2)
+    catch
+        error:badarg ->
+            %% not a number
+            false;
+        error:{badmatch, false} ->
+            %% not non neg integer
+            false
+    end.
+
+
+%% @doc Filter out empty accept headers from list.
+-spec split_accept_hdrs([string()]) -> [string()].
+split_accept_hdrs([]) ->
+    [];
+split_accept_hdrs([Hdr|AcceptHdrs]) ->
+    [H || H <- [string:strip(S) || S <- string:tokens(Hdr, ",")], H /= [] ]
+        ++ split_accept_hdrs(AcceptHdrs).
+
+
+%% @doc Build one Accept header from the collected Accept headers.
+-spec build_accept_hdr([string()] | undefined) ->
+    string() | undefined | {error, empty_accept_header_list}.
+build_accept_hdr(undefined) ->
+    undefined;
+build_accept_hdr(AcceptHdrs) ->
+    AcceptHdrsReqOrder = lists:reverse(AcceptHdrs),
+    case split_accept_hdrs(AcceptHdrsReqOrder) of
+        []  -> {error, empty_accept_header_list};
+        [Hdr] -> Hdr;
+        Hdrs  -> string:join(Hdrs, ", ")
+    end.
+
 
 parse_auth(Orig = "Basic " ++ Auth64) ->
     case decode_base64(Auth64) of
         {error, _Err} ->
             {undefined, undefined, Orig};
         Auth ->
-            case string:tokens(Auth, ":") of
-                [User, Pass ] ->
-                    {User, Pass, Orig};
-                [User, Pass0 | Extra] ->
-                    %% password can contain :
-                    Pass = join_sep([Pass0 | Extra], ":"),
+            case string:split(Auth, ":") of
+                %% Password can contain colons, username cannot (RFC7617).
+                [User, Pass] when User /= [] ->
                     {User, Pass, Orig};
                 _ ->
                     {undefined, undefined, Orig}
@@ -2938,13 +3348,19 @@ integer_to_ip(_, _) ->
     throw({error, einval}).
 
 netmask_to_integer(Type, NetMask) ->
-    case catch erlang:list_to_integer(NetMask) of
+    try erlang:list_to_integer(NetMask) of
         I when is_integer(I) ->
             case Type of
                 ipv4 -> (1 bsl ?MAXBITS_IPV4) - (1 bsl (?MAXBITS_IPV4 - I));
                 ipv6 -> (1 bsl ?MAXBITS_IPV6) - (1 bsl (?MAXBITS_IPV6 - I))
             end;
         _ ->
+            case ip_to_integer(NetMask) of
+                {Type, MaskInt} -> MaskInt;
+                _               -> throw({error, einval})
+            end
+    catch
+        _:_ ->
             case ip_to_integer(NetMask) of
                 {Type, MaskInt} -> MaskInt;
                 _               -> throw({error, einval})
@@ -3001,25 +3417,18 @@ compare_ips({A1,_,_,_,_,_,_,_}, {A2,_,_,_,_,_,_,_}) when A1 > A2 -> greater;
 compare_ips(_,                  _)                               -> error.
 
 
-%% Use  IANA range for dynamic or private ports (49152 -> 65535)
+%% Find a free port, so that it can be stored during the configuration parsing.
+%% This is not perfect, as the port could be taken by another application
+%% before the next call of gen_tcp:listen/2, but works well enough if the
+%% dynamic port range of the system is large enough.
 find_private_port() ->
-    Start = case application:get_env(kernel, next_yaws_private_port) of
-                {ok, Port} -> Port;
-                undefined  -> 49152
-            end,
-    End = 65535,
-    find_private_port(Start, End).
-
-find_private_port(Port, End) when Port > End ->
-    {error, notfound};
-find_private_port(Port, End) ->
-    case gen_tcp:listen(Port, [{ip, {0,0,0,0}}]) of
+    case gen_tcp:listen(0, [{ip, {0,0,0,0}}]) of
         {ok, Sock} ->
+            Result = inet:port(Sock),
             gen_tcp:close(Sock),
-            application:set_env(kernel, next_yaws_private_port, Port+1),
-            {ok, Port};
-        {error, _} ->
-            find_private_port(Port+1, End)
+            Result;
+        {error, _} = Error ->
+            Error
     end.
 
 %% ----
@@ -3048,3 +3457,83 @@ get_priv_dir() ->
 
 get_inc_dir() ->
     get_app_subdir(include).
+
+%% The safe_rel_path function here is used in yaws_dynopts for OTP
+%% versions that lack the filelib:safe_relative_path/2 function. The
+%% code takes two arguments: a relative pathname, and a directory to
+%% which the pathname should be relative. If the pathname does not
+%% escape the directory, return the safe relative pathname with all
+%% ".."  and "."  segments removed and symbolic links resolved;
+%% otherwise, return the atom unsafe.
+%%
+safe_rel_path(Path, Cwd) ->
+    case filename:pathtype(Path) of
+        relative -> safe_rel_path(filename:split(Path), Cwd, [], "");
+        _ -> unsafe
+    end.
+
+%% The safe_rel_path/4 function takes a list of pathname segments. For
+%% each segment, join it to any previously verified relative path in
+%% Acc, and then check that new path for relative safety. If safe,
+%% check it to see if it's a symbolic link; if so, read it and check
+%% it for safety, and track links in Prev to be sure we process each
+%% only once. Otherwise, promote the safe path to be the new Acc and
+%% recursively check the next segment.
+%%
+safe_rel_path([], _Cwd, _Prev, Acc) -> Acc;
+safe_rel_path([Seg|Segs], Cwd, Prev, Acc) ->
+    NewSeg = safe_join(Acc, Seg),
+    case safe_rel_path(NewSeg) of
+        unsafe -> unsafe;
+        Safe ->
+            case file:read_link(safe_join(Cwd, Safe)) of
+                {ok, Link} ->
+                    case lists:member(Link, Prev) of
+                        true -> unsafe;
+                        false ->
+                            case safe_rel_path(filename:split(Link), Cwd,
+                                               [Link|Prev], Acc) of
+                                unsafe -> unsafe;
+                                NAcc -> safe_rel_path(Segs, Cwd, [], NAcc)
+                            end
+                    end;
+                {error, _} ->
+                    safe_rel_path(Segs, Cwd, Prev, Safe)
+            end
+    end.
+safe_rel_path(F) ->
+    case filename:pathtype(F) of
+        relative ->
+            do_safe_rel_path(filename:split(F), []);
+        _ -> unsafe
+    end.
+
+%% The do_safe_rel_path/2 function takes a list of pathname segments
+%% and an accumulator list. It removes any "." path segments. For
+%% "..", it removes the segment, moves up a directory in the
+%% accumulator if possible, and continues the safety check.
+%%
+do_safe_rel_path([], []) -> [];
+do_safe_rel_path([], Acc) ->
+    filename:join(lists:reverse(Acc));
+do_safe_rel_path(["."|T], Acc) ->
+    do_safe_rel_path(T, Acc);
+do_safe_rel_path([<<".">>|T], Acc) ->
+    do_safe_rel_path(T, Acc);
+do_safe_rel_path([".."|T], Acc) ->
+    case Acc of
+        [] -> unsafe;
+        [_|A] -> do_safe_rel_path(T, A)
+    end;
+do_safe_rel_path([<<"..">>|T], Acc) ->
+    case Acc of
+        [] -> unsafe;
+        [_|A] -> do_safe_rel_path(T, A)
+    end;
+do_safe_rel_path([H|T], Acc) ->
+    do_safe_rel_path(T, [H|Acc]).
+
+%% safe_join/2 is like filename:join/2 but doesn't add a leading
+%% directory separator if the first argument is empty.
+safe_join([], F) -> F;
+safe_join(D, F) -> filename:join(D, F).

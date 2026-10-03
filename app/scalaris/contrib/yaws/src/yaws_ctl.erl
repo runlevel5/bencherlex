@@ -54,24 +54,9 @@ run(GC) ->
     end.
 
 rand() ->
-    case os:type() of
-        {win32, _} ->
-            {A1, A2, A3}=yaws:get_time_tuple(),
-            yaws_dynopts:random_seed(A1, A2, A3),
-            yaws_dynopts:random_uniform(1 bsl 64);
-        _ ->
-            try
-                crypto:start(),
-                crypto:rand_uniform(0, 1 bsl 64)
-            catch
-                _:_ ->
-                    error_logger:warning_msg("Running without crypto app\n"),
-                    {A1, A2, A3}=yaws:get_time_tuple(),
-                    yaws_dynopts:random_seed(A1, A2, A3),
-                    yaws_dynopts:random_uniform(1 bsl 64)
-            end
-    end.
-
+    {A1, A2, A3} = yaws:get_time_tuple(),
+    rand:seed(exsplus, {A1, A2, A3}),
+    rand:uniform(1 bsl 64).
 
 
 ctl_args() ->
@@ -119,21 +104,16 @@ e(Fmt, Args) ->
 %% That way we're making sure different users
 %% cannot manipulate each others webservers
 w_ctl_file(Sid, Port, Key) ->
-    case catch
-             begin
-                 F = yaws:ctl_file(Sid),
-                 error_logger:info_msg("Ctlfile : ~s~n", [F]),
-                 file:write_file(F, io_lib:format("~w.", [{Port,Key}])),
-                 {ok, FI} = file:read_file_info(F),
-                 ok = file:write_file_info(F, FI#file_info{mode = 8#00600})
-             end of
-             {'EXIT', _} ->
-                 error;
-             _ ->
-                 ok
-         end.
-
-
+    try
+        F = yaws:ctl_file(Sid),
+        error_logger:info_msg("Ctlfile : ~s~n", [F]),
+        file:write_file(F, io_lib:format("~w.", [{Port,Key}])),
+        {ok, FI} = file:read_file_info(F),
+        ok = file:write_file_info(F, FI#file_info{mode = 8#00600})
+    catch
+        _:_ ->
+            error
+    end.
 
 aloop(L, GC, Key) ->
     case gen_tcp:accept(L) of
@@ -150,7 +130,7 @@ aloop(L, GC, Key) ->
 handle_a(A, GC, Key) ->
     case gen_tcp:recv(A, 0) of
         {ok, Data} ->
-            case catch binary_to_term(Data) of
+            try binary_to_term(Data) of
                 {hup, Key} ->
                     Res = yaws:dohup(A),
                     Res;
@@ -188,7 +168,9 @@ handle_a(A, GC, Key) ->
                     gen_tcp:close(A);
                 _Other ->
                     gen_tcp:close(A)
-
+            catch
+                _:_Other ->
+                    gen_tcp:close(A)
             end;
         {error, _} ->
             gen_tcp:close(A)
@@ -558,7 +540,7 @@ running_config([SID]) ->
 
 configtest([File]) ->
     Env = #env{debug = false, conf  = {file, File}},
-    case catch yaws_config:load(Env) of
+    try yaws_config:load(Env) of
         {ok, _GC, _SCs} ->
             io:format("Syntax OK~n"),
             timer:sleep(100),erlang:halt(0);
@@ -566,6 +548,10 @@ configtest([File]) ->
             io:format("Syntax error in file ~p:~n~s~n", [File, Error]),
             timer:sleep(100),erlang:halt(1);
         Other ->
+            io:format("Syntax error in file ~p:~n~p~n", [File, Other]),
+            timer:sleep(100),erlang:halt(1)
+    catch
+        _:Other ->
             io:format("Syntax error in file ~p:~n~p~n", [File, Other]),
             timer:sleep(100),erlang:halt(1)
     end.
@@ -576,7 +562,7 @@ auth([User, Algo, Passwd]) ->
         Algo == sha224 orelse Algo == sha256 orelse
         Algo == sha384 orelse Algo == sha512 orelse
         Algo == ripemd160 ->
-            Salt    = yaws_dynopts:rand_bytes(32),
+            Salt    = crypto:strong_rand_bytes(32),
             B64Salt = base64:encode(Salt),
             Hash    = crypto:hash(Algo, [Salt, atom_to_list(Passwd)]),
             B64Hash = base64:encode(Hash),

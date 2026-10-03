@@ -1,4 +1,3 @@
-%% -*- coding: latin-1 -*-
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% WARNING DEPRECATED WARNING DEPRECATED WARNING DEPRECATED WARNING DEPRECATED
@@ -14,7 +13,7 @@
 %%% WARNING DEPRECATED WARNING DEPRECATED WARNING DEPRECATED WARNING DEPRECATED
 %%% WARNING DEPRECATED WARNING DEPRECATED WARNING DEPRECATED WARNING DEPRECATED
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% Copyright (C) 2003 Joakim Grebenö <jocke@gleipnir.com>.
+%% Copyright (C) 2003 Joakim GrebenÃ¶ <jocke@gleipnir.com>.
 %% All rights reserved.
 %%
 %% Copyright (C) 2006 Gaspar Chilingarov <nm@web.am>
@@ -144,10 +143,7 @@ eval_payload(Args, {M, F}, Payload, {session, CookieName},ID) ->
                 end
         end,
 
-    case catch M:F(Args#arg.state, Payload, SessionValue) of
-        {'EXIT', Reason} ->
-            ?ERROR_LOG({M, F, {'EXIT', Reason}}),
-            send(Args, 500);
+    try M:F(Args#arg.state, Payload, SessionValue) of
         {error, Reason} ->
             ?ERROR_LOG({M, F, Reason}),
             send(Args, 500);
@@ -177,16 +173,17 @@ eval_payload(Args, {M, F}, Payload, {session, CookieName},ID) ->
                          end
                  end,
             encode_send(Args, 200, ResponsePayload, CO, ID)
+    catch
+        C:Reason ->
+            ?ERROR_LOG({M, F, {C, Reason}}),
+            send(Args, 500)
     end;
 
 %%%
 %%% call handler/2 without session support
 %%%
 eval_payload(Args, {M, F}, Payload, simple, ID) ->
-    case catch M:F(Args#arg.state, Payload) of
-        {'EXIT', Reason} ->
-            ?ERROR_LOG({M, F, {'EXIT', Reason}}),
-            send(Args, 500);
+    try M:F(Args#arg.state, Payload) of
         {error, Reason} ->
             ?ERROR_LOG({M, F, Reason}),
             send(Args, 500);
@@ -194,6 +191,10 @@ eval_payload(Args, {M, F}, Payload, simple, ID) ->
             encode_send(Args, 200, ResponsePayload, [],ID);
         {true, _NewTimeout, _NewState, ResponsePayload} ->
             encode_send(Args, 200, ResponsePayload, [],ID)
+    catch
+        _:Reason ->
+            ?ERROR_LOG({M, F, {'EXIT', Reason}}),
+            send(Args, 500)
     end.
 
 

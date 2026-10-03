@@ -205,7 +205,8 @@ build_env(Arg, Scriptfilename, Pathinfo, ExtraEnv, SC) ->
     PeerAddr = get_socket_peername(Arg#arg.clisock),
     LocalAddr = get_socket_sockname(Arg#arg.clisock),
 
-    Scheme = (catch yaws:redirect_scheme(SC)),
+    Scheme = try yaws:redirect_scheme(SC)
+             catch C:E -> {C,E} end,
     %% Needed by trac, for redirs after POST
     HttpsEnv  = case Scheme of
                     "https://" -> [{"HTTPS", "1"}];
@@ -373,7 +374,8 @@ build_env(Arg, Scriptfilename, Pathinfo, ExtraEnv, SC) ->
         Extra_CGI_Vars.
 
 other_headers(Headers) ->
-    lists:zf(fun({http_header,_,Var,_,Val}) ->
+    lists:filtermap(
+            fun({http_header,_,Var,_,Val}) ->
                      case tohttp(Var) of
                          "HTTP_PROXY" ->
                              %% See http://httpoxy.org/
@@ -520,11 +522,19 @@ call_cgi(Arg, Exefilename, Scriptfilename, Pathinfo, ExtraEnv) ->
                     exit(normal)
             end;
         _ ->
-            WorkerPid = cgi_start_worker(Arg, Exefilename, Scriptfilename,
-                                      Pathinfo, ExtraEnv, get(sc)),
-            handle_clidata(Arg, WorkerPid)
+            case cgi_start_worker(Arg, Exefilename, Scriptfilename,
+                                  Pathinfo, ExtraEnv, get(sc)) of
+                {ok, WorkerPid} ->
+                    handle_clidata(Arg, WorkerPid);
+                {error, Error} ->
+                    Error
+            end
     end.
 
+%% Sanitize CGI executable
+exe_ok(Exe) ->
+    NotAllowed = [$$,$`,$(,$),$;,$|,$<,$>,$&],
+    not lists:any(fun(C) -> lists:member(C, NotAllowed) end, Exe).
 
 cgi_start_worker(Arg, Exefilename, Scriptfilename, Pathinfo, ExtraEnv, SC) ->
     ExeFN = case Exefilename of
@@ -532,16 +542,19 @@ cgi_start_worker(Arg, Exefilename, Scriptfilename, Pathinfo, ExtraEnv, SC) ->
                 "" -> exeof(Scriptfilename);
                 FN -> FN
             end,
-    PI = case Pathinfo of
-             undefined -> Arg#arg.pathinfo;
-             OK -> OK
-         end,
-    WorkerPid = proc_lib:spawn(?MODULE, cgi_worker,
-                               [self(), Arg, ExeFN, Scriptfilename,
-                                PI, ExtraEnv, SC]),
-    WorkerPid.
-
-
+    case exe_ok(ExeFN) of
+        true ->
+            PI = case Pathinfo of
+                     undefined -> Arg#arg.pathinfo;
+                     OK -> OK
+                 end,
+            WorkerPid = proc_lib:spawn(?MODULE, cgi_worker,
+                                       [self(), Arg, ExeFN, Scriptfilename,
+                                        PI, ExtraEnv, SC]),
+            {ok, WorkerPid};
+        false ->
+            {error, {status, 403}}
+    end.
 
 cgi_worker(Parent, Arg, Exefilename, Scriptfilename, Pathinfo, ExtraEnv0, SC) ->
     ExtraEnv = lists:map(fun({K,V}) when is_binary(K), is_binary(V) ->
@@ -1207,13 +1220,14 @@ fcgi_add_resp(WorkerState, OldData) ->
 
 fcgi_stream_data_loop(WorkerState) ->
     YawsWorkerPid = WorkerState#fcgi_worker_state.yaws_worker_pid,
-    case catch fcgi_get_output(WorkerState) of
+    try fcgi_get_output(WorkerState) of
         {data, Data} ->
             yaws_api:stream_chunk_deliver_blocking(YawsWorkerPid, Data),
             fcgi_stream_data_loop(WorkerState);
         {exit_status, _Status} ->
-            yaws_api:stream_chunk_end(YawsWorkerPid);
-        {'EXIT', _Reason} ->
+            yaws_api:stream_chunk_end(YawsWorkerPid)
+    catch
+        _:_Reason ->
             yaws_api:stream_chunk_end(YawsWorkerPid)
     end.
 

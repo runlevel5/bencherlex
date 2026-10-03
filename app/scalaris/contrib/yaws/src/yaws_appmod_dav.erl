@@ -33,7 +33,6 @@
 
 %% for replacement xmerl_xml:
 -export([export/1]).
--import(xmerl_lib, [markup/3, empty_tag/2, export_text/1]).
 
 
 -ifdef(debug).
@@ -82,9 +81,9 @@ out(A) ->
             error_logger:error_msg(Msg),
             Response = [{'D:error',[{'xmlns:D',"DAV:"}],[Msg]}],
             status(500,{xml,Response});
-        _Error:Reason ->
+        _Error:Reason:ST ->
             error_logger:info_msg("unexpected error: ~p~n~p~n",
-                                  [Reason,erlang:get_stacktrace()]),
+                                  [Reason, ST]),
             Response = [{'D:error',[{'xmlns:D',"DAV:"}],[Reason]}],
             status(500,{xml,Response})
     end.
@@ -520,7 +519,7 @@ temp_name(F) ->
 
 %% propfind response
 propfind_response(Props,A,R) ->
-    Url = yaws_api:url_encode(R#resource.name),
+    Url = R#resource.name,
     case Props of
         [allprop] ->
             AllProp = [ prop_get(N,A,R) || N <- allprops(R) ],
@@ -552,7 +551,7 @@ propfind_response(Props,A,R) ->
 
 %% proppatch response/
 proppatch_response(Update,A,R) ->
-    Url = yaws_api:url_encode(R#resource.name),
+    Url = R#resource.name,
     Results = proppatch_response(Update,A,R,[]),
     ResultsSorted = prop_sort(lists:flatten(Results)),
     [{'D:href', [], [Url]}|
@@ -594,7 +593,7 @@ allprops(R) ->
     C = get(compatibility),
     %% default property set
     P1 = [
-          {'http://yaws.hyber.org/',access},    % sample Yaws extension
+          {'http://www.example.org/',access},    % sample Yaws extension
           {'DAV:',creationdate},
           %%{'DAV:',getcontentlanguage},        % not supported in GET
                                                 % so omitted here as well
@@ -638,10 +637,10 @@ allprops(R) ->
          end,
     P1++P2++P3.
 
-prop_get({'http://yaws.hyber.org/',access},_A,R) ->
+prop_get({'http://www.example.org/',access},_A,R) ->
     F = R#resource.info,
     A = F#file_info.access,
-    P = {access, [{xmlns,'http://yaws.hyber.org/'}], [atom_to_list(A)]},
+    P = {access, [{xmlns,'http://www.example.org/'}], [atom_to_list(A)]},
     {200, P};
 prop_get({'DAV:',childcount},A,_R) ->
     Path=davpath(A),
@@ -957,9 +956,11 @@ h_timeout(A) ->
         {value, {_,_,"Timeout",_,T}} ->
             case T of
                 "Second-"++TimeoutVal ->
-                    Val = case catch list_to_integer(TimeoutVal) of
-                              I when is_integer(I) -> I;
-                              _ -> ?LOCK_LIFETIME
+                    Val = try list_to_integer(TimeoutVal) of
+                              I when is_integer(I) -> I
+                          catch
+                              _:_ ->
+                                  ?LOCK_LIFETIME
                           end,
                     erlang:min(Val,?LOCK_LIFETIME);
                 _ -> ?LOCK_LIFETIME
@@ -1167,13 +1168,26 @@ if_eval_locktoken(Target,Token,[H|T]) ->
 
 -define(CONTENT(X), X#xmlElement.content).
 
+%% Reject attempts to fetch external reesources in order to guard
+%% against XXE attacks
+fetch_resource(_Res, State) ->
+    {ok, not_fetched, State}.
+
+%% TODO convert this to use xmerl_sax_parser instead
+parse_xml(XML) ->
+    xmerl_scan:string(XML, [{namespace_conformant, true},
+                            {fetch_fun, fun fetch_resource/2}]).
+
 %% Parameter is always list
 parse_propfind([]) -> [allprop]; % RFC4918: no body then allprop, is [] no body?
 parse_propfind(L) ->
-    case catch xmerl_scan:string(L, [{namespace_conformant, true}]) of
+    try parse_xml(L) of
         {?IS_PROPFIND(X),_} ->
             parse_propfind(?CONTENT(X),[]);
         _Z ->
+            throw(400)
+    catch
+        _:_ ->
             throw(400)
     end.
 parse_propfind([?IS_PROPNAME(_H)|_T], _R) ->
@@ -1191,10 +1205,13 @@ parse_propfind([], R) ->
     R.
 
 parse_proppatch(L) ->
-    case catch xmerl_scan:string(L, [{namespace_conformant, true}]) of
+    try parse_xml(L) of
         {?IS_PROPERTYUPDATE(X),_} ->
             parse_proppatch(?CONTENT(X),[]);
         _Z ->
+            throw(400)
+    catch
+        _:_ ->
             throw(400)
     end.
 parse_proppatch([?IS_SET(H)|T],R) ->
@@ -1240,10 +1257,13 @@ parse_prop([], L) ->
 parse_lockinfo([]) ->
     #lock{};
 parse_lockinfo(L) ->
-    case catch xmerl_scan:string(L, [{namespace_conformant, true}]) of
+    try parse_xml(L) of
         {?IS_LOCKINFO(X),_} ->
             parse_lockinfo(?CONTENT(X),#lock{});
         _Z ->
+            throw(400)
+    catch
+        _:_ ->
             throw(400)
     end.
 parse_lockinfo([?IS_LOCKSCOPE(H)|T], D) ->
@@ -1317,7 +1337,7 @@ export([]) ->
 export([#xmlComment{}|T]) -> % for now I skip comments
     export(T);
 export([#xmlText{type=text, value=Text}|T]) ->
-    [export_text(Text),export(T)];
+    [xmerl_lib:export_text(Text),export(T)];
 export([#xmlText{type=cdata, value=Text}|T]) ->
     ["<![CDATA[",Text,"]]>",export(T)];
 export([#xmlElement{name=Name,attributes=Attrs,content=Content}|T]) ->

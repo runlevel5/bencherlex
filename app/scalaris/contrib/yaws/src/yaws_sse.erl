@@ -38,13 +38,14 @@ data(Data) ->
 %% any empty strings or binaries, they are dropped and not sent.
 data(Data0, [trim]) ->
     Bin = iolist_to_binary(Data0),
-    Tokens = case catch binary:split(Bin, <<"\n">>, [global, trim]) of
-                 {'EXIT', {undef, [{binary,split,__}|_]}} ->
-                     %% handle older releases of Erlang
-                     Lst = binary_to_list(Bin),
-                     [Tok || Tok <- string:tokens(Lst, "\n")];
+    Tokens = try binary:split(Bin, <<"\n">>, [global, trim]) of
                  Bins ->
                      [B || B <- Bins, B /= <<>>]
+             catch
+                 err:undef ->
+                     %% handle older releases of Erlang
+                     Lst = binary_to_list(Bin),
+                     [Tok || Tok <- string:tokens(Lst, "\n")]
              end,
     [data(Data) || Data <- Tokens].
 

@@ -14,10 +14,16 @@
          vardir/0,
          etcdir/0]).
 
-version() -> "2.0.4".
+version() -> "2.3.1".
 
-vardir() ->  "/usr/local/var".
+vardir() ->
+    case "/usr/local/var" of
+        "undefined" -> undefined;
+        VarDir -> VarDir
+    end.
 
-etcdir() -> "/usr/local/etc".
-
-
+etcdir() ->
+    case "/usr/local/etc" of
+        "undefined" -> undefined;
+        EtcDir -> EtcDir
+    end.

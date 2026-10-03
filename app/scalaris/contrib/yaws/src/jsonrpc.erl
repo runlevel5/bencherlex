@@ -41,15 +41,17 @@
 %%% MethodName -> atom
 %%% Args -> list
 %%%
-call(URL, Options, Payload) ->
+call(URL, HttpOptions, Payload) ->
     try
         {ok, CallPayloadDeep} = encode_call_payload(Payload),
         CallPayload = lists:flatten(CallPayloadDeep),
         {ok, Response} = httpc:request(
                            post,
-                           {URL,[{"Content-Length",length(CallPayload)}],
+                           {URL,[{"Content-Length",
+                                  integer_to_list(length(CallPayload))}],
                             "application/x-www-form-urlencoded",CallPayload},
-                           Options, []),
+                           sanitize_httpc_options(HttpOptions),
+                           []),
 
         RespBody = if
                        (size(Response) == 2) or (size(Response) == 3) ->
@@ -57,12 +59,30 @@ call(URL, Options, Payload) ->
                    end,
         decode_call_payload(RespBody)
     catch
-        error:Err->
+        error:Err:St ->
             error_logger:error_report([{'json_rpc:call', error},
                                        {error, Err},
-                                       {stack, erlang:get_stacktrace()}]),
+                                       {stack, St}]),
             {error,Err}
     end.
+
+sanitize_httpc_options(HttpOptions) ->
+  SslOptions = sanitize_ssl_client_options(proplists:get_value(ssl, HttpOptions, [])),
+  [{ssl, SslOptions} | proplists:delete(ssl, HttpOptions)].
+
+sanitize_ssl_client_options(Options) ->
+  Verify = proplists:get_value(verify, Options),
+  CaCertFile = proplists:get_value(cacertfile, Options),
+  CaCerts = proplists:get_value(cacerts, Options),
+  case {Verify, CaCertFile, CaCerts} of
+    {undefined, undefined, undefined} ->
+      %% The caller didn't specify anything. Starting with OTP-26 the default
+      %% is verify_peer and CaCertFile or CaCerts are then mandatory.
+      %% Pretend the caller specified verify_none.
+      [{verify, verify_none} | Options];
+    {_, _, _} ->
+      Options
+  end.
 
 %%%
 %%% json-rpc.org defines such structure for making call

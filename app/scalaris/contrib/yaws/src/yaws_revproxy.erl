@@ -79,7 +79,7 @@ out(#arg{state=#revproxy{}=RPState}=Arg)
                             undefined ->
                                 {Req, Hdrs};
                             InterceptMod ->
-                                case catch InterceptMod:rewrite_request(
+                                try InterceptMod:rewrite_request(
                                              Req, Hdrs) of
                                     {ok, NewReq0, NewHdrs0} ->
                                         {NewReq0, NewHdrs0};
@@ -89,20 +89,28 @@ out(#arg{state=#revproxy{}=RPState}=Arg)
                                           "rewrite_request failed: ~p~n",
                                           [InterceptMod, InterceptError]),
                                         exit({error, intercept_mod})
+                                catch
+                                    _:Error ->
+                                        error_logger:error_msg(
+                                          "revproxy intercept module ~p:"
+                                          "rewrite_request failed: ~p~n",
+                                          [InterceptMod, Error]),
+                                        exit({error, intercept_mod})
                                 end
                         end,
     ReqStr  = yaws_api:reformat_request(NewReq),
     HdrsStr = yaws:headers_to_str(NewHdrs),
     case send(RPState, [ReqStr, "\r\n", HdrsStr, "\r\n"]) of
         ok ->
-            case yaws:to_lower(Hdrs#headers.transfer_encoding) of
-                "chunked" ->
+            TEHdrs = lists:reverse(yaws:split_sep(
+                                     yaws:to_lower(Hdrs#headers.transfer_encoding), $,)),
+            case TEHdrs of
+                ["chunked"|_] ->
                     ?Debug("Request content is chunked~n", []),
                     out(Arg#arg{state=RPState#revproxy{state=sendchunk}});
                 _ ->
                     out(Arg#arg{state=RPState#revproxy{state=sendcontent}})
             end;
-
         {error, Reason} ->
             ?Debug("TCP error: ~p~n", [Reason]),
             case Reason of
@@ -214,7 +222,7 @@ out(#arg{state=RPState}=Arg) when RPState#revproxy.state == recvheaders ->
                     undefined ->
                         {Resp0, RespHdrs0};
                     InterceptMod ->
-                        case catch InterceptMod:rewrite_response(
+                        try InterceptMod:rewrite_response(
                                      Resp0, RespHdrs0) of
                             {ok, NewResp, NewRespHdrs} ->
                                 {NewResp, NewRespHdrs};
@@ -223,6 +231,13 @@ out(#arg{state=RPState}=Arg) when RPState#revproxy.state == recvheaders ->
                                   "revproxy intercept module ~p:"
                                   "rewrite_response failure: ~p~n",
                                   [InterceptMod, InterceptError]),
+                                exit({error, intercept_mod})
+                        catch
+                            _:Error ->
+                                error_logger:error_msg(
+                                  "revproxy intercept module ~p:"
+                                  "rewrite_response failure: ~p~n",
+                                  [InterceptMod, Error]),
                                 exit({error, intercept_mod})
                         end
                 end,
@@ -710,7 +725,7 @@ rewrite_server_headers(RPState) ->
                   undefined;
               L ->
                   ?Debug("parse_url(~p)~n", [L]),
-                  LocUrl   = (catch yaws_api:parse_url(L)),
+                  LocUrl   = yaws_api:parse_url(L),
                   ProxyUrl = RPState#revproxy.url,
                   if
                       LocUrl#url.scheme == ProxyUrl#url.scheme andalso

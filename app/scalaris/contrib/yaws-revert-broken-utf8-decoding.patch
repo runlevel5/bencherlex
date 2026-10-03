@@ -1,5 +1,5 @@
 This reverts commit 2e86da12b3ecc4482fd81d454cb4d70bc85269fa from the yaws
-sources that broke utf8 decoding for us. It applies to yaws 2.0.4.
+sources that broke utf8 decoding for us. It applies to yaws 2.0.4 and 2.3.1.
 
 diff --git a/src/json2.erl b/src/json2.erl
 index 64a8a4f94..5f395b5dd 100644

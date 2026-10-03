@@ -10,7 +10,6 @@
 -include_lib("kernel/include/file.hrl").
 -include_lib("kernel/include/inet.hrl").
 
-
 -behaviour(gen_server).
 
 %% External exports
@@ -36,6 +35,8 @@
          write_log/4
         ]).
 
+%% OTP logger helpers
+-export([error_logger_filter/2]).
 
 -include("../include/yaws.hrl").
 -include("../include/yaws_api.hrl").
@@ -69,10 +70,20 @@ del_sconf(SConf) ->
     gen_server:call(yaws_log, {soft_del_sc, SConf}, infinity).
 
 accesslog(SConf, Ip, Req, InH, OutH, Time) ->
-    catch yaws_logger:accesslog(SConf, Ip, Req, InH, OutH, Time).
+    try
+        yaws_logger:accesslog(SConf, Ip, Req, InH, OutH, Time)
+    catch
+        C:E ->
+            {C, E}
+    end.
 
 authlog(SConf, IP, Path, Item) ->
-    catch yaws_logger:authlog(SConf, IP, Path, Item).
+    try
+        yaws_logger:authlog(SConf, IP, Path, Item)
+    catch
+        C:E ->
+            {C, E}
+    end.
 
 rotate(Res) ->
     gen_server:cast(?MODULE, {yaws_hupped, Res}).
@@ -97,38 +108,44 @@ open_log(ServerName, Type, Dir) ->
                        ServerName
                end,
     A = filename:join([Dir, FileName ++ "." ++ atom_to_list(Type)]),
-    case file:open(A, [write, raw, append]) of
+    case open_logfile(A) of
         {ok, Fd} ->
-            {true, {Fd, A}};
+            {true, {Fd, A, safe_filesize(A)}};
         _Err ->
             error_logger:format("Cannot open ~p",[A]),
             false
     end.
 
-close_log(_ServerName, _Type, {Fd, _FileName}) ->
+close_log(_ServerName, _Type, {Fd, _FileName, _LastSize}) ->
     file:close(Fd).
 
-wrap_log(_ServerName, _Type, {Fd, FileName}, LogWrapSize) ->
-    case wrap_p(FileName, LogWrapSize) of
-        true ->
+wrap_log(_ServerName, _Type, {Fd, FileName, LastSize}, LogWrapSize) ->
+    case wrap_p(FileName, LastSize, LogWrapSize) of
+        need_wrap ->
             file:close(Fd),
             Old = [FileName, ".old"],
             file:delete(Old),
             file:rename(FileName, Old),
-            {ok, Fd2} = file:open(FileName, [write, raw]),
-            {Fd2, FileName};
+            {ok, Fd2} = open_logfile(FileName),
+            {Fd2, FileName, 0};
+        has_wrapped ->
+            error_logger:format("Logfile ~p externally wrapped - we reopen it",
+                                [FileName]),
+            file:close(Fd),
+            {ok, Fd2} = open_logfile(FileName),
+            {Fd2, FileName, safe_filesize(FileName)};
         false ->
-            {Fd, FileName};
+            {Fd, FileName, safe_filesize(FileName)};
         enoent ->
             %% Logfile disappeared,
             error_logger:format("Logfile ~p disappeared - we reopen it",
                                 [FileName]),
             file:close(Fd),
-            {ok, Fd2} = file:open(FileName, [write, raw]),
-            {Fd2, FileName}
+            {ok, Fd2} = open_logfile(FileName),
+            {Fd2, FileName, 0}
     end.
 
-write_log(ServerName, Type, {Fd, _FileName}, Infos) ->
+write_log(ServerName, Type, {Fd, _FileName, _LastSize}, Infos) ->
     gen_server:cast(yaws_log, {ServerName, Type, Fd, Infos}).
 
 %%%----------------------------------------------------------------------
@@ -145,6 +162,7 @@ write_log(ServerName, Type, {Fd, _FileName}, Infos) ->
 init([]) ->
     process_flag(trap_exit, true),
     ets:new(yaws_log, [named_table, set, protected, {keypos, 2}]),
+    yaws_dynopts:start_error_logger(),
     {ok, #state{running = false, now = fmtnow()}}.
 
 %%----------------------------------------------------------------------
@@ -162,8 +180,10 @@ handle_call({setup, GC, Sconfs}, _From, State)
     ?Debug("setup ~s~n", [Dir]),
     ElogFile = filename:join([Dir, "report.log"]),
     Copy = if ?gc_has_copy_errlog(GC) ->
-                   gen_event:add_handler(error_logger, yaws_log_file_h,
-                                         ElogFile),
+                   #{id := ElogId,
+                     module := ElogMod} = ElogConf =
+                       report_logger_config(ElogFile, GC#gconf.log_wrap_size),
+                   ok = logger:add_handler(ElogId, ElogMod, ElogConf),
                    true;
               true ->
                    false
@@ -181,7 +201,7 @@ handle_call({setup, GC, Sconfs}, _From, State)
                      copy_errlog = Copy,
                      resolve_hostnames = ?gc_log_has_resolve_hostname(GC)},
 
-    yaws:ticker(3000, secs3),
+    yaws:ticker(1000, sec1),
 
     if is_integer(GC#gconf.log_wrap_size) ->
             yaws:ticker(10 * 60 * 1000, minute10);
@@ -202,14 +222,16 @@ handle_call({setup, GC, Sconfs}, _From, State)
     Dir = State#state.dir,
     ElogFile = filename:join([Dir, "report.log"]),
     Copy = if ?gc_has_copy_errlog(GC), State#state.copy_errlog == false->
-                   gen_event:add_handler(error_logger, yaws_log_file_h,
-                                         ElogFile),
+                   #{id := ElogId,
+                     module := ElogMod} = ElogConf =
+                       report_logger_config(ElogFile, GC#gconf.log_wrap_size),
+                   ok = logger:add_handler(ElogId, ElogMod, ElogConf),
                    true;
               ?gc_has_copy_errlog(GC) ->
                    true;
               State#state.copy_errlog == true ->
-                   gen_event:delete_handler(error_logger, yaws_log_file_h,
-                                            normal),
+                   #{id := ElogId} = report_logger_config(ElogFile, undefined),
+                   logger:remove_handler(ElogId),
                    false;
               true ->
                    false
@@ -352,40 +374,15 @@ handle_cast({yaws_hupped, _}, State) ->
 %%          {noreply, State, Timeout} |
 %%          {stop, Reason, State}            (terminate/2 is called)
 %%----------------------------------------------------------------------
-handle_info(secs3, State) ->
+handle_info(sec1, State) ->
     {noreply, State#state{now = fmtnow()}};
 
 %% once every 10 minutes, check log sizes
 handle_info(minute10, State) ->
     yaws_logger:rotate(State#state.log_wrap_size),
-
-    case gen_event:call(error_logger, yaws_log_file_h, size, infinity) of
-        {ok, Size} when  State#state.log_wrap_size > 0,
-                       Size > State#state.log_wrap_size ->
-            gen_event:call(error_logger, yaws_log_file_h, wrap, infinity);
-        {error, enoent} ->
-            gen_event:call(error_logger, yaws_log_file_h, reopen, infinity);
-        _ ->
-            ok
-    end,
     {noreply, State};
 handle_info({'EXIT', _, _}, State) ->
     {noreply, State}.
-
-
-
-wrap_p(Filename, LogWrapSize) ->
-    case file:read_file_info(Filename) of
-        {ok, FI} when FI#file_info.size > LogWrapSize, LogWrapSize > 0 ->
-            true;
-        {ok, _FI} ->
-            false;
-        {error, enoent} ->
-            enoent;
-        _ ->
-            false
-    end.
-
 
 
 %%----------------------------------------------------------------------
@@ -394,7 +391,8 @@ wrap_p(Filename, LogWrapSize) ->
 %% Returns: any (ignored by gen_server)
 %%----------------------------------------------------------------------
 terminate(_Reason, _State) ->
-    gen_event:delete_handler(error_logger, yaws_log_file_h, normal),
+    #{id := ElogId} = report_logger_config("", undefined),
+    logger:remove_handler(ElogId),
     yaws_logger:close_logs(),
     ok.
 
@@ -410,6 +408,58 @@ code_change(_OldVsn, Data, _Extra) ->
 %%%----------------------------------------------------------------------
 %%% Internal functions
 %%%----------------------------------------------------------------------
+report_logger_config(File, RotateSize) ->
+    RotateConf =
+        case RotateSize of
+            0 -> #{max_no_bytes => infinity};
+            I when is_integer(I), I > 0 ->
+                #{
+                  max_no_bytes => RotateSize,
+                  max_no_files => 2
+                 };
+            _ ->
+                #{}
+        end,
+    StdConf = maps:merge(#{file => File}, RotateConf),
+    #{id => yaws_report_logger,
+      level => info,
+      module => logger_std_h,
+      config => StdConf,
+      filter_default => stop,
+      filters => [{allow_error_logger,
+                   {fun yaws_log:error_logger_filter/2, log}}
+                 ]}.
+
+error_logger_filter(#{meta := #{error_logger := #{tag := _}}} = Event, Action) ->
+  case Action of
+    log -> Event;
+    _ -> Action
+  end;
+error_logger_filter(_, _) ->
+  ignore.
+
+wrap_p(Filename, LastSize, LogWrapSize) ->
+    case file:read_file_info(Filename) of
+        {ok, FI} when FI#file_info.size > LogWrapSize, LogWrapSize > 0 ->
+            need_wrap;
+        {ok, FI} when FI#file_info.size < LastSize ->
+            has_wrapped;
+        {ok, _FI} ->
+            false;
+        {error, enoent} ->
+            enoent;
+        _ ->
+            false
+    end.
+
+open_logfile(Filename) -> file:open(Filename, [append, raw]).
+
+safe_filesize(Filename) ->
+    case file:read_file_info(Filename) of
+        {ok, FI} -> FI#file_info.size;
+        _ -> 0
+    end.
+
 optional_header(Item) ->
     case Item of
         undefined -> "-";
@@ -436,19 +486,26 @@ no_ctl([]) ->
 fmt_ip(IP, State) when is_tuple(IP) ->
     case State#state.resolve_hostnames of
         true ->
-            case catch inet:gethostbyaddr(IP) of
+            try inet:gethostbyaddr(IP) of
                 {ok, HE} ->
                     HE#hostent.h_name;
                 _ ->
-                    case catch inet_parse:ntoa(IP) of
-                        {'EXIT', _} -> "unknownip";
-                        Addr        -> Addr
+                    inet_parse:ntoa(IP)
+            catch
+                _:_ ->
+                    try
+                        inet_parse:ntoa(IP)
+                    catch
+                        _:_ ->
+                            "unknownip"
                     end
             end;
         false ->
-            case catch inet_parse:ntoa(IP) of
-                {'EXIT', _} -> "unknownip";
-                Addr        -> Addr
+            try
+                inet_parse:ntoa(IP)
+            catch
+                _:_ ->
+                    "unknownip"
             end
     end;
 fmt_ip(unknown, _) ->

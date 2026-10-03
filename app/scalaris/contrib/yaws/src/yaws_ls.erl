@@ -1,11 +1,10 @@
-%% -*- coding: latin-1 -*-
 %%%----------------------------------------------------------------------
 %%% File    : yaws_ls.erl
 %%% Author  : Claes Wikstrom <klacke@hyber.org>
 %%% Purpose :
 %%% Created :  5 Feb 2002 by Claes Wikstrom <klacke@hyber.org>
 %%% Modified: 13 Jan 2004 by Martin Bjorklund <mbj@bluetail.com>
-%%% Modified:    Jan 2006 by Sébastien Bigot <sebastien.bigot@tremplin-utc.net>
+%%% Modified:    Jan 2006 by SÃ©bastien Bigot <sebastien.bigot@tremplin-utc.net>
 %%%----------------------------------------------------------------------
 
 -module(yaws_ls).
@@ -23,14 +22,14 @@
 
 -define(FILE_LEN_SZ, 45).
 
-list_directory(_Arg, CliSock, List, DirName, Req, DoAllZip) ->
+list_directory(Arg, CliSock, List, DirName, Req, DoAllZip) ->
     {abs_path, Path} = Req#http_request.path,
     {DirStr, Pos, Direction, Qry} = parse_query(Path),
     ?Debug("List=~p Dirname~p~n", [List, DirName]),
 
     Descriptions = read_descriptions(DirName),
 
-    L0 = lists:zf(
+    L0 = lists:filtermap(
            fun(F) ->
                    File = DirName ++ [$/|F],
                    FI = file:read_file_info(File),
@@ -84,7 +83,7 @@ list_directory(_Arg, CliSock, List, DirName, Req, DoAllZip) ->
     yaws:outh_set_content_type(NewCT),
 
     yaws_server:accumulate_content(B),
-    yaws_server:deliver_accumulated(CliSock),
+    yaws_server:deliver_accumulated(CliSock, Arg),
     yaws_server:done_or_continue().
 
 parse_query(Path) ->
@@ -241,11 +240,12 @@ allzip() ->
 is_user_dir(SP) ->
     case SP of
         [$/,$~ | T] -> User = string:sub_word(T,1,$/),
-                       case catch yaws:user_to_home(User) of
-                           {'EXIT', _} ->
-                               false;
+                       try yaws:user_to_home(User) of
                            Home ->
                                {true,Home}
+                       catch
+                           _:_ ->
+                               false
                        end;
         _ -> false
     end.
@@ -274,12 +274,12 @@ out(A) ->
 
 
 generate_random_fn() ->
-    Bytes = try yaws_dynopts:rand_bytes(64) of
+    Bytes = try crypto:strong_rand_bytes(64) of
                 B when is_bitstring(B) ->
                     B
             catch _:_ ->
                     %% for installations without crypto
-                    << <<(yaws_dynopt:random_uniform(256) - 1)>> || _ <- lists:seq(1,64) >>
+                    << <<(rand:uniform(256) - 1)>> || _ <- lists:seq(1,64) >>
             end,
     << Int:512/unsigned-big-integer >> = << Bytes/binary >>,
     integer_to_list(Int).
@@ -420,6 +420,24 @@ file_entry({ok, FI}, _DirName, Name, Qry, Descriptions) ->
     EncName  = file_display_name(Name),
     Description = get_description(Name,Descriptions),
 
+    %% URL-encode the filename. As far as URLs go, the filename is a
+    %% relative-path reference. RFC3986 section 4.2 states:
+    %%
+    %%  A path segment that contains a colon character (e.g.,
+    %%  "this:that") cannot be used as the first segment of a
+    %%  relative-path reference, as it would be mistaken for a scheme
+    %%  name. Such a segment must be preceded by a dot-segment (e.g.,
+    %%  "./this:that") to make a relative-path reference.
+    %%
+    %% To avoid encoding colon characters in file references, since
+    %% browsers won't treat them as references in that case, if
+    %% yaws_api:url_encode/2 indicates that only colon characters were
+    %% encoded for a filename, we use Name for the reference but
+    %% prepend "./" to it as per the RFC.
+    HRef = case yaws_api:url_encode(Name, return_encoded) of
+               {_, [$:]} -> "./" ++ Name;
+               {HRef0, _} -> HRef0
+           end,
     Entry =
         ?F("  <tr>\n"
            "    <td><img src=~p alt=~p/><a href=~p title=\"~ts\">~ts</a></td>\n"
@@ -429,7 +447,7 @@ file_entry({ok, FI}, _DirName, Name, Qry, Descriptions) ->
            "  </tr>\n",
            ["/icons/" ++ Gif,
             Alt,
-            yaws_api:url_encode(Name) ++ QryStr,
+            HRef ++ QryStr,
             list_to_binary(EncName),
             list_to_binary(trim(EncName,?FILE_LEN_SZ)),
             datestr(FI),
@@ -445,8 +463,8 @@ file_entry(_Err, _, _Name, _, _) ->
 
 trim(L,N) ->
     trim(L,N,[]).
-trim([_H1,_H2,_H3]=[H|T], 3=I, Acc) ->
-    trim(T, I-1, [H|Acc]);
+trim([H1,H2,H3], 3=I, Acc) ->
+    trim([H2,H3], I-1, [H1|Acc]);
 trim([H1,H2,H3|_T], 3=_I, Acc) when H1 < 128, H2 < 128, H3 < 128 ->
     lists:reverse(Acc) ++ "..&gt;";
 trim([H1,H2,H3|_T], 3=_I, [H0|Acc]) ->

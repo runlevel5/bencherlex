@@ -46,7 +46,7 @@
                  msg_fun_2,
                  info_fun}).
 
--export([start/3, send/2, close/2]).
+-export([start/3, start_link/3, send/2, close/2]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
@@ -91,7 +91,7 @@ start(Arg, CallbackMod, Opts) ->
 
     %% Start websocket process
     OwnerPid =
-        case gen_server:start(?MODULE, [Arg, CallbackMod, PrepdOpts], []) of
+        case supervisor:start_child(yaws_ws_sup, [Arg, CallbackMod, PrepdOpts]) of
             {ok, Pid} ->
                 Pid;
             {error, Reason1} ->
@@ -122,6 +122,13 @@ start(Arg, CallbackMod, Opts) ->
     end,
     exit(normal).
 
+start_link(Arg, CallbackMod, PrepdOpts) ->
+    {WsOpts, SrvOpts} = case lists:keytake(hibernate_after, 1, PrepdOpts) of
+                            false -> {PrepdOpts, []};
+                            {value, HibernateAfter, OtherOpts} ->
+                                {OtherOpts, [HibernateAfter]}
+                        end,
+    gen_server:start_link(?MODULE, [Arg, CallbackMod, WsOpts], SrvOpts).
 
 send(#ws_state{}=WSState, {Type, Data}) ->
     do_send(WSState, {Type, Data});
@@ -616,9 +623,11 @@ basic_messages([FrameInfo|Rest],
             Res = case CbInfo#cbinfo.msg_fun_2 of
                       undefined ->
                           MsgFun1 = CbInfo#cbinfo.msg_fun_1,
-                          catch CbMod:MsgFun1(Message);
+                          try CbMod:MsgFun1(Message)
+                          catch C:E -> {C,E} end;
                       MsgFun2 ->
-                          catch CbMod:MsgFun2(Message, CbState)
+                          try CbMod:MsgFun2(Message, CbState)
+                          catch C:E -> {C,E} end
                   end,
             IsCloseFrame = case Message of
                                {close, _, _} -> true;
@@ -797,7 +806,8 @@ advanced_messages([FrameInfo|Rest],
                   _Tout) ->
     CbMod   = CbInfo#cbinfo.module,
     MsgFun2 = CbInfo#cbinfo.msg_fun_2,
-    Res     = (catch CbMod:MsgFun2(FrameInfo, CbState)),
+    Res     = try CbMod:MsgFun2(FrameInfo, CbState)
+              catch C:E -> {C,E} end,
     IsCloseFrame = case FrameInfo of
                        #ws_frame_info{opcode=close} -> true;
                        _                            -> false
@@ -1051,7 +1061,7 @@ unframe(WSState, FirstPacket, Opts) ->
 
 %% -> {#ws_frame_info, RestBin} | {fail_connection, Reason}
 unframe_one(WSState, FirstPacket, Opts) ->
-    case catch ws_frame_info(WSState, FirstPacket, Opts) of
+    try ws_frame_info(WSState, FirstPacket, Opts) of
         {FrameInfo = #ws_frame_info{}, RestBin} ->
             Unmasked = mask(FrameInfo#ws_frame_info.masking_key,
                             FrameInfo#ws_frame_info.payload),
@@ -1082,6 +1092,9 @@ unframe_one(WSState, FirstPacket, Opts) ->
                             data        = ClosePayload,
                             ws_state    = CloseWSState}, <<>>};
         Else ->
+            Else
+    catch
+        _:Else ->
             Else
     end.
 
