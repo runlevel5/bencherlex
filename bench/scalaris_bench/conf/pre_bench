@@ -16,9 +16,9 @@ else
 fi
 
 # As bin/firstnode.sh does, with the cookie of the benchmark ($4), which
-# Scalaris does not use by default.
+# Scalaris does not use by default, and the erl arguments of the run ($3).
 env BEAMDIR="app/scalaris/ebin" ERLC="$e1" ERL="$e2" EPMD="$e3" \
-    app/scalaris/bin/scalarisctl -c "$4" -e "+S$1:$1 -detached -noshell" -m \
+    app/scalaris/bin/scalarisctl -c "$4" -e "$3 +S$1:$1 -detached -noshell" -m \
     -n firstnode -p 14195 -y 8000 -t first start &
 
 sleep 3s 
