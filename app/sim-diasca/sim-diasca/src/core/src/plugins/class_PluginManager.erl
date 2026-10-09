@@ -390,6 +390,10 @@ load_plugins( Plugins, State ) ->
 %
 load_plugin( Plugin, State ) ->
 
+	% A previous simulation in this node may have loaded the plugin already, and
+	% loading a module that has old code fails with not_purged:
+	code:purge( list_to_atom( filename:basename( Plugin ) ) ),
+
 	% No need to tweak the code paths:
 	case code:load_abs( Plugin ) of
 

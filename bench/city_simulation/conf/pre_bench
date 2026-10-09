@@ -1,8 +1,20 @@
 #!/bin/bash
 
-# Starts the Sim-Diasca computing nodes: one on each of the first ${6} slave
-# nodes, or, when there are none, one on this host. Sim-Diasca does not start
-# them itself (see class_ComputingHostManager).
+# Writes the script that starts the Sim-Diasca computing nodes: one on each of
+# the first ${6} slave nodes, or, when there are none, one on this host.
+# Sim-Diasca does not start them itself (see class_ComputingHostManager), and
+# stops them at the end of each simulation, so city_simulation:run/3 runs the
+# script before each one.
+
+# The initial states of the simulation: the top-level make extracts them, but
+# they may have been removed since (make real-clean does).
+initdir=${12}/app/sim-diasca/mock-simulators/city-example/src
+for scale in tiny small medium; do
+    if [ ! -f $initdir/city-example-instances-version-0.5.4-scale-$scale.init ]; then
+        tar xzf $initdir/city-example-instances-version-0.5.4.all.init.tar.gz -C $initdir
+        break
+    fi
+done
 
 OLD_IFS=$IFS
 IFS=","
@@ -29,6 +41,10 @@ node_cmd()
         -kernel inet_dist_listen_min 50000 inet_dist_listen_max 55000"
 }
 
+script=$root/scratch/city_simulation_nodes.sh
+echo "#!/bin/bash" > $script
+chmod +x $script
+
 i=1
 for node in ${5}; do
 
@@ -49,7 +65,7 @@ for node in ${5}; do
     else
         cmd=$(node_cmd $name)
     fi
-    ssh -f `whoami`@$host "$cmd"
+    printf 'ssh -f %s@%s %q\n' "`whoami`" "$host" "$cmd" >> $script
     IFS=","
 
     i=$((i+1))
@@ -63,10 +79,17 @@ if [[ "${6}" -eq "0" ]]; then
     # The name Sim-Diasca gives the computing node of this host for the
     # benchmark's simulation case.
     name="Sim-Diasca_City-example_Benchmarking_Loading_Case-`whoami`"
-    eval "$(node_cmd $name) -detached"
-    # Wait until the node has registered with epmd.
-    for i in $(seq 1 30); do
-        env ${10} epmd -names 2>/dev/null | grep -q "^name $name at" && break
-        sleep 1
-    done
+    cat >> $script << EOF
+# Wait until the node of the previous simulation has gone, start the node, and
+# wait until it has registered with epmd.
+for i in \$(seq 1 30); do
+    env $erl_env epmd -names 2>/dev/null | grep -q "^name $name at" || break
+    sleep 1
+done
+$(node_cmd $name) -detached
+for i in \$(seq 1 30); do
+    env $erl_env epmd -names 2>/dev/null | grep -q "^name $name at" && break
+    sleep 1
+done
+EOF
 fi

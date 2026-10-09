@@ -9,6 +9,15 @@ bench_args(Version, _Conf) ->
 		long -> [[medium, medium]]
 	end.
 
-run([S,D|_], _, _) ->
+%% Sim-Diasca stops its computing nodes at the end of each simulation, so each
+%% iteration starts them first, with the script that pre_bench wrote, in a run
+%% whose time is not recorded.
+run([nodes_started,S,D|_], _, _) ->
 	city_benchmarking_loading_test:run(S, D),
-	ok.
+	{{done, standard}, ok};
+run(_, _, Conf) ->
+	{_, DataDir} = lists:keyfind(datadir, 1, Conf),
+	Root = filename:dirname(filename:dirname(filename:dirname(DataDir))),
+	Script = filename:join([Root, "scratch", "city_simulation_nodes.sh"]),
+	"" = os:cmd(Script ++ " > /dev/null 2>&1 || echo failed"),
+	{{continue, ignore}, nodes_started}.
