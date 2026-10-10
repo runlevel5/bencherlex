@@ -122,9 +122,15 @@ main() ->
                     RunAndAggregate = fun(RecursiveRAA, CurrentState, AggregateResults) ->
                             Coordinator = self(),
                             %% In a new process, please.
-                            spawn(node(), fun() -> RunFun(Coordinator, case CurrentState of initial -> Bargs; {state, C} -> [C | Bargs] end) end),
+                            {Pid, Ref} = spawn_monitor(fun() -> RunFun(Coordinator, case CurrentState of initial -> Bargs; {state, C} -> [C | Bargs] end) end),
                             receive
+                                %% A benchmark that crashes sends no result:
+                                %% stop, rather than wait for it forever.
+                                {'DOWN', Ref, process, Pid, Reason} ->
+                                    io:format("~p failed: ~p~n", [M, Reason]),
+                                    erlang:halt(1);
                                 {done, {R, T}} ->
+                                    erlang:demonitor(Ref, [flush]),
                                     case R of
                                         {{continue, ignore}, State} -> RecursiveRAA(RecursiveRAA, {state, State}, AggregateResults);
                                         {{continue, Name}, State} -> RecursiveRAA(RecursiveRAA, {state, State}, orddict:append(Name, T, AggregateResults));
